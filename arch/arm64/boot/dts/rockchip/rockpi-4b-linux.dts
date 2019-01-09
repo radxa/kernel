@@ -281,15 +281,13 @@
 };
 
 &sdmmc {
-	clock-frequency = <100000000>;
-	clock-freq-min-max = <100000 100000000>;
 	supports-sd;
 	bus-width = <4>;
 	cap-mmc-highspeed;
 	cap-sd-highspeed;
 	disable-wp;
 	num-slots = <1>;
-	//sd-uhs-sdr104;
+	sd-uhs-sdr104;
 	vqmmc-supply = <&vcc_sd>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&sdmmc_clk &sdmmc_cmd &sdmmc_cd &sdmmc_bus4>;
@@ -298,8 +296,7 @@
 };
 
 &sdio0 {
-	clock-frequency = <100000000>;
-	clock-freq-min-max = <200000 100000000>;
+        max-frequency = <200000000>;
 	supports-sdio;
 	bus-width = <4>;
 	disable-wp;
@@ -311,7 +308,7 @@
 	num-slots = <1>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&sdio0_bus4 &sdio0_cmd &sdio0_clk>;
-	sd-uhs-sdr104;
+        sd-uhs-sdr104;
 	status = "okay";
 };
 
@@ -1035,6 +1032,30 @@
 		sdio0_clk: sdio0-clk {
 			rockchip,pins =
 				<2 25 RK_FUNC_1 &pcfg_pull_none_20ma>;
+		};
+		sdio0_cd: sdio0-cd {
+			rockchip,pins =
+				<2 26 RK_FUNC_1 &pcfg_pull_up_20ma>;
+		};
+
+		sdio0_pwr: sdio0-pwr {
+			rockchip,pins =
+				<2 27 RK_FUNC_1 &pcfg_pull_up_20ma>;
+		};
+
+		sdio0_bkpwr: sdio0-bkpwr {
+			rockchip,pins =
+				<2 28 RK_FUNC_1 &pcfg_pull_up_20ma>;
+		};
+
+		sdio0_wp: sdio0-wp {
+			rockchip,pins =
+				<0 3 RK_FUNC_1 &pcfg_pull_up_20ma>;
+			};
+
+		sdio0_int: sdio0-int {
+			rockchip,pins =
+				<0 4 RK_FUNC_1 &pcfg_pull_up_20ma>;
 		};
 	};
 
