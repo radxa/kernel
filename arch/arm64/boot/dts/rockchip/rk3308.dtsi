@@ -743,7 +743,7 @@
 			polling-delay = <1000>;
 			sustainable-power = <300>;
 
-			thermal-sensors = <&tsadc 0>;
+			thermal-sensors = <&tsadc 1>;
 
 			trips {
 				threshold: trip-point-0 {
@@ -777,7 +777,7 @@
 			polling-delay-passive = <100>; /* milliseconds */
 			polling-delay = <1000>; /* milliseconds */
 
-			thermal-sensors = <&tsadc 1>;
+			thermal-sensors = <&tsadc 0>;
 		};
 	};
 
