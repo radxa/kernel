@@ -13,6 +13,7 @@ dtbo-$(CONFIG_ARCH_ROCKCHIP) += \
 	spi1-flash.dtbo \
 	hifiberry-dac.dtbo \
 	hifiberry-dacplus.dtbo \
+	audioinjector-wm8731-audio.dtbo \
 	raspberrypi-7-inch-lcd.dtbo \
 	gt9xx.dtbo \
 	cpufreq.dtbo \

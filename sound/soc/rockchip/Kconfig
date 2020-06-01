@@ -152,3 +152,9 @@ config SND_SOC_HIFIBERRY_DACPLUS
 	select SND_SOC_PCM512x_I2C
 	help
 	  Say Y or M if you want to add support for HifiBerry DAC+.
+	  
+config SND_AUDIOINJECTOR_PI_SOUNDCARD
+       tristate "Support for audioinjector.net Pi add on soundcard"
+       select SND_SOC_WM8731
+       help
+           Say Y or M if you want to add support for audioinjector.net Pi Hat
