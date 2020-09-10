@@ -120,7 +120,7 @@ static int i2s_tdm_runtime_suspend(struct device *dev)
 
 	regcache_cache_only(i2s_tdm->regmap, true);
 	if (!IS_ERR(i2s_tdm->mclk_tx))
-                clk_prepare_enable(i2s_tdm->mclk_tx);
+		clk_prepare_enable(i2s_tdm->mclk_tx);
 	if (!IS_ERR(i2s_tdm->mclk_rx))
 		clk_disable_unprepare(i2s_tdm->mclk_rx);
 
