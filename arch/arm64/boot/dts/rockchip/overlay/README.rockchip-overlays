@@ -201,3 +201,7 @@ Activates waveshare 3.5inch lcd(C) on ROCK Pi S V1.2
 #### rockpis-dmic-8ch-pdm
 
 Activates dmic on ROCK PI S V1.2
+
+#### rockpis-spdif-out
+
+Activates spdif-out on GPIO0_C1
