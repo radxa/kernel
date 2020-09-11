@@ -10,7 +10,7 @@
 			acodec: acodec {
 			#sound-dai-cells = <0>;
 			compatible = "rockchip,rk3308-codec";
-                        status = "okay";
+			status = "okay";
 			};
                 };
         };
