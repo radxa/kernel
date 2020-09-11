@@ -18,7 +18,7 @@
 	fragment@1 {
 		target = <&spdif_tx>;
 		__overlay__ {
-			status = "okay";
+		        status = "okay";
 		};
 	};
 
