@@ -5,33 +5,33 @@
 	compatible = "radxa,rockpis", "rockchip,rk3308";
 
   fragment@0 {
-    target-path = "/";
-    __overlay__ {
-			acodec: acodec {
-	  		#sound-dai-cells = <0>;
-		  	compatible = "rockchip,rk3308-codec";
-        status = "okay";
-			 };
+      target-path = "/";
+      __overlay__ {
+           acodec: acodec {
+	   #sound-dai-cells = <0>;
+	   compatible = "rockchip,rk3308-codec";
+	   status = "okay";
+	   };
+	  };
+	};
+
+   fragment@1 {
+       target = <&i2s_8ch_0>;
+       __overlay__ {
+            status = "okay";
+	    };
+	 };
+
+   fragment@2 {
+       target-path = "/";
+       __overlay__ {
+             acodec-sound {
+	     compatible = "rockchip,multicodecs-card";
+	     rockchip,card-name = "i2s-out";
+	     rockchip,mclk-fs = <256>;
+	     rockchip,cpu = <&i2s_8ch_0>;
+	     rockchip,codec = <&acodec>;
+	     };
+	 };
      };
-   };
-
-	fragment@1 {
-		target = <&i2s_8ch_0>;
-		__overlay__ {
-			  status = "okay";
-		};
-	};
-
-	fragment@2 {
-		target-path = "/";
-		__overlay__ {
-			acodec-sound {
-				compatible = "rockchip,multicodecs-card";
-				rockchip,card-name = "i2s-out";
-				rockchip,mclk-fs = <256>;
-				rockchip,cpu = <&i2s_8ch_0>;
-				rockchip,codec = <&acodec>;
-			};
-		};
-	};
 };
