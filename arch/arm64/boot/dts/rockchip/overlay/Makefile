@@ -11,9 +11,12 @@ dtbo-$(CONFIG_ARCH_ROCKCHIP) += \
 	rk3308-i2c1.dtbo \
 	rk3308-i2c2.dtbo \
 	rk3308-i2c3.dtbo \
+	rk3308-i2c3-m0.dtbo \
+	rk3308-i2c3-m1.dtbo \
 	rk3308-uart0.dtbo \
 	rk3308-uart1.dtbo \
 	rk3308-uart2.dtbo \
+	rk3308-uart3.dtbo \
 	rk3308-usb20-host.dtbo \
 	rk3308-spi-spidev.dtbo \
 	rk3308-w1-gpio.dtbo \

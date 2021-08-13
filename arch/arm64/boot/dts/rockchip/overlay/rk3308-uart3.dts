@@ -1,0 +1,29 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "rockchip,rk3308";
+
+	fragment@0 {
+		target = <&i2c3>;
+		__overlay__ {
+			status = "disabled";
+		};
+	};
+
+	fragment@1 {
+		target = <&spi1>;
+		__overlay__ {
+			status = "disabled";
+		};
+	};
+
+	fragment@2 {
+		target = <&uart3>;
+		__overlay__ {
+			status = "okay";
+			pinctrl-names = "default";
+			pinctrl-0 = <&uart3_xfer>;
+		};
+	};
+};
