@@ -1,0 +1,45 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "rockchip,rk3399";
+
+	fragment@0 {
+		target = <&i2c7>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+			
+			wm8731@1a {
+				#sound-dai-cells = <0>;
+				compatible = "wlf,wm8731";
+				reg = <0x1a>;
+				AVDD-supply = <&vcc3v3_sys>;
+				HPVDD-supply = <&vcc3v3_sys>;
+				DCVDD-supply = <&vcc3v3_sys>;
+				DBVDD-supply = <&vcc3v3_sys>;
+				status = "okay";
+			};
+		};
+	};
+	
+	fragment@1 {
+		target-path = "/sound-ext-card";
+			
+		 __overlay__ {
+			compatible = "ai,audioinjector-pi-soundcard";
+			i2s-controller = <&i2s1>;
+			status = "okay";
+		};
+	};
+
+	fragment@2 {
+		target = <&i2s1>;
+		__overlay__ {
+			status = "okay";
+			#sound-dai-cells = <0>;
+		};
+	};
+
+};
