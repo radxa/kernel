@@ -1,0 +1,15 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "radxa,zero2", "amlogic,a311d", "amlogic,g12b";
+
+	fragment@0 {
+		target = <&uart_AO>;
+		__overlay__ {
+			status = "okay";
+			pinctrl-0 = <&uart_ao_a_pins>;
+			pinctrl-names = "default";
+		};
+	};
+};

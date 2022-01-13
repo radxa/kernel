@@ -4,10 +4,13 @@ This document describes overlays provided in the kernel packages.
 For generic device tree overlays documentation please see
 https://wiki.radxa.com/Device-tree-overlays
 
-## Platform and Chips:
+## Platform and Chips
 
 Amlogic
 - meson-g12a / S905Y2
+- meson-g12b / A311D
+
+### g12a
 
 #### usage
 
@@ -166,3 +169,56 @@ param_spidev_max_freq (int)
     Default: 10000000
     Range: 3000 - 100000000
 
+### g12b
+
+#### Usage
+
+Kernel provided DT overlay files are in `/boot/dtbs/$(uname -r)/amlogic/overlay`
+
+`/boot/uEnv.txt` syntax:
+
+    overlays=<space-seprated-list-of-overlays>
+
+#### How to read the overlay file name
+
+The overlay file name follows the following convention:
+
+    <soc-family>-<soc-variant>-<function>-<location>-<gpio-bank>-<gpio-pins>
+
+- soc-family: must be `meson`
+- soc-variant: can be one of `g12a`, or `g12b`. For Radxa Zero2, use `g12b` variant.
+- function: can be one of `i2c`, `pwm`, `spi`, or `uart`
+- location: specify the exact controller that implements the function
+- gpio-bank & gpio-pins: specify the exact GPIO pins that is muxed with the function
+
+You can specify multiple overlays in `/boot/uEnv.txt`.
+However, for any given pin they can only have 1 function,
+and for any given function they can only have 1 set of pins.
+
+For example, you cannot specify both `meson-g12b-i2c-ee-m0-gpioz-0-1`
+and `meson-g12b-i2c-ee-m0-gpioz-1-7` at the same time,
+as that assigned the same `i2c-ee-m0` function to 2 different sets of pins.
+
+#### Available overlays
+
+##### I2C
+- meson-g12b-i2c-ee-m0-gpioz-0-1
+- meson-g12b-i2c-ee-m0-gpioz-1-7
+- meson-g12b-i2c-ee-m1-gpioh-6-7
+- meson-g12b-i2c-ee-m3-gpioa-14-15
+
+##### PWM
+- meson-g12b-pwm-b-gpioh-7
+- meson-g12b-pwm-b-gpioz-0
+- meson-g12b-pwm-c-gpioz-1
+- meson-g12b-pwm-d-gpioz-2
+- meson-g12b-pwm-c-d-gpioz-1-2
+- meson-g12b-pwm-f-gpioh-5
+
+##### SPI
+- meson-g12b-spi-b-gpioh-4-5-6-7
+
+##### UART
+- meson-g12b-uart-ao-a-gpioao-0-1
+- meson-g12b-uart-ao-b-gpioao-8-9
+- meson-g12b-uart-ee-c-gpioh-4-5-6-7

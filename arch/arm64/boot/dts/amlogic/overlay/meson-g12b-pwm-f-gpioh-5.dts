@@ -1,0 +1,17 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "radxa,zero2", "amlogic,a311d", "amlogic,g12b";
+
+	fragment@0 {
+		target = <&pwm_ef>;
+		__overlay__ {
+			pinctrl-0 = <&pwm_e_pins &pwm_f_h_pins>;
+			pinctrl-names = "default";
+			clocks = <&xtal>;
+			clock-names = "clkin2";
+			status = "okay";
+		};
+	};
+};

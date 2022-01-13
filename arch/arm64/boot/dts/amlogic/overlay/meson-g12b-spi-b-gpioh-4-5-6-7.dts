@@ -1,0 +1,23 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "radxa,zero2", "amlogic,a311d", "amlogic,g12b";
+
+	fragment@0 {
+		target = <&spicc1>;
+		__overlay__ {
+			pinctrl-0 = <&spicc1_pins &spicc1_ss0_pins>;
+			pinctrl-names = "default";
+			#address-cells = <1>;
+			#size-cells = <0>;
+            status = "okay";
+			spidev@0 {
+				compatible = "linux,spidev";
+				status = "okay";
+				spi-max-frequency = <10000000>;
+				reg = <0>;
+			};
+		};
+	};
+};
