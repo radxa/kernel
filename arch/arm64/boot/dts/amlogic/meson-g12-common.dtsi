@@ -840,6 +840,22 @@
 						};
 					};
 
+					pwm_b_h7_pins: pwm-b-h7 {
+						mux {
+							groups = "pwm_b_h7";
+							function = "pwm_b";
+							bias-disable;
+						};
+					};
+
+					pwm_b_z0_pins: pwm-b-z0 {
+						mux {
+							groups = "pwm_b_z0";
+							function = "pwm_b";
+							bias-disable;
+						};
+					};
+
 					pwm_c_c_pins: pwm-c-c {
 						mux {
 							groups = "pwm_c_c";
@@ -864,6 +880,14 @@
 						};
 					};
 
+					pwm_c_z1_pins: pwm-c-z1 {
+						mux {
+							groups = "pwm_c_z1";
+							function = "pwm_c";
+							bias-disable;
+						};
+					};
+
 					pwm_d_x3_pins: pwm-d-x3 {
 						mux {
 							groups = "pwm_d_x3";
@@ -875,6 +899,14 @@
 					pwm_d_x6_pins: pwm-d-x6 {
 						mux {
 							groups = "pwm_d_x6";
+							function = "pwm_d";
+							bias-disable;
+						};
+					};
+
+					pwm_d_z2_pins: pwm-d-z2 {
+						mux {
+							groups = "pwm_d_z2";
 							function = "pwm_d";
 							bias-disable;
 						};

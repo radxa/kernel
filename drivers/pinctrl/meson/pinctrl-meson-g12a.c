@@ -269,15 +269,19 @@ static const unsigned int pwm_a_pins[]			= { GPIOX_6 };
 /* pwm_b */
 static const unsigned int pwm_b_x7_pins[]		= { GPIOX_7 };
 static const unsigned int pwm_b_x19_pins[]		= { GPIOX_19 };
+static const unsigned int pwm_b_h7_pins[]		= { GPIOH_7 };
+static const unsigned int pwm_b_z0_pins[]		= { GPIOZ_0 };
 
 /* pwm_c */
 static const unsigned int pwm_c_c_pins[]		= { GPIOC_4 };
 static const unsigned int pwm_c_x5_pins[]		= { GPIOX_5 };
 static const unsigned int pwm_c_x8_pins[]		= { GPIOX_8 };
+static const unsigned int pwm_c_z1_pins[]		= { GPIOZ_1 };
 
 /* pwm_d */
 static const unsigned int pwm_d_x3_pins[]		= { GPIOX_3 };
 static const unsigned int pwm_d_x6_pins[]		= { GPIOX_6 };
+static const unsigned int pwm_d_z2_pins[]		= { GPIOZ_2 };
 
 /* pwm_e */
 static const unsigned int pwm_e_pins[]			= { GPIOX_16 };
@@ -588,6 +592,9 @@ static struct meson_pmx_group meson_g12a_periphs_groups[] = {
 	GROUP(bt565_a_din5,		2),
 	GROUP(bt565_a_din6,		2),
 	GROUP(bt565_a_din7,		2),
+	GROUP(pwm_b_z0,			5),
+	GROUP(pwm_c_z1,			5),
+	GROUP(pwm_d_z2,			2),
 	GROUP(tsin_b_valid_z,		3),
 	GROUP(tsin_b_sop_z,		3),
 	GROUP(tsin_b_din0_z,		3),
@@ -719,6 +726,7 @@ static struct meson_pmx_group meson_g12a_periphs_groups[] = {
 	GROUP(uart_c_rts,		2),
 	GROUP(iso7816_clk_h,		1),
 	GROUP(iso7816_data_h,		1),
+	GROUP(pwm_b_h7,			5),
 	GROUP(pwm_f_h,			4),
 	GROUP(cec_ao_a_h,		4),
 	GROUP(cec_ao_b_h,		5),
@@ -1053,15 +1061,15 @@ static const char * const pwm_a_groups[] = {
 };
 
 static const char * const pwm_b_groups[] = {
-	"pwm_b_x7", "pwm_b_x19",
+	"pwm_b_x7", "pwm_b_x19", "pwm_b_h7", "pwm_b_z0",
 };
 
 static const char * const pwm_c_groups[] = {
-	"pwm_c_c", "pwm_c_x5", "pwm_c_x8",
+	"pwm_c_c", "pwm_c_x5", "pwm_c_x8", "pwm_c_z1",
 };
 
 static const char * const pwm_d_groups[] = {
-	"pwm_d_x3", "pwm_d_x6",
+	"pwm_d_x3", "pwm_d_x6", "pwm_d_z2",
 };
 
 static const char * const pwm_e_groups[] = {
