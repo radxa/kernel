@@ -244,7 +244,7 @@ int rga_job_assign(struct rga_job *job)
 		    job->flags & RGA_JOB_UNSUPPORT_RGA2) {
 			if (DEBUGGER_EN(MSG))
 				pr_info("RGA2 only support under 4G memory!\n");
-				continue;
+			continue;
 		}
 
 		if (feature > 0) {
