@@ -133,3 +133,11 @@ config SND_SOC_RK3399_GRU_SOUND
 	help
 	  Say Y or M here if you want to add support multiple codecs for SoC
 	  audio on Rockchip RK3399 GRU boards.
+
+config SND_AUDIOINJECTOR_ISOLATED_SOUNDCARD
+	tristate "Support for audioinjector.net isolated DAC and ADC soundcard"
+	depends on SND_SOC_ROCKCHIP && I2C && GPIOLIB && CLKDEV_LOOKUP
+	select SND_SOC_ROCKCHIP_I2S
+	select SND_SOC_CS4271_I2C
+	help
+	  Say Y or M if you want to add support for audioinjector.net isolated soundcard
