@@ -155,9 +155,11 @@
 		pinctrl-0 = <&usbwifibt_6252b_drv>;
 	};
 
-	leds: leds {
+	leds {
 		compatible = "gpio-leds";
-		sta_led: sta {
+
+		system-status {
+			label = "blue:status";
 			gpios = <&gpio3 RK_PD5 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "heartbeat";
 		};

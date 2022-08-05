@@ -171,11 +171,13 @@
 		vin-supply = <&vcc5v0_sys>;
 	};
 
-	leds: leds {
+	leds {
 		compatible = "gpio-leds";
-		sta_led: sta {
+
+		system-status {
+			label = "blue:status";
 			gpios = <&gpio0 RK_PB7 GPIO_ACTIVE_HIGH>;
-			linux,default-trigger = "timer";
+			linux,default-trigger = "heartbeat";
 		};
 	};
 
