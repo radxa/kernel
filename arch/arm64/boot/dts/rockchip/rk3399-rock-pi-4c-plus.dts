@@ -90,6 +90,28 @@
 		pinctrl-0 = <&hpd_en>;
 		dp-pwr-supply = <&vcc3v3_sys>;
 	};
+
+	vcc_0v9: vcc-0v9 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_0v9";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <900000>;
+		regulator-max-microvolt = <900000>;
+		vin-supply = <&vcc3v3_sys>;
+	};
+
+	vcc3v3_pcie: vcc3v3-pcie-regulator {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio3 RK_PD1 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pcie_drv>;
+		regulator-boot-on;
+		regulator-always-on;
+		regulator-name = "vcc3v3_pcie";
+		vin-supply = <&vcc5v0_sys>;
+	};
 };
 
 &cdn_dp {
@@ -555,6 +577,17 @@
 	status = "okay";
 };
 
+&pcie0 {
+	ep-gpios = <&gpio4 RK_PD3 GPIO_ACTIVE_HIGH>;
+	num-lanes = <4>;
+	pinctrl-0 = <&pcie_clkreqnb_cpm>;
+	pinctrl-names = "default";
+	vpcie0v9-supply = <&vcc_0v9>;
+	vpcie1v8-supply = <&vcc_1v8>;
+	vpcie3v3-supply = <&vcc3v3_pcie>;
+	status = "okay";
+};
+
 &pinctrl {
 	hpd {
 		hpd_en: hpd-en {
@@ -602,6 +635,13 @@
 	vbus_host {
 		usb1_en_oc: usb1-en-oc {
 			rockchip,pins = <3 RK_PD6 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	pcie {
+		pcie_drv: pcie-drv {
+			rockchip,pins =
+				<3 RK_PD1 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
 };
