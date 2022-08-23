@@ -6,6 +6,7 @@
 
 /dts-v1/;
 #include <dt-bindings/input/linux-event-codes.h>
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/pwm/pwm.h>
 #include "rk3399.dtsi"
 #include "rk3399-opp.dtsi"
@@ -142,22 +143,15 @@
 	leds {
 		compatible = "gpio-leds";
 		pinctrl-names = "default";
-		pinctrl-0 = <&power_led_gpio>, <&status_led_gpio>;
+		pinctrl-0 = <&user_led2>;
 
-		power-status {
-			label = "power";
-			gpios = <&gpio3 RK_PD4 GPIO_ACTIVE_HIGH>;
-			linux,default-trigger = "default-on";
-			status = "disabled";
-		};
-
-		system-status {
-			label = "status";
+		user_led2 {
+			function = LED_FUNCTION_STATUS;
+			color = <LED_COLOR_ID_BLUE>;
 			gpios = <&gpio3 RK_PD5 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "heartbeat";
 		};
 	};
-
 };
 
 &cpu_l0 {
@@ -586,11 +580,7 @@
 	};
 
 	leds {
-		power_led_gpio: power_led_gpio {
-			rockchip,pins = <3 RK_PD4 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-
-		status_led_gpio: status_led_gpio {
+		user_led2: user-led2 {
 			rockchip,pins = <3 RK_PD5 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
