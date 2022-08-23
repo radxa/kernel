@@ -14,12 +14,6 @@
 	model = "Radxa ROCK Pi 4C+";
 	compatible = "radxa,rockpi4c-plus", "radxa,rockpi4", "rockchip,rk3399";
 
-	aliases {
-		mmc0 = &sdmmc;
-		mmc1 = &sdhci;
-		mmc2 = &sdio0;
-	};
-
 	chosen {
 		stdout-path = "serial2:1500000n8";
 	};
@@ -419,10 +413,15 @@
 	bus-width = <4>;
 	cap-mmc-highspeed;
 	cap-sd-highspeed;
-	card-detect-delay = <800>;
+	cd-gpios = <&gpio0 RK_PA7 GPIO_ACTIVE_LOW>;
 	disable-wp;
 	pinctrl-names = "default";
 	pinctrl-0 = <&sdmmc_clk &sdmmc_cd &sdmmc_cmd &sdmmc_bus4>;
+	sd-uhs-sdr12;
+	sd-uhs-sdr25;
+	sd-uhs-sdr50;
+	sd-uhs-sdr104;
+	sd-uhs-ddr50;
 	vqmmc-supply = <&vccio_sd>;
 	status = "okay";
 };
@@ -577,19 +576,8 @@
 	};
 
 	sdmmc {
-		sdmmc_bus4: sdmmc-bus4 {
-			rockchip,pins = <4 8 1 &pcfg_pull_up_8ma>,
-					<4 9 1 &pcfg_pull_up_8ma>,
-					<4 10 1 &pcfg_pull_up_8ma>,
-					<4 11 1 &pcfg_pull_up_8ma>;
-		};
-
 		sdmmc_clk: sdmmc-clk {
-			rockchip,pins = <4 12 1 &pcfg_pull_none_18ma>;
-		};
-
-		sdmmc_cmd: sdmmc-cmd {
-			rockchip,pins = <4 13 1 &pcfg_pull_up_8ma>;
+			rockchip,pins = <4 RK_PB4 1 &pcfg_pull_none_18ma>;
 		};
 	};
 
