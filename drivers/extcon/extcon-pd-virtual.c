@@ -398,7 +398,7 @@ static const struct of_device_id vpd_extcon_dt_match[] = {
 	{ .compatible = "linux,extcon-pd-virtual", },
 	{ /* sentinel */ }
 };
-MODULE_DEVICE_TABLE(of, usb_extcon_dt_match);
+MODULE_DEVICE_TABLE(of, vpd_extcon_dt_match);
 
 static struct platform_driver vpd_extcon_driver = {
 	.probe		= vpd_extcon_probe,
