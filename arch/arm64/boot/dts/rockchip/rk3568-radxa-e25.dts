@@ -80,6 +80,10 @@
 	};
 };
 
+&fiq_debugger {
+	rockchip,baudrate = <115200>;
+};
+
 &sdio_pwrseq {
 	status = "disabled";
 };
