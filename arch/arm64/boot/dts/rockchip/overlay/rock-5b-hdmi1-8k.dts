@@ -1,0 +1,57 @@
+// ROCK 5B HDMI-1 8K
+/dts-v1/;
+/plugin/;
+#include <dt-bindings/clock/rk3588-cru.h>
+
+/ {
+	fragment@0 {
+		target = <&route_hdmi1>;
+
+		__overlay__ {
+			connect = <&vp2_out_hdmi1>;
+			status = "okay";
+		};
+	};
+
+	fragment@1 {
+		target = <&hdmi1_in_vp1>;
+
+		__overlay__ {
+			status = "disabled";
+		};
+	};
+
+	fragment@2 {
+		target = <&hdmi1_in_vp2>;
+
+		__overlay__ {
+			status = "okay";
+		};
+	};
+
+	fragment@3 {
+		target = <&route_hdmi0>;
+
+		__overlay__ {
+			connect = <&vp0_out_hdmi0>;
+			status = "okay";
+		};
+	};
+
+	fragment@4 {
+		target = <&hdmi0_in_vp0>;
+
+		__overlay__ {
+			status = "okay";
+		};
+	};
+
+	fragment@7 {
+		target = <&vop>;
+
+		__overlay__ {
+			assigned-clocks = <&cru ACLK_VOP>;
+			assigned-clock-rates = <800000000>;
+		};
+	};
+};
