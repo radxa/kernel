@@ -217,7 +217,12 @@
 			linux,default-trigger = "heartbeat";
 		};
 	};
-
+	
+	fan0: pwm-fan {
+    		compatible = "pwm-fan";
+    		pwms = <&pwm1 0 10000 0>;
+    	};
+	
 	/* If hdmirx node is disabled, delete the reserved-memory node here. */
 	reserved-memory {
 		#address-cells = <2>;
