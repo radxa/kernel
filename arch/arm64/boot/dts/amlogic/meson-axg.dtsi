@@ -13,6 +13,7 @@
 #include <dt-bindings/reset/amlogic,meson-axg-audio-arb.h>
 #include <dt-bindings/reset/amlogic,meson-axg-reset.h>
 #include <dt-bindings/power/meson-axg-power.h>
+#include <dt-bindings/mmc/meson-gx-mmc.h>
 
 / {
 	compatible = "amlogic,meson-axg";
@@ -1963,6 +1964,8 @@
 
 				assigned-clocks = <&clkc CLKID_SD_EMMC_B_CLK0>;
 				assigned-clock-rates = <24000000>;
+
+				amlogic,mmc-phase = <CLK_PHASE_270 CLK_PHASE_0 CLK_PHASE_0>;
 			};
 
 			sd_emmc_c: mmc@7000 {
@@ -1978,6 +1981,8 @@
 
 				assigned-clocks = <&clkc CLKID_SD_EMMC_C_CLK0>;
 				assigned-clock-rates = <24000000>;
+
+				amlogic,mmc-phase = <CLK_PHASE_270 CLK_PHASE_0 CLK_PHASE_0>;
 			};
 
 			nfc: nand-controller@7800 {
