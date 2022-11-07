@@ -27,6 +27,7 @@
 #include <linux/interrupt.h>
 #include <linux/bitfield.h>
 #include <linux/pinctrl/consumer.h>
+#include <dt-bindings/mmc/meson-gx-mmc.h>
 
 #define DRIVER_NAME "meson-gx-mmc"
 
@@ -36,8 +37,6 @@
 #define   CLK_CORE_PHASE_MASK GENMASK(9, 8)
 #define   CLK_TX_PHASE_MASK GENMASK(11, 10)
 #define   CLK_RX_PHASE_MASK GENMASK(13, 12)
-#define   CLK_PHASE_0 0
-#define   CLK_PHASE_180 2
 #define   CLK_V2_TX_DELAY_MASK GENMASK(19, 16)
 #define   CLK_V2_RX_DELAY_MASK GENMASK(23, 20)
 #define   CLK_V2_ALWAYS_ON BIT(24)
@@ -426,13 +425,21 @@ static int meson_mmc_clk_init(struct meson_host *host)
 	const char *mux_parent_names[MUX_CLK_NUM_PARENTS];
 	const char *clk_parent[1];
 	u32 clk_reg;
+	u32 phase[3]; // <core_phase, tx_phase, rx_phase>
 
+	if (!(host->dev && host->dev->of_node) || (device_property_read_u32_array(host->dev,
+	    "amlogic,mmc-phase", phase, 3) < 0)) {
+		dev_dbg(host->dev, "get amlogic,mmc-phase failed, use default phase settings\n");
+		phase[0] = CLK_PHASE_180;
+		phase[1] = CLK_PHASE_0;
+		phase[2] = CLK_PHASE_0;
+	}
 	/* init SD_EMMC_CLOCK to sane defaults w/min clock rate */
 	clk_reg = CLK_ALWAYS_ON(host);
 	clk_reg |= CLK_DIV_MASK;
-	clk_reg |= FIELD_PREP(CLK_CORE_PHASE_MASK, CLK_PHASE_180);
-	clk_reg |= FIELD_PREP(CLK_TX_PHASE_MASK, CLK_PHASE_0);
-	clk_reg |= FIELD_PREP(CLK_RX_PHASE_MASK, CLK_PHASE_0);
+	clk_reg |= FIELD_PREP(CLK_CORE_PHASE_MASK, phase[0]);
+	clk_reg |= FIELD_PREP(CLK_TX_PHASE_MASK, phase[1]);
+	clk_reg |= FIELD_PREP(CLK_RX_PHASE_MASK, phase[2]);
 	if (host->mmc->caps & MMC_CAP_SDIO_IRQ)
 		clk_reg |= CLK_IRQ_SDIO_SLEEP(host);
 	writel(clk_reg, host->regs + SD_EMMC_CLOCK);
