@@ -54,6 +54,16 @@ properties:
   power-domains:
     maxItems: 1
 
+  amlogic,mmc-phases:
+    type: integer
+    description: |
+      3-element array of clock phases for core, tx, rx clock with values:
+      0: CLK_PHASE_0 - 0 phase
+      1: CLK_PHASE_90 - 90 phase
+      2: CLK_PHASE_180 - 180 phase
+      3: CLK_PHASE_270 - 270 phase
+      By default driver use <CLK_PHASE_180 CLK_PHASE_0 CLK_PHASE_0> value.
+
 required:
   - compatible
   - reg
@@ -76,4 +86,5 @@ examples:
         clock-names = "core", "clkin0", "clkin1";
         pinctrl-0 = <&emm_pins>;
         resets = <&reset_mmc>;
+        amlogic,mmc-phases = <CLK_PHASE_180 CLK_PHASE_0 CLK_PHASE_0>;
     };
