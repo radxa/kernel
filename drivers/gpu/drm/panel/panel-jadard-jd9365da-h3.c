@@ -443,12 +443,14 @@ static int jadard_dsi_probe(struct mipi_dsi_device *dsi)
 	return ret;
 }
 
-static void jadard_dsi_remove(struct mipi_dsi_device *dsi)
+static int jadard_dsi_remove(struct mipi_dsi_device *dsi)
 {
 	struct jadard *jadard = mipi_dsi_get_drvdata(dsi);
 
 	mipi_dsi_detach(dsi);
 	drm_panel_remove(&jadard->panel);
+
+	return 0;
 }
 
 static const struct of_device_id jadard_of_match[] = {
