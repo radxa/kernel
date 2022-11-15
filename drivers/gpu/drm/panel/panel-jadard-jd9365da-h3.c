@@ -401,7 +401,7 @@ static int jadard_dsi_probe(struct mipi_dsi_device *dsi)
 
 	desc = of_device_get_match_data(dev);
 	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST |
-			  MIPI_DSI_MODE_NO_EOT_PACKET;
+			  MIPI_DSI_MODE_EOT_PACKET;
 	dsi->format = desc->format;
 	dsi->lanes = desc->lanes;
 
