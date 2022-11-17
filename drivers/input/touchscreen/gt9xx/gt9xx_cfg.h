@@ -35,7 +35,7 @@ static u8 gtp_dat_gt9111[] = {
 
 static u8 gtp_dat_gt9112[] = {
 	/* <800, 1280> */
-	#include "CJ080258_GT911_Config_20220425_085548.cfg"
+	#include "CJ080258_GT911_Config_20221117_085548.cfg"
 };
 
 static u8 gtp_dat_8_9[] = {
