@@ -98,6 +98,7 @@
 		pinctrl-0 = <&uart6m1_rtsn>;
 		pinctrl-1 = <&uart6_gpios>;
 		BT,reset_gpio    = <&gpio3 RK_PA6 GPIO_ACTIVE_HIGH>;
+		BT,wake_gpio = <&gpio3 RK_PD5 GPIO_ACTIVE_HIGH>;
 		BT,wake_host_irq = <&gpio0 RK_PC5 GPIO_ACTIVE_HIGH>;
 		status = "okay";
 	};
