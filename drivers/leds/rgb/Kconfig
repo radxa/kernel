@@ -88,4 +88,15 @@ config LEDS_MT6370_RGB
 	  This driver can also be built as a module. If so, the module
 	  will be called "leds-mt6370-rgb".
 
+config LEDS_WS2812B
+	tristate "SPI driven WS2812B RGB LED support"
+	depends on OF
+	depends on SPI
+	help
+	  This option enables support for driving daisy-chained WS2812B RGB
+	  LED chips using SPI bus. This driver simulates the single-wire
+	  protocol by sending bits over the SPI MOSI pin. For this to work,
+	  the SPI frequency should be 2.105MHz~2.85MHz and the controller
+	  needs to transfer all the bytes continuously.
+
 endif # LEDS_CLASS_MULTICOLOR
