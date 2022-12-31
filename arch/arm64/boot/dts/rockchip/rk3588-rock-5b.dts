@@ -569,6 +569,7 @@
 
 &hdmi0 {
 	status = "okay";
+        cec-enable = "true";
 };
 
 &hdmi0_in_vp0 {
@@ -591,6 +592,7 @@
 	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&hdmim0_tx1_cec &hdmim0_tx1_hpd &hdmim1_tx1_scl &hdmim1_tx1_sda>;
+        cec-enable = "true";
 };
 
 &hdmi1_in_vp0 {
