@@ -139,7 +139,7 @@ static int snd_dw_hdmi_qp_probe(struct platform_device *pdev)
 {
 	struct dw_hdmi_qp_i2s_audio_data *audio = pdev->dev.platform_data;
 	struct platform_device_info pdevinfo;
-	struct hdmi_codec_pdata pdata;
+	struct hdmi_codec_pdata pdata = {};
 	struct platform_device *platform;
 
 	pdata.ops		= &dw_hdmi_qp_i2s_ops;
