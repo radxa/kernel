@@ -727,10 +727,6 @@
 	status = "okay";
 };
 
-&pcie2x1 {
-	status = "disabled";
-};
-
 &vdpu {
 	status = "okay";
 };
