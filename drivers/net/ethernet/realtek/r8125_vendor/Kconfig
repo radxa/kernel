@@ -1,0 +1,162 @@
+config R8125
+        tristate "Realtek 8125A/8125B/8168KB ethernet support by vendor"
+        depends on PCI
+        select FW_LOADER
+        select CRC32
+        select PHYLIB
+        select REALTEK_PHY
+	select OF
+        help
+          Say Y here if you have a Realtek Ethernet adapter belonging to
+          the following families:
+          RTL8125A 2.5GBit Ethernet
+          RTL8125B 2.5GBit Ethernet
+          RTL8168KB 2.5GBit Ethernet
+
+          To compile this driver as a module, choose M here: the module
+          will be called r8125.  This is recommended.
+
+config R8125_SOC_LAN
+        bool "Enable HW optimize"
+	default n
+        depends on R8125
+        help
+          This enables CONFIG_SOC_LAN flag, if enabled, 
+	  will skip PCI configuration space offset 0x79 settings
+	  If unsure, say N.
+
+config R8125_REALWOW_SUPPORT
+        bool "Enable Realtek RealWOW Technology"
+	default n
+        depends on R8125
+        help
+          This enables Realtek RealWOW Technology.
+	  If unsure, say N.
+
+config R8125_DASH_SUPPORT
+        bool "Enable Realtek Dash Management Console"
+	default n
+        depends on R8125
+        help
+          This enables Realtek Dash Management Console.
+	  If unsure, say N.
+
+config R8125_DASH_PRINT_SUPPORT
+        bool "Enable Realtek Dash Print"
+	default n
+        depends on R8125
+	depends on R8125_DASH_SUPPORT
+        help
+          This enables Realtek Dash Print.
+	  If unsure, say N.
+
+config R8125_DOWN_SPEED_100
+        bool "Down speed 100"
+	default n
+        depends on R8125
+        help
+          This enables CONFIG_DOWN_SPEED_100 flag.
+	  If unsure, say N.
+
+config R8125_ASPM
+        bool "Support PCIE ASPM"
+	default y
+        depends on R8125
+        help
+          Support Active-state power management (ASPM).
+	  If unsure, say Y.
+
+config R8125_S5WOL
+        bool "Support Wake On LAN"
+	default y
+        depends on R8125
+        help
+          Support Wake On LAN.
+	  If unsure, say Y.
+
+config R8125_S5_KEEP_CURR_MAC
+        bool "keep mac on after shutdown"
+	default n
+        depends on R8125
+        help
+          If enabled, will keep the mac on after shutdown.
+	  If unsure, say N.
+
+config R8125_EEE
+        bool "Support Energy-Efficient Ethernet (EEE)"
+	default y
+        depends on R8125
+        help
+          Support Energy-Efficient Ethernet (EEE).
+	  If unsure, say Y.
+
+config R8125_S0_MAGIC_PACKET
+        bool "Enable Magic Packet"
+	default n
+        depends on R8125
+        help
+          Enable magic packet.
+	  If unsure, say N.
+
+config R8125_TX_NO_CLOSE
+        bool "Enable TX_NO_CLOSE"
+	default y
+        depends on R8125
+        help
+	  If unsure, say Y.
+
+config R8125_MULTI_MSIX_VECTOR
+        bool "Enable Multi MSIX Vector"
+	default y
+        depends on R8125
+        help
+	  If unsure, say Y.
+
+config R8125_MULTIPLE_RX_QUEUE
+        bool "Enable Multiple rx queue"
+	default y
+        depends on R8125
+	depends on R8125_MULTI_MSIX_VECTOR
+        help
+	  If unsure, say Y.
+
+config R8125_MULTIPLE_TX_QUEUE
+        bool "Enable Multiple tx queue"
+	default y
+        depends on R8125
+	depends on R8125_MULTI_MSIX_VECTOR
+        help
+	  If unsure, say Y.
+
+config R8125_PTP_SUPPORT
+        bool "Support PTP clock"
+	default n
+	depends on PTP_1588_CLOCK
+        depends on R8125
+        help
+	  Support IEEE 1588 PTP Clock.
+
+config R8125_PTP_MASTER_MODE
+        bool "Enable PTP Master mode"
+	default n
+        depends on R8125
+	depends on R8125_PTP_SUPPORT
+        help
+	  Enable PTP master mode.
+
+config R8125_USE_FIRMWARE_FILE
+        bool "Use firmware file"
+	default n
+        depends on R8125
+        help
+	  Use firmware file.
+	  If unsure, say N.
+
+config R8125_PM_SUPPORT
+        bool "Enable PM Support"
+	default y
+        depends on R8125
+        help
+	  Enable PM Support.
+	  If unsure, say Y.
+

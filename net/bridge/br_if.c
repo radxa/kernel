@@ -25,6 +25,7 @@
 #include <net/net_namespace.h>
 
 #include "br_private.h"
+#include "br_private_offload.h"
 
 /*
  * Determine initial path cost based on speed.
@@ -427,7 +428,7 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 	p->path_cost = port_cost(dev);
 	p->priority = 0x8000 >> BR_PORT_BITS;
 	p->port_no = index;
-	p->flags = BR_LEARNING | BR_FLOOD | BR_MCAST_FLOOD | BR_BCAST_FLOOD;
+	p->flags = BR_LEARNING | BR_FLOOD | BR_MCAST_FLOOD | BR_BCAST_FLOOD | BR_OFFLOAD;
 	br_init_port(p);
 	br_set_state(p, BR_STATE_DISABLED);
 	br_stp_port_timer_init(p);
@@ -777,7 +778,32 @@ void br_port_flags_change(struct net_bridge_port *p, unsigned long mask)
 
 	if (mask & BR_NEIGH_SUPPRESS)
 		br_recalculate_neigh_suppress_enabled(br);
+
+	if (mask & BR_OFFLOAD)
+		br_offload_port_state(p);
 }
+
+void br_dev_update_stats(struct net_device *dev,
+			 struct rtnl_link_stats64 *nlstats)
+{
+	struct net_bridge *br;
+	struct pcpu_sw_netstats *stats;
+
+	/* Is this a bridge? */
+	if (!(dev->priv_flags & IFF_EBRIDGE))
+		return;
+
+	br = netdev_priv(dev);
+	stats = this_cpu_ptr(br->stats);
+
+	u64_stats_update_begin(&stats->syncp);
+	stats->rx_packets += nlstats->rx_packets;
+	stats->rx_bytes += nlstats->rx_bytes;
+	stats->tx_packets += nlstats->tx_packets;
+	stats->tx_bytes += nlstats->tx_bytes;
+	u64_stats_update_end(&stats->syncp);
+}
+EXPORT_SYMBOL_GPL(br_dev_update_stats);
 
 bool br_port_flag_is_set(const struct net_device *dev, unsigned long flag)
 {

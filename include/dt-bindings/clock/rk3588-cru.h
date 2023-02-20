@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: (GPL-2.0+ OR MIT) */
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (c) 2021 Rockchip Electronics Co. Ltd.
  * Author: Elaine Zhang <zhangqing@rock-chips.com>
@@ -631,7 +631,7 @@
 #define CLK_DSIHOST1			635
 #define CLK_VOP_PMU			636
 #define ACLK_VOP_DOBY			637
-#define ACLK_VOP_DIV2_SRC		638
+#define ACLK_VOP_SUB_SRC		638
 #define CLK_USBDP_PHY0_IMMORTAL		639
 #define CLK_USBDP_PHY1_IMMORTAL		640
 #define CLK_PMU0			641

@@ -4,7 +4,7 @@
 #
 # Copyright (c) 2011 Broadcom Corporation
 #
-ccflags-y := -I$(src)/../include
+ccflags-y := -I $(srctree)/$(src)/../include
 
 obj-$(CONFIG_BRCMUTIL)	+= brcmutil.o
 brcmutil-objs	= utils.o d11.o

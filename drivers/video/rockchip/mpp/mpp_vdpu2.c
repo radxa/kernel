@@ -343,7 +343,6 @@ static int vdpu_run(struct mpp_dev *mpp,
 	u32 i;
 	u32 reg_en;
 	struct vdpu_task *task = to_vdpu_task(mpp_task);
-	u32 timing_en = mpp->srv->timing_en;
 
 	mpp_debug_enter();
 
@@ -360,15 +359,10 @@ static int vdpu_run(struct mpp_dev *mpp,
 	}
 	/* init current task */
 	mpp->cur_task = mpp_task;
-
-	mpp_task_run_begin(mpp_task, timing_en, MPP_WORK_TIMEOUT_DELAY);
-
 	/* Flush the registers */
 	wmb();
 	mpp_write(mpp, VDPU2_REG_DEC_EN,
 		  task->reg[reg_en] | VDPU2_DEC_START);
-
-	mpp_task_run_end(mpp_task, timing_en);
 
 	mpp_debug_leave();
 
@@ -465,10 +459,6 @@ static int vdpu_procfs_init(struct mpp_dev *mpp)
 		dec->procfs = NULL;
 		return -EIO;
 	}
-
-	/* for common mpp_dev options */
-	mpp_procfs_create_common(dec->procfs, mpp);
-
 	mpp_procfs_create_u32("aclk", 0644,
 			      dec->procfs, &dec->aclk_info.debug_rate_hz);
 	mpp_procfs_create_u32("session_buffers", 0644,
@@ -586,7 +576,7 @@ static int vdpu_isr(struct mpp_dev *mpp)
 		dev_err(mpp->dev, "no current task\n");
 		return IRQ_HANDLED;
 	}
-	mpp_time_diff(mpp_task, 0);
+	mpp_time_diff(mpp_task);
 	mpp->cur_task = NULL;
 	task = to_vdpu_task(mpp_task);
 	task->irq_status = mpp->irq_status;

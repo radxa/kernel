@@ -114,10 +114,6 @@ brcmf_fil_cmd_data(struct brcmf_if *ifp, u32 cmd, void *data, u32 len, bool set)
 
 	if (err) {
 		brcmf_dbg(FIL, "Failed: error=%d\n", err);
-
-        if (err == -ETIMEDOUT) {
-            brcmf_bus_handle_cmd_timeout(drvr->bus_if);
-        }
 	} else if (fwerr < 0) {
 		brcmf_dbg(FIL, "Firmware error: %s (%d)\n",
 			  brcmf_fil_get_errstr((u32)(-fwerr)), fwerr);

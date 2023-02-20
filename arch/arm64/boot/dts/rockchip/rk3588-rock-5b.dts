@@ -19,12 +19,18 @@
 #include "rk3588.dtsi"
 #include "rk3588-rk806-single.dtsi"
 #include "rk3588-linux.dtsi"
-#include "rk3588-rock-5b-display.dtsi"
-#include "rk3588-rock-5b-camera.dtsi"
+#include "rk3588-rock-5b-radxa-display-10fhd.dtsi"
+#include "rk3588-rock-5b-imx415.dtsi"
 
 / {
 	model = "Radxa ROCK 5B";
 	compatible = "radxa,rock-5b", "rockchip,rk3588";
+
+	aliases {
+		mmc0 = &sdmmc;
+		mmc1 = &sdhci;
+		mmc2 = &sdio;
+	};
 
 	/delete-node/ chosen;
 
@@ -80,7 +86,7 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&wifi_host_wake_irq>;
 		WIFI,host_wake_irq = <&gpio0 RK_PB2 GPIO_ACTIVE_HIGH>;
-		status = "okay";
+		status = "disabled";
 	};
 
 	bt_uart6: wireless_bluetooth: wireless-bluetooth {
@@ -93,7 +99,7 @@
 		pinctrl-1 = <&uart6_gpios>;
 		BT,reset_gpio    = <&gpio3 RK_PA6 GPIO_ACTIVE_HIGH>;
 		BT,wake_host_irq = <&gpio0 RK_PC5 GPIO_ACTIVE_HIGH>;
-		status = "okay";
+		status = "disabled";
 	};
 
 	vcc_1v1_nldo_s3: vcc-1v1-nldo-s3 {
@@ -123,16 +129,6 @@
 		rockchip,card-name = "rockchip-hdmi1";
 		rockchip,cpu = <&i2s6_8ch>;
 		rockchip,codec = <&hdmi1>;
-		rockchip,jack-det;
-	};
-
-	dp0_sound: dp0-sound {
-		status = "okay";
-		compatible = "rockchip,hdmi";
-		rockchip,card-name= "rockchip,dp0";
-		rockchip,mclk-fs = <512>;
-		rockchip,cpu = <&spdif_tx2>;
-		rockchip,codec = <&dp0 1>;
 		rockchip,jack-det;
 	};
 
@@ -256,14 +252,6 @@
 			sound-dai = <&hdmiin_dc>;
 		};
 	};
-};
-
-&av1d {
-	status = "okay";
-};
-
-&av1d_mmu {
-	status = "okay";
 };
 
 &cpu_l0 {
@@ -540,13 +528,13 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&sdiom0_pins>;
 	sd-uhs-sdr104;
-	status = "okay";
+	status = "disabled";
 };
 
 &uart6 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart6m1_xfer &uart6m1_ctsn>;
-	status = "okay";
+	status = "disabled";
 };
 
 &tsadc {
@@ -554,9 +542,6 @@
 };
 
 &display_subsystem {
-	clocks = <&hdptxphy_hdmi_clk0>, <&hdptxphy_hdmi_clk1>;
-	clock-names = "hdmi0_phy_pll", "hdmi1_phy_pll";
-
 	route {
 		route_hdmi0: route-hdmi0 {
 			status = "okay";
@@ -578,17 +563,8 @@
 	};
 };
 
-&hdptxphy_hdmi_clk0 {
-	status = "okay";
-};
-
-&hdptxphy_hdmi_clk1 {
-	status = "okay";
-};
-
 &hdmi0 {
 	status = "okay";
-        cec-enable = "true";
 };
 
 &hdmi0_in_vp0 {
@@ -611,7 +587,6 @@
 	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&hdmim0_tx1_cec &hdmim0_tx1_hpd &hdmim1_tx1_scl &hdmim1_tx1_sda>;
-        cec-enable = "true";
 };
 
 &hdmi1_in_vp0 {
@@ -670,33 +645,25 @@
 	status = "okay";
 };
 
-&vepu {
-	status = "okay";
-};
-
 /* vp0 & vp1 splice for 8K output */
 &vp0 {
 	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER0 | 1 << ROCKCHIP_VOP2_ESMART0)>;
 	rockchip,primary-plane = <ROCKCHIP_VOP2_ESMART0>;
-	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER0>;
 };
 
 &vp1 {
 	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER1 | 1 << ROCKCHIP_VOP2_ESMART1)>;
 	rockchip,primary-plane = <ROCKCHIP_VOP2_ESMART1>;
-	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER1>;
 };
 
 &vp2 {
 	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER2 | 1 << ROCKCHIP_VOP2_ESMART2)>;
 	rockchip,primary-plane = <ROCKCHIP_VOP2_ESMART2>;
-	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER2>;
 };
 
 &vp3 {
 	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER3 | 1 << ROCKCHIP_VOP2_ESMART3)>;
 	rockchip,primary-plane = <ROCKCHIP_VOP2_ESMART3>;
-	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER3>;
 };
 
 &u2phy2 {
@@ -771,6 +738,7 @@
 	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c4m1_xfer>;
+	clock-frequency = <400000>;
 
 	usbc0: fusb302@22 {
 		compatible = "fcs,fusb302";
@@ -801,9 +769,14 @@
 			data-role = "dual";
 			power-role = "sink";
 			try-power-role = "sink";
-			op-sink-microwatt = <1000000>;
+			op-sink-microwatt = <2500000>;
+			/* support max 100W pd power */
 			sink-pdos =
 				<PDO_FIXED(5000, 3000, PDO_FIXED_USB_COMM)
+				 PDO_FIXED(9000, 3000, PDO_FIXED_USB_COMM)
+				 PDO_FIXED(12000, 3000, PDO_FIXED_USB_COMM)
+				 PDO_FIXED(15000, 3000, PDO_FIXED_USB_COMM)
+				 PDO_FIXED(20000, 3250, PDO_FIXED_USB_COMM)
 				 PDO_VAR(5000, 20000, 5000)>;
 
 			altmodes {
@@ -907,10 +880,6 @@
 &route_dp0 {
 	status = "okay";
 	connect = <&vp2_out_dp0>;
-};
-
-&spdif_tx2 {
-	status = "okay";
 };
 
 &combphy0_ps {

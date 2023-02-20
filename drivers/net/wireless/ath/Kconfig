@@ -23,6 +23,9 @@ config WLAN_VENDOR_ATH
 
 if WLAN_VENDOR_ATH
 
+config ATH_USER_REGD
+	bool "Do not enforce EEPROM regulatory restrictions"
+
 config ATH_DEBUG
 	bool "Atheros wireless debugging"
 	help

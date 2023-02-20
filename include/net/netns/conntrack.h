@@ -27,6 +27,9 @@ struct nf_tcp_net {
 	int tcp_loose;
 	int tcp_be_liberal;
 	int tcp_max_retrans;
+#if IS_ENABLED(CONFIG_NF_FLOW_TABLE)
+	unsigned int offload_timeout;
+#endif
 };
 
 enum udp_conntrack {
@@ -37,6 +40,9 @@ enum udp_conntrack {
 
 struct nf_udp_net {
 	unsigned int timeouts[UDP_CT_MAX];
+#if IS_ENABLED(CONFIG_NF_FLOW_TABLE)
+	unsigned int offload_timeout;
+#endif
 };
 
 struct nf_icmp_net {
@@ -112,7 +118,11 @@ struct netns_ct {
 
 	struct ct_pcpu __percpu *pcpu_lists;
 	struct ip_conntrack_stat __percpu *stat;
+#ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
+	struct atomic_notifier_head nf_conntrack_chain;
+#else
 	struct nf_ct_event_notifier __rcu *nf_conntrack_event_cb;
+#endif
 	struct nf_exp_event_notifier __rcu *nf_expect_event_cb;
 	struct nf_ip_net	nf_ct_proto;
 #if defined(CONFIG_NF_CONNTRACK_LABELS)

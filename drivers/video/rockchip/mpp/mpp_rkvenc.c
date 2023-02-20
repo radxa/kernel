@@ -28,7 +28,6 @@
 #include <linux/nospec.h>
 #include <linux/workqueue.h>
 #include <soc/rockchip/pm_domains.h>
-#include <soc/rockchip/rockchip_iommu.h>
 #include <soc/rockchip/rockchip_ipa.h>
 #include <soc/rockchip/rockchip_opp_select.h>
 #include <soc/rockchip/rockchip_system_monitor.h>
@@ -440,7 +439,6 @@ static int rkvenc_run(struct mpp_dev *mpp,
 		int i;
 		struct mpp_request *req;
 		u32 reg_en = mpp_task->hw_info->reg_en;
-		u32 timing_en = mpp->srv->timing_en;
 
 		/*
 		 * Tips: ensure osd plt clock is 0 before setting register,
@@ -470,14 +468,9 @@ static int rkvenc_run(struct mpp_dev *mpp,
 		}
 		/* init current task */
 		mpp->cur_task = mpp_task;
-
-		mpp_task_run_begin(mpp_task, timing_en, MPP_WORK_TIMEOUT_DELAY);
-
 		/* Flush the register before the start the device */
 		wmb();
 		mpp_write(mpp, RKVENC_ENC_START_BASE, task->reg[reg_en]);
-
-		mpp_task_run_end(mpp_task, timing_en);
 	} break;
 	case RKVENC_MODE_LINKTABLE_FIX:
 	case RKVENC_MODE_LINKTABLE_UPDATE:
@@ -522,7 +515,7 @@ static int rkvenc_isr(struct mpp_dev *mpp)
 		return IRQ_HANDLED;
 	}
 
-	mpp_time_diff(mpp_task, 0);
+	mpp_time_diff(mpp_task);
 	mpp->cur_task = NULL;
 	task = to_rkvenc_task(mpp_task);
 	task->irq_status = mpp->irq_status;
@@ -749,7 +742,7 @@ static int rkvenc_dump_session(struct mpp_session *session, struct seq_file *seq
 	}
 	seq_puts(seq, "\n");
 	/* item data*/
-	seq_printf(seq, "|%8d|", session->index);
+	seq_printf(seq, "|%8p|", session);
 	seq_printf(seq, "%8s|", mpp_device_name[session->device_type]);
 	for (i = ENC_INFO_BASE; i < ENC_INFO_BUTT; i++) {
 		u32 flag = priv->codec_info[i].flag;
@@ -782,7 +775,7 @@ static int rkvenc_show_session_info(struct seq_file *seq, void *offset)
 	mutex_lock(&mpp->srv->session_lock);
 	list_for_each_entry_safe(session, n,
 				 &mpp->srv->session_list,
-				 service_link) {
+				 session_link) {
 		if (session->device_type != MPP_DEVICE_RKVENC)
 			continue;
 		if (!session->priv)
@@ -805,10 +798,6 @@ static int rkvenc_procfs_init(struct mpp_dev *mpp)
 		enc->procfs = NULL;
 		return -EIO;
 	}
-
-	/* for common mpp_dev options */
-	mpp_procfs_create_common(enc->procfs, mpp);
-
 	/* for debug */
 	mpp_procfs_create_u32("aclk", 0644,
 			      enc->procfs, &enc->aclk_info.debug_rate_hz);
@@ -1144,7 +1133,7 @@ static void rkvenc_iommu_handle_work(struct work_struct *work_s)
 	else
 		enc->aux_iova = page_iova;
 
-	rockchip_iommu_unmask_irq(mpp->dev);
+	rk_iommu_unmask_irq(mpp->dev);
 	mpp_iommu_up_write(mpp->iommu_info);
 
 	mpp_debug_leave();
@@ -1161,7 +1150,7 @@ static int rkvenc_iommu_fault_handle(struct iommu_domain *iommu,
 	mpp_debug(DEBUG_IOMMU, "IOMMU_GET_BUS_ID(status)=%d\n", IOMMU_GET_BUS_ID(status));
 	if (IOMMU_GET_BUS_ID(status)) {
 		enc->fault_iova = iova;
-		rockchip_iommu_mask_irq(mpp->dev);
+		rk_iommu_mask_irq(mpp->dev);
 		queue_work(enc->iommu_wq, &enc->iommu_work);
 	}
 	mpp_debug_leave();
@@ -1228,7 +1217,7 @@ static int rkvenc_init(struct mpp_dev *mpp)
 
 	mpp->iommu_info->hdl = rkvenc_iommu_fault_handle;
 
-	return ret;
+	return 0;
 }
 
 static int rkvenc_exit(struct mpp_dev *mpp)

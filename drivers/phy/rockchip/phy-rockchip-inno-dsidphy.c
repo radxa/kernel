@@ -926,9 +926,6 @@ static const struct of_device_id inno_dsidphy_of_match[] = {
 	}, {
 	  .compatible = "rockchip,rk3568-dsi-dphy",
 	  .data = &rk3568_plat_data,
-	}, {
-	  .compatible = "rockchip,rv1126-mipi-dphy",
-	  .data = &rk3568_plat_data,
 	},
 	{}
 };

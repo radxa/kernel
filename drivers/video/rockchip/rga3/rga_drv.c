@@ -16,7 +16,7 @@
 #include "rga_fence.h"
 #include "rga_hw_config.h"
 
-#include "rga_iommu.h"
+#include "rga2_mmu_info.h"
 #include "rga_debugger.h"
 #include "rga_common.h"
 
@@ -39,9 +39,6 @@ static const struct rga_backend_ops rga2_ops = {
 	.init_reg = rga2_init_reg,
 	.soft_reset = rga2_soft_reset
 };
-
-static struct rga_session *rga_session_init(void);
-static int rga_session_deinit(struct rga_session *session);
 
 static int rga_mpi_set_channel_buffer(struct dma_buf *dma_buf,
 				      struct rga_img_info_t *channel_info,
@@ -133,17 +130,6 @@ int rga_mpi_commit(struct rga_mpi_job_t *mpi_job)
 		return -EINVAL;
 	}
 
-	if (request->task_count > 1) {
-		/* TODO */
-		pr_err("Currently request does not support multiple tasks!");
-		mutex_unlock(&request_manager->lock);
-		return -EINVAL;
-	}
-
-	/*
-	 * The mpi commit will use the request repeatedly, so an additional
-	 * get() is added here.
-	 */
 	rga_request_get(request);
 	mutex_unlock(&request_manager->lock);
 
@@ -151,6 +137,7 @@ int rga_mpi_commit(struct rga_mpi_job_t *mpi_job)
 
 	/* TODO: batch mode need mpi async mode */
 	request->sync_mode = RGA_BLIT_SYNC;
+	request->use_batch_mode = false;
 
 	cached_cmd = request->task_list;
 	memcpy(&mpi_cmd, cached_cmd, sizeof(mpi_cmd));
@@ -186,7 +173,7 @@ int rga_mpi_commit(struct rga_mpi_job_t *mpi_job)
 						 request->session);
 		if (ret < 0) {
 			pr_err("src channel set buffer handle failed!\n");
-			goto err_put_request;
+			return ret;
 		}
 	}
 
@@ -196,7 +183,7 @@ int rga_mpi_commit(struct rga_mpi_job_t *mpi_job)
 						 request->session);
 		if (ret < 0) {
 			pr_err("src1 channel set buffer handle failed!\n");
-			goto err_put_request;
+			return ret;
 		}
 	}
 
@@ -206,7 +193,7 @@ int rga_mpi_commit(struct rga_mpi_job_t *mpi_job)
 						 request->session);
 		if (ret < 0) {
 			pr_err("dst channel set buffer handle failed!\n");
-			goto err_put_request;
+			return ret;
 		}
 	}
 
@@ -214,10 +201,17 @@ int rga_mpi_commit(struct rga_mpi_job_t *mpi_job)
 	mpi_cmd.mmu_info.mmu_en = 0;
 	mpi_cmd.mmu_info.mmu_flag = 0;
 
+	/* commit job */
+	if (request->task_count > 1) {
+		pr_err("Currently request does not support multiple tasks!");
+		/* TODO */
+		return -EINVAL;
+	}
+
 	if (DEBUGGER_EN(MSG))
 		rga_cmd_print_debug_info(&mpi_cmd);
 
-	ret = rga_request_mpi_submit(&mpi_cmd, request);
+	ret = rga_job_mpi_commit(&mpi_cmd, request);
 	if (ret < 0) {
 		if (ret == -ERESTARTSYS) {
 			if (DEBUGGER_EN(MSG))
@@ -227,7 +221,7 @@ int rga_mpi_commit(struct rga_mpi_job_t *mpi_job)
 			pr_err("%s, commit mpi job failed\n", __func__);
 		}
 
-		goto err_put_request;
+		return ret;
 	}
 
 	if ((mpi_job->dma_buf_src0 != NULL) && (mpi_cmd.src.yrgb_addr > 0))
@@ -249,9 +243,6 @@ int rga_mpi_commit(struct rga_mpi_job_t *mpi_job)
 		mpi_job->output->format = mpi_cmd.dst.format;
 	}
 
-	return 0;
-
-err_put_request:
 	mutex_lock(&request_manager->lock);
 	rga_request_put(request);
 	mutex_unlock(&request_manager->lock);
@@ -263,75 +254,28 @@ EXPORT_SYMBOL_GPL(rga_mpi_commit);
 int rga_kernel_commit(struct rga_req *cmd)
 {
 	int ret = 0;
-	int request_id;
-	struct rga_user_request kernel_request;
-	struct rga_request *request = NULL;
-	struct rga_session *session = NULL;
-	struct rga_pending_request_manager *request_manager = rga_drvdata->pend_request_manager;
+	struct rga_request request;
 
-	session = rga_session_init();
-	if (IS_ERR(session))
-		return PTR_ERR(session);
+	if (DEBUGGER_EN(MSG))
+		rga_cmd_print_debug_info(cmd);
 
-	request_id = rga_request_alloc(0, session);
-	if (request_id < 0) {
-		pr_err("request alloc error!\n");
-		ret = request_id;
+	request.sync_mode = RGA_BLIT_SYNC;
+	request.use_batch_mode = false;
+	request.task_list = cmd;
+	request.task_count = 1;
+
+	ret = rga_request_commit(&request);
+	if (ret < 0) {
+		if (ret == -ERESTARTSYS) {
+			if (DEBUGGER_EN(MSG))
+				pr_err("%s, commit kernel job failed, by a software interrupt.\n",
+				       __func__);
+		} else {
+			pr_err("%s, commit kernel job failed\n", __func__);
+		}
+
 		return ret;
 	}
-
-	memset(&kernel_request, 0, sizeof(kernel_request));
-	kernel_request.id = request_id;
-	kernel_request.task_ptr = (uint64_t)(unsigned long)cmd;
-	kernel_request.task_num = 1;
-	kernel_request.sync_mode = RGA_BLIT_SYNC;
-
-	ret = rga_request_check(&kernel_request);
-	if (ret < 0) {
-		pr_err("user request check error!\n");
-		goto err_free_request_by_id;
-	}
-
-	request = rga_request_kernel_config(&kernel_request);
-	if (IS_ERR(request)) {
-		pr_err("request[%d] config failed!\n", kernel_request.id);
-		ret = -EFAULT;
-		goto err_free_request_by_id;
-	}
-
-	if (DEBUGGER_EN(MSG)) {
-		pr_info("kernel blit mode: request id = %d", kernel_request.id);
-		rga_cmd_print_debug_info(cmd);
-	}
-
-	ret = rga_request_submit(request);
-	if (ret < 0) {
-		pr_err("request[%d] submit failed!\n", kernel_request.id);
-		goto err_put_request;
-	}
-
-err_put_request:
-	mutex_lock(&request_manager->lock);
-	rga_request_put(request);
-	mutex_unlock(&request_manager->lock);
-
-	rga_session_deinit(session);
-
-	return ret;
-
-err_free_request_by_id:
-	mutex_lock(&request_manager->lock);
-
-	request = rga_request_lookup(request_manager, request_id);
-	if (IS_ERR_OR_NULL(request)) {
-		pr_err("can not find request from id[%d]", request_id);
-		mutex_unlock(&request_manager->lock);
-		return -EINVAL;
-	}
-
-	rga_request_free(request);
-
-	mutex_unlock(&request_manager->lock);
 
 	return ret;
 }
@@ -384,7 +328,7 @@ static void rga_cancel_timer(void)
 	hrtimer_cancel(&timer);
 }
 
-#ifndef RGA_DISABLE_PM
+#ifndef CONFIG_ROCKCHIP_FPGA
 int rga_power_enable(struct rga_scheduler_t *scheduler)
 {
 	int ret = -EINVAL;
@@ -401,12 +345,9 @@ int rga_power_enable(struct rga_scheduler_t *scheduler)
 				goto err_enable_clk;
 		}
 	}
-
 	spin_lock_irqsave(&scheduler->irq_lock, flags);
 
 	scheduler->pd_refcount++;
-	if (scheduler->status == RGA_SCHEDULER_IDLE)
-		scheduler->status = RGA_SCHEDULER_WORKING;
 
 	spin_unlock_irqrestore(&scheduler->irq_lock, flags);
 
@@ -428,27 +369,18 @@ int rga_power_disable(struct rga_scheduler_t *scheduler)
 	int i;
 	unsigned long flags;
 
-	spin_lock_irqsave(&scheduler->irq_lock, flags);
-
-	if (scheduler->status == RGA_SCHEDULER_IDLE ||
-	    scheduler->pd_refcount == 0) {
-		spin_unlock_irqrestore(&scheduler->irq_lock, flags);
-		WARN(true, "%s already idle!\n", dev_driver_string(scheduler->dev));
-		return -1;
-	}
-
-	scheduler->pd_refcount--;
-	if (scheduler->pd_refcount == 0)
-		scheduler->status = RGA_SCHEDULER_IDLE;
-
-	spin_unlock_irqrestore(&scheduler->irq_lock, flags);
-
 	for (i = scheduler->num_clks - 1; i >= 0; i--)
 		if (!IS_ERR(scheduler->clks[i]))
 			clk_disable_unprepare(scheduler->clks[i]);
 
 	pm_relax(scheduler->dev);
 	pm_runtime_put_sync_suspend(scheduler->dev);
+
+	spin_lock_irqsave(&scheduler->irq_lock, flags);
+
+	scheduler->pd_refcount--;
+
+	spin_unlock_irqrestore(&scheduler->irq_lock, flags);
 
 	return 0;
 }
@@ -478,20 +410,7 @@ static void rga_power_disable_all(void)
 	}
 }
 
-#else
-int rga_power_enable(struct rga_scheduler_t *scheduler)
-{
-	return 0;
-}
-
-int rga_power_disable(struct rga_scheduler_t *scheduler)
-{
-	return 0;
-}
-
-static inline void rga_power_enable_all(void) {}
-static inline void rga_power_disable_all(void) {}
-#endif /* #ifndef RGA_DISABLE_PM */
+#endif //CONFIG_ROCKCHIP_FPGA
 
 static int rga_session_manager_init(struct rga_session_manager **session_manager_ptr)
 {
@@ -561,38 +480,22 @@ static int rga_session_manager_remove(struct rga_session_manager **session_manag
 
 static struct rga_session *rga_session_init(void)
 {
-	int new_id;
-
 	struct rga_session_manager *session_manager = NULL;
-	struct rga_session *session = NULL;
+	struct rga_session *session = kzalloc(sizeof(*session), GFP_KERNEL);
 
 	session_manager = rga_drvdata->session_manager;
 	if (session_manager == NULL) {
 		pr_err("rga_session_manager is null!\n");
-		return ERR_PTR(-EFAULT);
-	}
-
-	session = kzalloc(sizeof(*session), GFP_KERNEL);
-	if (!session) {
-		pr_err("rga_session alloc failed\n");
-		return ERR_PTR(-ENOMEM);
+		kfree(session);
+		return NULL;
 	}
 
 	mutex_lock(&session_manager->lock);
 
 	idr_preload(GFP_KERNEL);
-	new_id = idr_alloc_cyclic(&session_manager->ctx_id_idr, session, 1, 0, GFP_NOWAIT);
-	idr_preload_end();
-	if (new_id < 0) {
-		mutex_unlock(&session_manager->lock);
-
-		pr_err("rga_session alloc id failed!\n");
-		kfree(session);
-		return ERR_PTR(new_id);
-	}
-
-	session->id = new_id;
+	session->id = idr_alloc(&session_manager->ctx_id_idr, session, 1, 0, GFP_ATOMIC);
 	session_manager->session_cnt++;
+	idr_preload_end();
 
 	mutex_unlock(&session_manager->lock);
 
@@ -834,11 +737,11 @@ static long rga_ioctl_request_submit(unsigned long arg, bool run_enbale)
 				return -EFAULT;
 			}
 		}
-	}
 
-	mutex_lock(&request_manager->lock);
-	rga_request_put(request);
-	mutex_unlock(&request_manager->lock);
+		mutex_lock(&request_manager->lock);
+		rga_request_put(request);
+		mutex_unlock(&request_manager->lock);
+	}
 
 	return 0;
 }
@@ -879,98 +782,18 @@ static long rga_ioctl_request_cancel(unsigned long arg)
 	return 0;
 }
 
-static long rga_ioctl_blit(unsigned long arg, uint32_t cmd, struct rga_session *session)
-{
-	int ret = 0;
-	int request_id;
-	struct rga_user_request user_request;
-	struct rga_req *rga_req;
-	struct rga_request *request = NULL;
-	struct rga_pending_request_manager *request_manager = rga_drvdata->pend_request_manager;
-
-	request_id = rga_request_alloc(0, session);
-	if (request_id < 0) {
-		pr_err("request alloc error!\n");
-		ret = request_id;
-		return ret;
-	}
-
-	memset(&user_request, 0, sizeof(user_request));
-	user_request.id = request_id;
-	user_request.task_ptr = arg;
-	user_request.task_num = 1;
-	user_request.sync_mode = cmd;
-
-	ret = rga_request_check(&user_request);
-	if (ret < 0) {
-		pr_err("user request check error!\n");
-		goto err_free_request_by_id;
-	}
-
-	request = rga_request_config(&user_request);
-	if (IS_ERR(request)) {
-		pr_err("request[%d] config failed!\n", user_request.id);
-		ret = -EFAULT;
-		goto err_free_request_by_id;
-	}
-
-	rga_req = request->task_list;
-	/* In the BLIT_SYNC/BLIT_ASYNC command, in_fence_fd needs to be set. */
-	request->acquire_fence_fd = rga_req->in_fence_fd;
-
-	if (DEBUGGER_EN(MSG)) {
-		pr_info("Blit mode: request id = %d", user_request.id);
-		rga_cmd_print_debug_info(rga_req);
-	}
-
-	ret = rga_request_submit(request);
-	if (ret < 0) {
-		pr_err("request[%d] submit failed!\n", user_request.id);
-		goto err_put_request;
-	}
-
-	if (request->sync_mode == RGA_BLIT_ASYNC) {
-		rga_req->out_fence_fd = request->release_fence_fd;
-		if (copy_to_user((struct rga_req *)arg, rga_req, sizeof(struct rga_req))) {
-			pr_err("copy_to_user failed\n");
-			ret = -EFAULT;
-			goto err_put_request;
-		}
-	}
-
-err_put_request:
-	mutex_lock(&request_manager->lock);
-	rga_request_put(request);
-	mutex_unlock(&request_manager->lock);
-
-	return ret;
-
-err_free_request_by_id:
-	mutex_lock(&request_manager->lock);
-
-	request = rga_request_lookup(request_manager, request_id);
-	if (IS_ERR_OR_NULL(request)) {
-		pr_err("can not find request from id[%d]", request_id);
-		mutex_unlock(&request_manager->lock);
-		return -EINVAL;
-	}
-
-	rga_request_free(request);
-
-	mutex_unlock(&request_manager->lock);
-
-	return ret;
-}
-
 static long rga_ioctl(struct file *file, uint32_t cmd, unsigned long arg)
 {
+	struct rga_drvdata_t *rga = rga_drvdata;
+	struct rga_req req_rga;
 	int ret = 0;
 	int i = 0;
 	int major_version = 0, minor_version = 0;
 	char version[16] = { 0 };
 	struct rga_version_t driver_version;
 	struct rga_hw_versions_t hw_versions;
-	struct rga_drvdata_t *rga = rga_drvdata;
+	struct rga_request request;
+
 	struct rga_session *session = file->private_data;
 
 	if (!rga) {
@@ -984,7 +807,45 @@ static long rga_ioctl(struct file *file, uint32_t cmd, unsigned long arg)
 	switch (cmd) {
 	case RGA_BLIT_SYNC:
 	case RGA_BLIT_ASYNC:
-		ret = rga_ioctl_blit(arg, cmd, session);
+		if (unlikely(copy_from_user(&req_rga,
+			(struct rga_req *)arg, sizeof(struct rga_req)))) {
+			pr_err("copy_from_user failed\n");
+			ret = -EFAULT;
+			break;
+		}
+
+		if (DEBUGGER_EN(MSG))
+			rga_cmd_print_debug_info(&req_rga);
+
+		memset(&request, 0x0, sizeof(request));
+
+		request.sync_mode = cmd;
+		request.acquire_fence_fd = req_rga.in_fence_fd;
+		request.use_batch_mode = false;
+		request.is_running = false;
+		request.session = session;
+		request.task_list = &req_rga;
+		request.task_count = 1;
+
+		ret = rga_request_submit(&request);
+		if (ret < 0) {
+			if (ret == -ERESTARTSYS) {
+				if (DEBUGGER_EN(MSG))
+					pr_err("rga_request_commit failed, by a software interrupt.\n");
+			} else {
+				pr_err("rga_request_commit failed\n");
+			}
+
+			break;
+		}
+
+		req_rga.out_fence_fd = request.release_fence_fd;
+		if (copy_to_user((struct rga_req *)arg,
+				&req_rga, sizeof(struct rga_req))) {
+			pr_err("copy_to_user failed\n");
+			ret = -EFAULT;
+			break;
+		}
 
 		break;
 	case RGA_CACHE_FLUSH:
@@ -1156,8 +1017,8 @@ static int rga_open(struct inode *inode, struct file *file)
 	struct rga_session *session = NULL;
 
 	session = rga_session_init();
-	if (IS_ERR(session))
-		return PTR_ERR(session);
+	if (!session)
+		return -ENOMEM;
 
 	file->private_data = (void *)session;
 
@@ -1396,19 +1257,16 @@ static void init_scheduler(struct rga_scheduler_t *scheduler,
 
 static int rga_drv_probe(struct platform_device *pdev)
 {
-#ifndef RGA_DISABLE_PM
-	int i;
-#endif
-	int ret = 0;
-	int irq;
-	struct resource *res;
-	const struct rga_match_data_t *match_data;
-	const struct of_device_id *match;
-	struct rga_scheduler_t *scheduler;
-	struct device *dev = &pdev->dev;
 	struct rga_drvdata_t *data = rga_drvdata;
+	struct resource *res;
+	int ret = 0;
+	const struct of_device_id *match = NULL;
+	struct device *dev = &pdev->dev;
+	const struct rga_match_data_t *match_data;
+	int i, irq;
+	struct rga_scheduler_t *scheduler = NULL;
 
-	if (!dev->of_node)
+	if (!pdev->dev.of_node)
 		return -EINVAL;
 
 	if (!strcmp(dev_driver_string(dev), "rga3_core0"))
@@ -1417,23 +1275,25 @@ static int rga_drv_probe(struct platform_device *pdev)
 		match = of_match_device(rga3_core1_dt_ids, dev);
 	else if (!strcmp(dev_driver_string(dev), "rga2"))
 		match = of_match_device(rga2_dt_ids, dev);
-	else
-		match = NULL;
 
 	if (!match) {
 		dev_err(dev, "%s missing DT entry!\n", dev_driver_string(dev));
 		return -EINVAL;
 	}
 
-	scheduler = devm_kzalloc(dev, sizeof(struct rga_scheduler_t), GFP_KERNEL);
+	scheduler =
+		devm_kzalloc(&pdev->dev, sizeof(struct rga_scheduler_t),
+			GFP_KERNEL);
 	if (scheduler == NULL) {
-		pr_err("failed to allocate scheduler. dev name = %s\n", dev_driver_string(dev));
+		pr_err("failed to allocate scheduler. dev name = %s\n",
+			dev_driver_string(dev));
 		return -ENOMEM;
 	}
 
-	init_scheduler(scheduler, dev_driver_string(dev));
+	init_scheduler(scheduler,
+		dev_driver_string(dev));
 
-	scheduler->dev = dev;
+	scheduler->dev = &pdev->dev;
 
 	/* map the registers */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -1442,7 +1302,8 @@ static int rga_drv_probe(struct platform_device *pdev)
 		return -ENXIO;
 	}
 
-	scheduler->rga_base = devm_ioremap(dev, res->start, resource_size(res));
+	scheduler->rga_base =
+		devm_ioremap(&pdev->dev, res->start, resource_size(res));
 	if (!scheduler->rga_base) {
 		pr_err("ioremap failed\n");
 		ret = -ENOENT;
@@ -1455,7 +1316,8 @@ static int rga_drv_probe(struct platform_device *pdev)
 	/* there are irq names in dts */
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0) {
-		dev_err(dev, "no irq %s in dts\n", match_data->irqs[0].name);
+		dev_err(dev, "no irq %s in dts\n",
+			match_data->irqs[0].name);
 		return irq;
 	}
 
@@ -1464,18 +1326,17 @@ static int rga_drv_probe(struct platform_device *pdev)
 	pr_info("%s, irq = %d, match scheduler\n", match_data->irqs[0].name, irq);
 
 	ret = devm_request_threaded_irq(dev, irq,
-					match_data->irqs[0].irq_hdl,
-					match_data->irqs[0].irq_thread,
-					IRQF_SHARED,
-					dev_driver_string(dev), scheduler);
+			match_data->irqs[0].irq_hdl,
+			match_data->irqs[0].irq_thread, IRQF_SHARED,
+			dev_driver_string(dev),
+			scheduler);
 	if (ret < 0) {
-		pr_err("request irq name: %s failed: %d\n", match_data->irqs[0].name, ret);
+		pr_err("request irq name: %s failed: %d\n",
+				match_data->irqs[0].name, ret);
 		return ret;
 	}
 
-
-#ifndef RGA_DISABLE_PM
-	/* clk init */
+#ifndef CONFIG_ROCKCHIP_FPGA
 	for (i = 0; i < match_data->num_clks; i++) {
 		struct clk *clk = devm_clk_get(dev, match_data->clks[i]);
 
@@ -1485,15 +1346,21 @@ static int rga_drv_probe(struct platform_device *pdev)
 		scheduler->clks[i] = clk;
 	}
 	scheduler->num_clks = match_data->num_clks;
+#endif
+
+	platform_set_drvdata(pdev, scheduler);
+
+	device_init_wakeup(dev, true);
 
 	/* PM init */
-	device_init_wakeup(dev, true);
-	pm_runtime_enable(scheduler->dev);
+#ifndef CONFIG_ROCKCHIP_FPGA
+	pm_runtime_enable(&pdev->dev);
 
 	ret = pm_runtime_get_sync(scheduler->dev);
 	if (ret < 0) {
-		pr_err("failed to get pm runtime, ret = %d\n", ret);
-		goto pm_disable;
+		pr_err("failed to get pm runtime, ret = %d\n",
+			 ret);
+		goto failed;
 	}
 
 	for (i = 0; i < scheduler->num_clks; i++) {
@@ -1501,14 +1368,14 @@ static int rga_drv_probe(struct platform_device *pdev)
 			ret = clk_prepare_enable(scheduler->clks[i]);
 			if (ret < 0) {
 				pr_err("failed to enable clk\n");
-				goto pm_disable;
+				goto failed;
 			}
 		}
 	}
-#endif /* #ifndef RGA_DISABLE_PM */
+#endif //CONFIG_ROCKCHIP_FPGA
 
 	scheduler->ops->get_version(scheduler);
-	pr_info("%s hardware loaded successfully, hw_version:%s.\n",
+	pr_info("%s driver loaded successfully ver:%s\n",
 		dev_driver_string(dev), scheduler->version.str);
 
 	/* TODO: get by hw version, Currently only supports judgment 1106. */
@@ -1518,9 +1385,6 @@ static int rga_drv_probe(struct platform_device *pdev)
 	} else if (scheduler->core == RGA2_SCHEDULER_CORE0) {
 		if (!strcmp(scheduler->version.str, "3.3.87975"))
 			scheduler->data = &rga2e_1106_data;
-		else if (!strcmp(scheduler->version.str, "3.6.92812") ||
-			 !strcmp(scheduler->version.str, "3.7.93215"))
-			scheduler->data = &rga2e_iommu_data;
 		else
 			scheduler->data = &rga2e_data;
 	}
@@ -1529,43 +1393,29 @@ static int rga_drv_probe(struct platform_device *pdev)
 
 	data->num_of_scheduler++;
 
-#ifndef RGA_DISABLE_PM
 	for (i = scheduler->num_clks - 1; i >= 0; i--)
 		if (!IS_ERR(scheduler->clks[i]))
 			clk_disable_unprepare(scheduler->clks[i]);
 
-	pm_runtime_put_sync(dev);
-#endif /* #ifndef RGA_DISABLE_PM */
-
-	if (scheduler->data->mmu == RGA_IOMMU) {
-		scheduler->iommu_info = rga_iommu_probe(dev);
-		if (IS_ERR(scheduler->iommu_info)) {
-			dev_err(dev, "failed to attach iommu\n");
-			scheduler->iommu_info = NULL;
-		}
-	}
-
-	platform_set_drvdata(pdev, scheduler);
+	pm_runtime_put_sync(&pdev->dev);
 
 	pr_info("%s probe successfully\n", dev_driver_string(dev));
 
 	return 0;
 
-#ifndef RGA_DISABLE_PM
-pm_disable:
+failed:
 	device_init_wakeup(dev, false);
 	pm_runtime_disable(dev);
-#endif /* #ifndef RGA_DISABLE_PM */
 
 	return ret;
 }
 
 static int rga_drv_remove(struct platform_device *pdev)
 {
-#ifndef RGA_DISABLE_PM
 	device_init_wakeup(&pdev->dev, false);
+#ifndef CONFIG_ROCKCHIP_FPGA
 	pm_runtime_disable(&pdev->dev);
-#endif /* #ifndef RGA_DISABLE_PM */
+#endif //CONFIG_ROCKCHIP_FPGA
 
 	return 0;
 }
@@ -1600,6 +1450,7 @@ static struct platform_driver rga2_driver = {
 static int __init rga_init(void)
 {
 	int ret;
+	int i;
 
 	rga_drvdata = kzalloc(sizeof(struct rga_drvdata_t), GFP_KERNEL);
 	if (rga_drvdata == NULL) {
@@ -1627,16 +1478,22 @@ static int __init rga_init(void)
 		goto err_unregister_rga3_core1;
 	}
 
-	ret = rga_iommu_bind();
-	if (ret < 0) {
-		pr_err("rga iommu bind failed!\n");
-		goto err_unregister_rga2;
+	for (i = 0; i < rga_drvdata->num_of_scheduler; i++) {
+		if (rga_drvdata->scheduler[i]->data->mmu == RGA_MMU) {
+			ret = rga2_mmu_base_init();
+			if (ret) {
+				pr_err("rga2 mmu base init failed!\n");
+				goto err_unregister_rga2;
+			}
+
+			break;
+		}
 	}
 
 	ret = misc_register(&rga_dev);
 	if (ret) {
 		pr_err("cannot register miscdev (%d)\n", ret);
-		goto err_unbind_iommu;
+		goto err_free_mmu_base;
 	}
 
 	rga_init_timer();
@@ -1659,8 +1516,8 @@ static int __init rga_init(void)
 
 	return 0;
 
-err_unbind_iommu:
-	rga_iommu_unbind();
+err_free_mmu_base:
+	rga2_mmu_base_free();
 
 err_unregister_rga2:
 	platform_driver_unregister(&rga2_driver);
@@ -1679,6 +1536,8 @@ err_free_drvdata:
 
 static void __exit rga_exit(void)
 {
+	rga2_mmu_base_free();
+
 #ifdef CONFIG_ROCKCHIP_RGA_DEBUGGER
 	rga_debugger_remove(&rga_drvdata->debugger);
 #endif
@@ -1694,8 +1553,6 @@ static void __exit rga_exit(void)
 	rga_session_manager_remove(&rga_drvdata->session_manager);
 
 	rga_cancel_timer();
-
-	rga_iommu_unbind();
 
 	platform_driver_unregister(&rga3_core0_driver);
 	platform_driver_unregister(&rga3_core1_driver);
@@ -1723,6 +1580,3 @@ module_exit(rga_exit);
 MODULE_AUTHOR("putin.li@rock-chips.com");
 MODULE_DESCRIPTION("Driver for rga device");
 MODULE_LICENSE("GPL");
-#ifdef MODULE_IMPORT_NS
-MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);
-#endif

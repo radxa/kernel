@@ -176,7 +176,7 @@ enum {
  * Based on 75000ms timeout at nominal 100MHz, as is required for Android - based
  * on scaling from a 50MHz GPU system.
  */
-#define CSF_FIRMWARE_TIMEOUT_CYCLES (7500000000ull)
+#define CSF_FIRMWARE_TIMEOUT_CYCLES (7500000000)
 
 /* Timeout in clock cycles for GPU Power Management to reach the desired
  * Shader, L2 and MCU state.
@@ -203,12 +203,6 @@ enum {
  */
 #define CSF_FIRMWARE_BOOT_TIMEOUT_CYCLES (25000000)
 
-/* Waiting timeout for a ping request to be acknowledged, in clock cycles.
- *
- * Based on 6000ms timeout at 100MHz, scaled from a 50MHz GPU system.
- */
-#define CSF_FIRMWARE_PING_TIMEOUT_CYCLES (600000000ull)
-
 #else /* MALI_USE_CSF */
 
 /* A default timeout in clock cycles to be used when an invalid timeout
@@ -219,7 +213,7 @@ enum {
 /* Default number of milliseconds given for other jobs on the GPU to be
  * soft-stopped when the GPU needs to be reset.
  */
-#define JM_DEFAULT_RESET_TIMEOUT_MS (1) /* 1 ms */
+#define JM_DEFAULT_RESET_TIMEOUT_MS (3000) /* 3s */
 
 #endif /* MALI_USE_CSF */
 

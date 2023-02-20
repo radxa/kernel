@@ -87,8 +87,6 @@ struct brcmf_proto_bcdc_header {
 					 * plus any space that might be needed
 					 * for bus alignment padding.
 					 */
-#define ROUND_UP_MARGIN 2048
-
 struct brcmf_bcdc {
 	u16 reqid;
 	u8 bus_header[BUS_HEADER_LEN];
@@ -370,7 +368,8 @@ brcmf_proto_bcdc_txcomplete(struct device *dev, struct sk_buff *txp,
 
 	/* await txstatus signal for firmware if active */
 	if (brcmf_fws_fc_active(bcdc->fws)) {
-		brcmf_fws_bustxcomplete(bcdc->fws, txp, success);
+		if (!success)
+			brcmf_fws_bustxfail(bcdc->fws, txp);
 	} else {
 		if (brcmf_proto_bcdc_hdrpull(bus_if->drvr, false, txp, &ifp))
 			brcmu_pkt_buf_free_skb(txp);
@@ -472,7 +471,7 @@ int brcmf_proto_bcdc_attach(struct brcmf_pub *drvr)
 
 	drvr->hdrlen += BCDC_HEADER_LEN + BRCMF_PROT_FW_SIGNAL_MAX_TXBYTES;
 	drvr->bus_if->maxctl = BRCMF_DCMD_MAXLEN +
-			sizeof(struct brcmf_proto_bcdc_dcmd) + ROUND_UP_MARGIN;
+			sizeof(struct brcmf_proto_bcdc_dcmd);
 	return 0;
 
 fail:

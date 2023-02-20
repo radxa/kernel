@@ -577,13 +577,6 @@ static int bridge_start(struct rkisp_bridge_device *dev)
 	dev->ops->config(dev);
 	rkisp_start_spstream(sp_stream);
 
-	if (!dev->ispdev->hw_dev->is_mi_update) {
-		rkisp_config_dmatx_valid_buf(dev->ispdev);
-		force_cfg_update(dev->ispdev);
-		rkisp_update_spstream_buf(sp_stream);
-		hdr_update_dmatx_buf(dev->ispdev);
-	}
-	rkisp_stats_first_ddr_config(&dev->ispdev->stats_vdev);
 	ispdev->skip_frame = 0;
 	dev->en = true;
 
@@ -609,13 +602,11 @@ static int bridge_stop(struct rkisp_bridge_device *dev)
 	dev->ops->disable(dev);
 	rkisp_stop_spstream(sp_stream);
 	hdr_stop_dmatx(dev->ispdev);
-	if (!dev->ispdev->hw_dev->is_shutdown) {
-		ret = wait_event_timeout(dev->done, !dev->en,
-					 msecs_to_jiffies(1000));
-		if (!ret)
-			v4l2_warn(&dev->sd,
-				  "%s timeout ret:%d\n", __func__, ret);
-	}
+	ret = wait_event_timeout(dev->done, !dev->en,
+				 msecs_to_jiffies(1000));
+	if (!ret)
+		v4l2_warn(&dev->sd,
+			  "%s timeout ret:%d\n", __func__, ret);
 	crop_off(dev);
 	dev->stopping = false;
 	dev->en = false;

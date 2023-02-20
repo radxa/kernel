@@ -87,20 +87,10 @@ static void brcmu_d11ac_encchspec(struct brcmu_chan *ch)
 			0, d11ac_bw(ch->bw));
 
 	ch->chspec &= ~BRCMU_CHSPEC_D11AC_BND_MASK;
-	switch (ch->band) {
-	case BRCMU_CHAN_BAND_6G:
-		ch->chspec |= BRCMU_CHSPEC_D11AC_BND_6G;
-		break;
-	case BRCMU_CHAN_BAND_5G:
-		ch->chspec |= BRCMU_CHSPEC_D11AC_BND_5G;
-		break;
-	case BRCMU_CHAN_BAND_2G:
+	if (ch->chnum <= CH_MAX_2G_CHANNEL)
 		ch->chspec |= BRCMU_CHSPEC_D11AC_BND_2G;
-		break;
-	default:
-		WARN_ONCE(1, "Invalid band 0x%04x\n", ch->band);
-		break;
-	}
+	else
+		ch->chspec |= BRCMU_CHSPEC_D11AC_BND_5G;
 }
 
 static void brcmu_d11n_decchspec(struct brcmu_chan *ch)
@@ -232,9 +222,6 @@ static void brcmu_d11ac_decchspec(struct brcmu_chan *ch)
 	}
 
 	switch (ch->chspec & BRCMU_CHSPEC_D11AC_BND_MASK) {
-	case BRCMU_CHSPEC_D11AC_BND_6G:
-		ch->band = BRCMU_CHAN_BAND_6G;
-		break;
 	case BRCMU_CHSPEC_D11AC_BND_5G:
 		ch->band = BRCMU_CHAN_BAND_5G;
 		break;

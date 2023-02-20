@@ -19,6 +19,10 @@ struct timer_list {
 	void			(*function)(struct timer_list *);
 	u32			flags;
 
+#ifdef CONFIG_SHORTCUT_FE
+	unsigned long		cust_data;
+#endif
+
 #ifdef CONFIG_LOCKDEP
 	struct lockdep_map	lockdep_map;
 #endif

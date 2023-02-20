@@ -1,6 +1,5 @@
 config BRCMFMAC
 	tristate "Broadcom FullMAC WLAN driver"
-	depends on m
 	depends on CFG80211
 	select BRCMUTIL
 	help
@@ -20,7 +19,7 @@ config BRCMFMAC_SDIO
 	depends on (MMC = y || MMC = BRCMFMAC)
 	depends on BRCMFMAC
 	select BRCMFMAC_PROTO_BCDC
-	depends on FW_LOADER
+	select FW_LOADER
 	default y
 	help
 	  This option enables the SDIO bus interface support for Broadcom
@@ -32,7 +31,7 @@ config BRCMFMAC_USB
 	depends on (USB = y || USB = BRCMFMAC)
 	depends on BRCMFMAC
 	select BRCMFMAC_PROTO_BCDC
-	depends on FW_LOADER
+	select FW_LOADER
 	help
 	  This option enables the USB bus interface support for Broadcom
 	  IEEE802.11n embedded FullMAC WLAN driver. Say Y if you want to
@@ -43,16 +42,9 @@ config BRCMFMAC_PCIE
 	depends on BRCMFMAC
 	depends on PCI
 	select BRCMFMAC_PROTO_MSGBUF
-	depends on FW_LOADER
+	select FW_LOADER
 	help
 	  This option enables the PCIE bus interface support for Broadcom
 	  IEEE802.11ac embedded FullMAC WLAN driver. Say Y if you want to
 	  use the driver for an PCIE wireless card.
 
-config BRCMFMAC_BT_SHARED_SDIO
-	bool "FMAC shares SDIO bus to Bluetooth"
-	depends on BRCMFMAC_SDIO
-	default n
-	help
-	  This option enables the feautre of sharing the SDIO bus interface
-	  between Cypress BT and WiFi host drivers.

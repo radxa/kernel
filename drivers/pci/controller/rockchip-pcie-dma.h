@@ -188,9 +188,8 @@ struct dma_trx_obj {
 	unsigned long			irq_num;
 	struct dentry			*pcie_root;
 	struct pcie_misc_dev		*pcie_dev;
-	void				(*start_dma_func)(struct dma_trx_obj *obj, struct dma_table *table);
+	void 				(*start_dma_func)(struct dma_trx_obj *obj);
 	void				(*config_dma_func)(struct dma_table *table);
-	int				(*cb)(struct dma_trx_obj *obj, u32 chn, enum dma_dir dir);
 	ktime_t				begin;
 	ktime_t				end;
 	u64				cache_time_total;

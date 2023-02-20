@@ -44,11 +44,7 @@ static int brcmf_pno_store_request(struct brcmf_pno_info *pi,
 		 "pno request storage full\n"))
 		return -ENOSPC;
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0))
 	brcmf_dbg(SCAN, "reqid=%llu\n", req->reqid);
-#else /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
-	brcmf_dbg(SCAN, "reqid=0");
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
 	mutex_lock(&pi->req_lock);
 	pi->reqs[pi->n_reqs++] = req;
 	mutex_unlock(&pi->req_lock);
@@ -65,15 +61,11 @@ static int brcmf_pno_remove_request(struct brcmf_pno_info *pi, u64 reqid)
 	if (pi->n_reqs == 0)
 		goto done;
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0))
 	/* find request */
 	for (i = 0; i < pi->n_reqs; i++) {
 		if (pi->reqs[i]->reqid == reqid)
 			break;
 	}
-#else /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
-    i = reqid;
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
 	/* request not found */
 	if (WARN(i == pi->n_reqs, "reqid not found\n")) {
 		err = -ENOENT;
@@ -192,13 +184,8 @@ static int brcmf_pno_set_random(struct brcmf_if *ifp, struct brcmf_pno_info *pi)
 	/* Set locally administered */
 	pfn_mac.mac[0] |= 0x02;
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0))
 	brcmf_dbg(SCAN, "enabling random mac: reqid=%llu mac=%pM\n",
 		  pi->reqs[ri]->reqid, pfn_mac.mac);
-#else /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
-	brcmf_dbg(SCAN, "enabling random mac: reqid=0 mac=%pM\n",
-		  pfn_mac.mac);
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
 	err = brcmf_fil_iovar_data_set(ifp, "pfn_macaddr", &pfn_mac,
 				       sizeof(pfn_mac));
 	if (err)
@@ -231,7 +218,6 @@ static int brcmf_pno_add_ssid(struct brcmf_if *ifp, struct cfg80211_ssid *ssid,
 	return err;
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0))
 static int brcmf_pno_add_bssid(struct brcmf_if *ifp, const u8 *bssid)
 {
 	struct brcmf_pub *drvr = ifp->drvr;
@@ -248,7 +234,6 @@ static int brcmf_pno_add_bssid(struct brcmf_if *ifp, const u8 *bssid)
 		bphy_err(drvr, "adding failed: err=%d\n", err);
 	return err;
 }
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
 
 static bool brcmf_is_ssid_active(struct cfg80211_ssid *ssid,
 				 struct cfg80211_sched_scan_request *req)
@@ -393,10 +378,8 @@ static int brcmf_pno_config_networks(struct brcmf_if *ifp,
 				err = brcmf_pno_add_ssid(ifp, &ms->ssid,
 							 active);
 			}
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0))
 			if (!err && is_valid_ether_addr(ms->bssid))
 				err = brcmf_pno_add_bssid(ifp, ms->bssid);
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
 
 			if (err < 0)
 				return err;
@@ -487,11 +470,7 @@ int brcmf_pno_start_sched_scan(struct brcmf_if *ifp,
 	struct brcmf_pno_info *pi;
 	int ret;
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0))
 	brcmf_dbg(TRACE, "reqid=%llu\n", req->reqid);
-#else /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
-	brcmf_dbg(TRACE, "reqid=0");
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
 
 	pi = ifp_to_pno(ifp);
 	ret = brcmf_pno_store_request(pi, req);
@@ -500,11 +479,7 @@ int brcmf_pno_start_sched_scan(struct brcmf_if *ifp,
 
 	ret = brcmf_pno_config_sched_scans(ifp);
 	if (ret < 0) {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0))
 		brcmf_pno_remove_request(pi, req->reqid);
-#else /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
-		brcmf_pno_remove_request(pi, 0);
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
 		if (pi->n_reqs)
 			(void)brcmf_pno_config_sched_scans(ifp);
 		return ret;
@@ -567,9 +542,7 @@ void brcmf_pno_detach(struct brcmf_cfg80211_info *cfg)
 void brcmf_pno_wiphy_params(struct wiphy *wiphy, bool gscan)
 {
 	/* scheduled scan settings */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0))
 	wiphy->max_sched_scan_reqs = gscan ? BRCMF_PNO_MAX_BUCKETS : 1;
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
 	wiphy->max_sched_scan_ssids = BRCMF_PNO_MAX_PFN_COUNT;
 	wiphy->max_match_sets = BRCMF_PNO_MAX_PFN_COUNT;
 	wiphy->max_sched_scan_ie_len = BRCMF_SCAN_IE_LEN_MAX;
@@ -580,14 +553,12 @@ u64 brcmf_pno_find_reqid_by_bucket(struct brcmf_pno_info *pi, u32 bucket)
 {
 	u64 reqid = 0;
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0))
 	mutex_lock(&pi->req_lock);
 
 	if (bucket < pi->n_reqs)
 		reqid = pi->reqs[bucket]->reqid;
 
 	mutex_unlock(&pi->req_lock);
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
 	return reqid;
 }
 
@@ -612,13 +583,11 @@ u32 brcmf_pno_get_bucket_map(struct brcmf_pno_info *pi,
 				bucket_map |= BIT(i);
 				break;
 			}
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0))
 			if (is_valid_ether_addr(ms->bssid) &&
 			    !memcmp(ms->bssid, ni->bssid, ETH_ALEN)) {
 				bucket_map |= BIT(i);
 				break;
 			}
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)) */
 		}
 	}
 	mutex_unlock(&pi->req_lock);

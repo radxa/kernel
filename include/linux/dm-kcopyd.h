@@ -21,7 +21,6 @@
 
 #define DM_KCOPYD_IGNORE_ERROR 1
 #define DM_KCOPYD_WRITE_SEQ    2
-#define DM_KCOPYD_SNAP_MERGE   3
 
 struct dm_kcopyd_throttle {
 	unsigned throttle;

@@ -1081,6 +1081,7 @@ struct dwc2_hsotg {
 	int     irq;
 	struct clk_bulk_data *clks;
 	int num_clks;
+	struct clk *clk;
 	struct reset_control *reset;
 	struct reset_control *reset_ecc;
 

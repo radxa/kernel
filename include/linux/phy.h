@@ -767,6 +767,12 @@ struct phy_driver {
 	/** @handle_interrupt: Override default interrupt handling */
 	irqreturn_t (*handle_interrupt)(struct phy_device *phydev);
 
+	/*
+	 * Called before an ethernet device is detached
+	 * from the PHY.
+	 */
+	void (*detach)(struct phy_device *phydev);
+
 	/** @remove: Clears up any memory if needed */
 	void (*remove)(struct phy_device *phydev);
 

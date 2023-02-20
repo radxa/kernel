@@ -291,9 +291,12 @@ int kbase_device_misc_init(struct kbase_device * const kbdev)
 	if (err)
 		goto dma_set_mask_failed;
 
-	err = kbase_pbha_read_dtb(kbdev);
+	err = kbase_ktrace_init(kbdev);
 	if (err)
 		goto term_as;
+	err = kbase_pbha_read_dtb(kbdev);
+	if (err)
+		goto term_ktrace;
 
 	init_waitqueue_head(&kbdev->cache_clean_wait);
 
@@ -323,15 +326,10 @@ int kbase_device_misc_init(struct kbase_device * const kbdev)
 			"Unable to register OOM notifier for Mali - but will continue\n");
 		kbdev->oom_notifier_block.notifier_call = NULL;
 	}
-
-#if !MALI_USE_CSF
-	spin_lock_init(&kbdev->quick_reset_lock);
-	kbdev->quick_reset_enabled = true;
-	kbdev->num_of_atoms_hw_completed = 0;
-#endif
-
 	return 0;
 
+term_ktrace:
+	kbase_ktrace_term(kbdev);
 term_as:
 	kbase_device_all_as_term(kbdev);
 dma_set_mask_failed:
@@ -348,39 +346,15 @@ void kbase_device_misc_term(struct kbase_device *kbdev)
 #if KBASE_KTRACE_ENABLE
 	kbase_debug_assert_register_hook(NULL, NULL);
 #endif
+
+	kbase_ktrace_term(kbdev);
+
 	kbase_device_all_as_term(kbdev);
 
 
 	if (kbdev->oom_notifier_block.notifier_call)
 		unregister_oom_notifier(&kbdev->oom_notifier_block);
 }
-
-#if !MALI_USE_CSF
-void kbase_enable_quick_reset(struct kbase_device *kbdev)
-{
-	spin_lock(&kbdev->quick_reset_lock);
-
-	kbdev->quick_reset_enabled = true;
-	kbdev->num_of_atoms_hw_completed = 0;
-
-	spin_unlock(&kbdev->quick_reset_lock);
-}
-
-void kbase_disable_quick_reset(struct kbase_device *kbdev)
-{
-	spin_lock(&kbdev->quick_reset_lock);
-
-	kbdev->quick_reset_enabled = false;
-	kbdev->num_of_atoms_hw_completed = 0;
-
-	spin_unlock(&kbdev->quick_reset_lock);
-}
-
-bool kbase_is_quick_reset_enabled(struct kbase_device *kbdev)
-{
-	return kbdev->quick_reset_enabled;
-}
-#endif
 
 void kbase_device_free(struct kbase_device *kbdev)
 {
@@ -514,14 +488,10 @@ int kbase_device_early_init(struct kbase_device *kbdev)
 {
 	int err;
 
-	err = kbase_ktrace_init(kbdev);
-	if (err)
-		return err;
-
 
 	err = kbasep_platform_device_init(kbdev);
 	if (err)
-		goto ktrace_term;
+		return err;
 
 	err = kbase_pm_runtime_init(kbdev);
 	if (err)
@@ -535,12 +505,7 @@ int kbase_device_early_init(struct kbase_device *kbdev)
 	/* Ensure we can access the GPU registers */
 	kbase_pm_register_access_enable(kbdev);
 
-	/*
-	 * Find out GPU properties based on the GPU feature registers.
-	 * Note that this does not populate the few properties that depend on
-	 * hw_features being initialized. Those are set by kbase_gpuprops_set_features
-	 * soon after this in the init process.
-	 */
+	/* Find out GPU properties based on the GPU feature registers */
 	kbase_gpuprops_set(kbdev);
 
 	/* We're done accessing the GPU registers for now. */
@@ -563,8 +528,6 @@ fail_interrupts:
 	kbase_pm_runtime_term(kbdev);
 fail_runtime_pm:
 	kbasep_platform_device_term(kbdev);
-ktrace_term:
-	kbase_ktrace_term(kbdev);
 
 	return err;
 }
@@ -581,7 +544,6 @@ void kbase_device_early_term(struct kbase_device *kbdev)
 #endif /* CONFIG_MALI_ARBITER_SUPPORT */
 	kbase_pm_runtime_term(kbdev);
 	kbasep_platform_device_term(kbdev);
-	kbase_ktrace_term(kbdev);
 }
 
 int kbase_device_late_init(struct kbase_device *kbdev)

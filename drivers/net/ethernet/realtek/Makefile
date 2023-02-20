@@ -10,5 +10,5 @@ obj-$(CONFIG_R8168) += r8168/
 r8169-objs += r8169_main.o r8169_firmware.o r8169_phy_config.o
 obj-$(CONFIG_R8169) += r8169.o
 
-obj-${CONFIG_R8125} += r8125/
+obj-${CONFIG_R8125} += r8125_vendor/
 obj-${CONFIG_REALTEK_PGTOOL} += realtek_pgtool/

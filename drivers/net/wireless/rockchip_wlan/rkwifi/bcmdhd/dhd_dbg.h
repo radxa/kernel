@@ -120,9 +120,9 @@ extern char* dhd_dbg_get_system_timestamp(void);
 #endif /* DHD_LOG_DUMP */
 
 #if defined(CUSTOMER_DBG_SYSTEM_TIME) && defined(DHD_DEBUGABILITY_LOG_DUMP_RING)
-#define DBG_PRINT_PREFIX "[%s][dhd][wlan]", dhd_dbg_get_system_timestamp()
+#define DBG_PRINT_PREFIX "[%s][dhd] ", dhd_dbg_get_system_timestamp()
 #else
-#define DBG_PRINT_PREFIX
+#define DBG_PRINT_PREFIX "[dhd] "
 #endif
 #define DBG_PRINT_SYSTEM_TIME pr_cont(DBG_PRINT_PREFIX)
 
@@ -163,7 +163,8 @@ do {	\
 #define DHD_ERROR(args)	\
 do {	\
 	if (dhd_msg_level & DHD_ERROR_VAL) {	\
-		printf args;		\
+		DBG_PRINT_SYSTEM_TIME;	\
+		pr_cont args;		\
 		DHD_LOG_DUMP_WRITE_TS;	\
 		DHD_LOG_DUMP_WRITE args;	\
 	}	\
@@ -237,7 +238,8 @@ do {	\
 do {	\
 	if (dhd_msg_level & DHD_ERROR_VAL) {	\
 		if (dhd_msg_level & DHD_ERROR_MEM_VAL) {	\
-			printf args;		\
+			DBG_PRINT_SYSTEM_TIME;	\
+			pr_cont args;		\
 		}	\
 		DHD_LOG_DUMP_WRITE args;	\
 	}	\
@@ -246,7 +248,8 @@ do {	\
 do {	\
 	if (dhd_msg_level & DHD_ERROR_VAL) {	\
 		if (dhd_msg_level & DHD_IOVAR_MEM_VAL) {	\
-			printf args;		\
+			DBG_PRINT_SYSTEM_TIME;	\
+			pr_cont args;		\
 		}	\
 		DHD_LOG_DUMP_WRITE args;	\
 	}	\
@@ -261,7 +264,8 @@ do {	\
 #define DHD_EVENT(args) \
 do {	\
 	if (dhd_msg_level & DHD_EVENT_VAL) {	\
-		printf args;		\
+		DBG_PRINT_SYSTEM_TIME;	\
+		pr_cont args;		\
 		DHD_LOG_DUMP_WRITE_PRSRV_TS;	\
 		DHD_LOG_DUMP_WRITE_PRSRV args;	\
 	}	\
@@ -270,6 +274,7 @@ do {	\
 do {	\
 	if (dhd_msg_level & DHD_EVENT_VAL) {	\
 		if (dhd_msg_level & DHD_PRSRV_MEM_VAL) {	\
+			DBG_PRINT_SYSTEM_TIME;	\
 			printf args;		\
 		}	\
 		DHD_LOG_DUMP_WRITE_TS;		\
@@ -285,7 +290,8 @@ do {	\
 do {	\
 	if (dhd_msg_level & DHD_EVENT_VAL) {	\
 		if (dhd_msg_level & DHD_MSGTRACE_VAL) { \
-			printf args;		\
+			DBG_PRINT_SYSTEM_TIME;	\
+			pr_cont args;		\
 			DHD_LOG_DUMP_WRITE_TS;		\
 			DHD_LOG_DUMP_WRITE args;	\
 		}	\
@@ -294,7 +300,8 @@ do {	\
 #define DHD_ERROR_EX(args)					\
 do {										\
 	if (dhd_msg_level & DHD_ERROR_VAL) {    \
-		printf args;		\
+		DBG_PRINT_SYSTEM_TIME;	\
+		pr_cont args;		\
 		DHD_LOG_DUMP_WRITE_EX_TS;	\
 		DHD_LOG_DUMP_WRITE_EX args;	\
 	}	\
@@ -302,7 +309,8 @@ do {										\
 #define DHD_MSGTRACE_LOG(args)	\
 do {	\
 	if (dhd_msg_level & DHD_MSGTRACE_VAL) {	\
-		printf args;		\
+		DBG_PRINT_SYSTEM_TIME;	\
+		pr_cont args;		\
 	}	\
 	DHD_LOG_DUMP_WRITE_TS;		\
 	DHD_LOG_DUMP_WRITE args;	\
@@ -311,7 +319,8 @@ do {	\
 #define DHD_ERROR_ROAM(args)	\
 do {	\
 	if (dhd_msg_level & DHD_ERROR_VAL) {	\
-		printf args;		\
+		DBG_PRINT_SYSTEM_TIME;	\
+		pr_cont args;		\
 		DHD_LOG_DUMP_WRITE_ROAM_TS;	\
 		DHD_LOG_DUMP_WRITE_ROAM args;	\
 	}	\
@@ -343,7 +352,6 @@ do {	\
 #define DHD_REORDER(args)	do {if (dhd_msg_level & DHD_REORDER_VAL) printf args;} while (0)
 #define DHD_PNO(args)		do {if (dhd_msg_level & DHD_PNO_VAL) printf args;} while (0)
 #define DHD_RTT(args)		do {if (dhd_msg_level & DHD_RTT_VAL) printf args;} while (0)
-#define DHD_RPM(args)		do {if (dhd_msg_level & DHD_RPM_VAL) printf args;} while (0)
 #define DHD_PKT_MON(args)	do {if (dhd_msg_level & DHD_PKT_MON_VAL) printf args;} while (0)
 
 #if defined(DHD_LOG_DUMP)

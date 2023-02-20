@@ -42,6 +42,9 @@ masquerade_tg(struct sk_buff *skb, const struct xt_action_param *par)
 	range.min_proto = mr->range[0].min;
 	range.max_proto = mr->range[0].max;
 
+       range.min_addr.ip = mr->range[0].min_ip;
+       range.max_addr.ip = mr->range[0].max_ip;
+
 	return nf_nat_masquerade_ipv4(skb, xt_hooknum(par), &range,
 				      xt_out(par));
 }

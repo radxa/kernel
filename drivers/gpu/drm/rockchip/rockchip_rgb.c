@@ -134,7 +134,6 @@ struct rockchip_rgb {
 	struct phy *phy;
 	struct regmap *grf;
 	bool data_sync_bypass;
-	bool is_mcu_panel;
 	const struct rockchip_rgb_funcs *funcs;
 	struct rockchip_drm_sub_dev sub_dev;
 };
@@ -147,11 +146,6 @@ static inline struct rockchip_rgb *connector_to_rgb(struct drm_connector *c)
 static inline struct rockchip_rgb *encoder_to_rgb(struct drm_encoder *e)
 {
 	return container_of(e, struct rockchip_rgb, encoder);
-}
-
-static inline struct rockchip_mcu_panel *to_rockchip_mcu_panel(struct drm_panel *panel)
-{
-	return container_of(panel, struct rockchip_mcu_panel, base);
 }
 
 static enum drm_connector_status
@@ -308,24 +302,13 @@ rockchip_rgb_encoder_atomic_check(struct drm_encoder *encoder,
 	return 0;
 }
 
-static int rockchip_rgb_encoder_loader_protect(struct drm_encoder *encoder,
-					       bool on)
+static void rockchip_rgb_encoder_loader_protect(struct drm_encoder *encoder,
+						bool on)
 {
 	struct rockchip_rgb *rgb = encoder_to_rgb(encoder);
 
-	if (rgb->is_mcu_panel) {
-		struct rockchip_mcu_panel *mcu_panel = to_rockchip_mcu_panel(rgb->panel);
-
-		mcu_panel->prepared = true;
-		mcu_panel->enabled = true;
-
-		return 0;
-	}
-
 	if (rgb->panel)
 		panel_simple_loader_protect(rgb->panel);
-
-	return 0;
 }
 
 static enum drm_mode_status
@@ -333,18 +316,14 @@ rockchip_rgb_encoder_mode_valid(struct drm_encoder *encoder,
 				 const struct drm_display_mode *mode)
 {
 	struct rockchip_rgb *rgb = encoder_to_rgb(encoder);
-	struct device *dev = rgb->dev;
 	u32 request_clock = mode->clock;
 	u32 max_clock = rgb->max_dclk_rate;
 
 	if (mode->flags & DRM_MODE_FLAG_DBLCLK)
 		request_clock *= 2;
 
-	if (max_clock != 0 && request_clock > max_clock) {
-		DRM_DEV_ERROR(dev, "mode [%dx%d] clock %d is higher than max_clock %d\n",
-			      mode->hdisplay, mode->vdisplay, request_clock, max_clock);
+	if (max_clock != 0 && request_clock > max_clock)
 		return MODE_CLOCK_HIGH;
-	}
 
 	return MODE_OK;
 }
@@ -418,6 +397,11 @@ static int rockchip_mcu_panel_parse_cmd_seq(struct device *dev,
 	}
 
 	return 0;
+}
+
+static inline struct rockchip_mcu_panel *to_rockchip_mcu_panel(struct drm_panel *panel)
+{
+	return container_of(panel, struct rockchip_mcu_panel, base);
 }
 
 static int rockchip_mcu_panel_init(struct rockchip_rgb *rgb, struct device_node *np_mcu_panel)
@@ -773,8 +757,6 @@ static int rockchip_rgb_bind(struct device *dev, struct device *master,
 			       DRM_MODE_CONNECTOR_DPI);
 
 		drm_panel_add(&mcu_panel->base);
-
-		rgb->is_mcu_panel = true;
 	} else {
 		ret = drm_of_find_panel_or_bridge(dev->of_node, 1, -1,
 						  &rgb->panel, &rgb->bridge);
@@ -850,7 +832,7 @@ static void rockchip_rgb_unbind(struct device *dev, struct device *master,
 	struct rockchip_rgb *rgb = dev_get_drvdata(dev);
 
 	if (rgb->sub_dev.connector)
-		rockchip_drm_unregister_sub_dev(&rgb->sub_dev);
+		rockchip_drm_register_sub_dev(&rgb->sub_dev);
 	if (rgb->panel)
 		drm_connector_cleanup(&rgb->connector);
 

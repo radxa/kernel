@@ -881,9 +881,7 @@ u32 sfc_nand_read_page(u8 cs, u32 addr, u32 *p_data, u32 *p_spare)
 	u32 sec_per_page = p_nand_info->sec_per_page;
 	u32 data_size = sec_per_page * SFC_NAND_SECTOR_SIZE;
 	struct nand_mega_area *meta = &p_nand_info->meta;
-	int retries = 0;
 
-retry:
 	ret = sfc_nand_read_page_raw(cs, addr, gp_page_buf);
 	memcpy(p_data, gp_page_buf, data_size);
 	p_spare[0] = gp_page_buf[(data_size + meta->off0) / 4];
@@ -905,10 +903,6 @@ retry:
 
 		if (p_spare)
 			rkflash_print_hex("spare:", p_spare, 4, 2);
-		if (ret == SFC_NAND_ECC_ERROR && retries < 1) {
-			retries++;
-			goto retry;
-		}
 	}
 
 	return ret;
@@ -1064,8 +1058,7 @@ u32 sfc_nand_init(void)
 		return (u32)FTL_UNSUPPORTED_FLASH;
 	}
 
-	if (!gp_page_buf)
-		gp_page_buf = (u32 *)__get_free_pages(GFP_KERNEL | GFP_DMA32, get_order(SFC_NAND_PAGE_MAX_SIZE));
+	gp_page_buf = (u32 *)__get_free_pages(GFP_KERNEL | GFP_DMA32, get_order(SFC_NAND_PAGE_MAX_SIZE));
 	if (!gp_page_buf)
 		return -ENOMEM;
 
@@ -1081,8 +1074,7 @@ u32 sfc_nand_init(void)
 	sfc_nand_dev.prog_lines = DATA_LINES_X1;
 	sfc_nand_dev.page_read_cmd = 0x03;
 	sfc_nand_dev.page_prog_cmd = 0x02;
-	if (!sfc_nand_dev.recheck_buffer)
-		sfc_nand_dev.recheck_buffer = (u8 *)__get_free_pages(GFP_KERNEL | GFP_DMA32, get_order(SFC_NAND_PAGE_MAX_SIZE));
+	sfc_nand_dev.recheck_buffer = (u8 *)__get_free_pages(GFP_KERNEL | GFP_DMA32, get_order(SFC_NAND_PAGE_MAX_SIZE));
 	if (!sfc_nand_dev.recheck_buffer) {
 		pr_err("%s recheck_buffer alloc failed\n", __func__);
 		return -ENOMEM;

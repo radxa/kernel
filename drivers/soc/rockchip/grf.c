@@ -195,11 +195,9 @@ static const struct rockchip_grf_info rk3328_grf __initconst = {
 };
 
 #define RK3308_GRF_SOC_CON3		0x30c
-#define RK3308_GRF_SOC_CON13		0x608
 
 static const struct rockchip_grf_value rk3308_defaults[] __initconst = {
 	{ "uart dma mask", RK3308_GRF_SOC_CON3, HIWORD_UPDATE(0, 0x1f, 10) },
-	{ "uart2 auto switching", RK3308_GRF_SOC_CON13, HIWORD_UPDATE(0, 0x1, 12) },
 };
 
 static const struct rockchip_grf_info rk3308_grf __initconst = {
@@ -322,12 +320,14 @@ static int __init rockchip_grf_init(void)
 		return -ENODEV;
 	if (!match || !match->data) {
 		pr_err("%s: missing grf data\n", __func__);
+		of_node_put(np);
 		return -EINVAL;
 	}
 
 	grf_info = match->data;
 
 	grf = syscon_node_to_regmap(np);
+	of_node_put(np);
 	if (IS_ERR(grf)) {
 		pr_err("%s: could not get grf syscon\n", __func__);
 		return PTR_ERR(grf);

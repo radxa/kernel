@@ -18,7 +18,6 @@
 #include <linux/workqueue.h>
 #include <linux/rk-camera-module.h>
 #include <linux/rkcif-config.h>
-#include <linux/soc/rockchip/rockchip_thunderboot_service.h>
 
 #include "regs.h"
 #include "version.h"
@@ -78,6 +77,8 @@
 #define RKCIF_DEFAULT_HEIGHT	480
 #define RKCIF_FS_DETECTED_NUM	2
 
+#define RKCIF_RX_BUF_MAX	8
+
 #define RKCIF_MAX_INTERVAL_NS	5000000
 /*
  * for HDR mode sync buf
@@ -104,8 +105,7 @@ enum rkcif_stream_mode {
 	RKCIF_STREAM_MODE_NONE = 0x0,
 	RKCIF_STREAM_MODE_CAPTURE = 0x01,
 	RKCIF_STREAM_MODE_TOISP = 0x02,
-	RKCIF_STREAM_MODE_TOSCALE = 0x04,
-	RKCIF_STREAM_MODE_TOISP_RDBK = 0x08
+	RKCIF_STREAM_MODE_TOSCALE = 0x04
 };
 
 enum rkcif_yuvaddr_state {
@@ -201,7 +201,6 @@ struct rkcif_dummy_buffer {
 	bool is_need_vaddr;
 	bool is_need_dbuf;
 	bool is_need_dmafd;
-	bool is_free;
 };
 
 struct rkcif_tools_buffer {
@@ -405,7 +404,7 @@ struct rkcif_timer {
 	unsigned int		run_cnt;
 	unsigned int		max_run_cnt;
 	unsigned int		stop_index_of_run_cnt;
-	unsigned int		last_buf_wakeup_cnt[RKCIF_MAX_STREAM_MIPI];
+	unsigned int		last_buf_wakeup_cnt;
 	unsigned long		csi2_err_cnt_even;
 	unsigned long		csi2_err_cnt_odd;
 	unsigned int		csi2_err_ref_cnt;
@@ -426,7 +425,6 @@ struct rkcif_timer {
 	bool			is_running;
 	bool			is_csi2_err_occurred;
 	bool			has_been_init;
-	bool			is_ctrl_by_user;
 	enum rkcif_monitor_mode	monitor_mode;
 	enum rkmodule_reset_src	reset_src;
 };
@@ -442,17 +440,9 @@ enum rkcif_capture_mode {
 	RKCIF_TO_ISP_DMA,
 };
 
-/*
- * list: used for buf rotation
- * list_free: only used to release buf asynchronously
- */
 struct rkcif_rx_buffer {
-	int buf_idx;
-	struct list_head list;
-	struct list_head list_free;
 	struct rkisp_rx_buf dbufs;
 	struct rkcif_dummy_buffer dummy;
-	struct rkisp_thunderboot_shmem shmem;
 };
 
 enum rkcif_dma_en_mode {
@@ -523,15 +513,12 @@ struct rkcif_stream {
 	int				buf_replace_cnt;
 	struct list_head		rx_buf_head_vicap;
 	unsigned int			cur_stream_mode;
-	struct rkcif_rx_buffer		rx_buf[RKISP_VICAP_BUF_CNT_MAX];
+	struct rkcif_rx_buffer		rx_buf[RKCIF_RX_BUF_MAX];
 	struct list_head		rx_buf_head;
 	int				buf_num_toisp;
 	u64				line_int_cnt;
 	int				lack_buf_cnt;
-	unsigned int                    buf_wake_up_cnt;
 	struct rkcif_skip_info		skip_info;
-	int				last_rx_buf_idx;
-	int				last_frame_idx;
 	bool				stopping;
 	bool				crop_enable;
 	bool				crop_dyn_en;
@@ -544,9 +531,6 @@ struct rkcif_stream {
 	bool				is_buf_active;
 	bool				is_high_align;
 	bool				to_en_scale;
-	bool				is_finish_stop_dma;
-	bool				is_in_vblank;
-	bool				is_change_toisp;
 };
 
 struct rkcif_lvds_subdev {
@@ -795,7 +779,6 @@ struct rkcif_device {
 	bool				can_be_reset;
 	struct rkmodule_hdr_cfg		hdr;
 	struct rkcif_buffer		*rdbk_buf[RDBK_MAX];
-	struct rkcif_rx_buffer		*rdbk_rx_buf[RDBK_MAX];
 	struct rkcif_luma_vdev		luma_vdev;
 	struct rkcif_lvds_subdev	lvds_subdev;
 	struct rkcif_dvp_sof_subdev	dvp_sof_subdev;
@@ -807,8 +790,9 @@ struct rkcif_device {
 	struct proc_dir_entry		*proc_dir;
 	struct rkcif_irq_stats		irq_stats;
 	spinlock_t			hdr_lock; /* lock for hdr buf sync */
-	spinlock_t			buffree_lock;
 	struct rkcif_timer		reset_watchdog_timer;
+	unsigned int			buf_wake_up_cnt;
+	struct notifier_block		reset_notifier; /* reset for mipi csi crc err */
 	struct rkcif_work_struct	reset_work;
 	int				id_use_cnt;
 	unsigned int			csi_host_idx;
@@ -818,22 +802,13 @@ struct rkcif_device {
 	unsigned int			wait_line_cache;
 	struct rkcif_dummy_buffer	dummy_buf;
 	struct completion		cmpl_ntf;
-	struct csi2_dphy_hw		*dphy_hw;
-	phys_addr_t			resmem_pa;
-	size_t				resmem_size;
-	struct rk_tb_client		tb_client;
 	bool				is_start_hdr;
 	bool				reset_work_cancel;
 	bool				iommu_en;
 	bool				is_use_dummybuf;
 	bool				is_notifier_isp;
-	bool				is_thunderboot;
-	int				rdbk_debug;
 	int				sync_type;
 	int				sditf_cnt;
-	u32				early_line;
-	int				isp_runtime_max;
-	int				sensor_linetime;
 };
 
 extern struct platform_driver rkcif_plat_drv;
@@ -906,15 +881,5 @@ void rkcif_enable_dma_capture(struct rkcif_stream *stream, bool is_only_enable);
 void rkcif_do_soft_reset(struct rkcif_device *dev);
 
 u32 rkcif_mbus_pixelcode_to_v4l2(u32 pixelcode);
-
-void rkcif_config_dvp_pin(struct rkcif_device *dev, bool on);
-
-s32 rkcif_get_sensor_vblank_def(struct rkcif_device *dev);
-s32 rkcif_get_sensor_vblank(struct rkcif_device *dev);
-int rkcif_get_linetime(struct rkcif_stream *stream);
-
-void rkcif_assign_check_buffer_update_toisp(struct rkcif_stream *stream);
-
-struct rkcif_rx_buffer *to_cif_rx_buf(struct rkisp_rx_buf *dbufs);
 
 #endif

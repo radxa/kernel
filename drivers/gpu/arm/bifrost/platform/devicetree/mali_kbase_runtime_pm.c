@@ -29,7 +29,6 @@
 
 #include "mali_kbase_config_platform.h"
 
-
 static void enable_gpu_power_control(struct kbase_device *kbdev)
 {
 	unsigned int i;
@@ -50,6 +49,7 @@ static void enable_gpu_power_control(struct kbase_device *kbdev)
 			WARN_ON(clk_prepare_enable(kbdev->clocks[i]));
 	}
 }
+
 
 static void disable_gpu_power_control(struct kbase_device *kbdev)
 {
@@ -99,8 +99,9 @@ static int pm_callback_power_on(struct kbase_device *kbdev)
 #else
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
 
-#ifdef KBASE_PM_RUNTIME
 	error = pm_runtime_get_sync(kbdev->dev);
+	enable_gpu_power_control(kbdev);
+
 	if (error == 1) {
 		/*
 		 * Let core know that the chip has not been
@@ -108,11 +109,8 @@ static int pm_callback_power_on(struct kbase_device *kbdev)
 		 */
 		ret = 0;
 	}
-	dev_dbg(kbdev->dev, "pm_runtime_get_sync returned %d\n", error);
-#else
-	enable_gpu_power_control(kbdev);
-#endif /* KBASE_PM_RUNTIME */
 
+	dev_dbg(kbdev->dev, "pm_runtime_get_sync returned %d\n", error);
 #endif /* MALI_USE_CSF */
 
 	return ret;
@@ -245,9 +243,7 @@ static int pm_callback_runtime_on(struct kbase_device *kbdev)
 {
 	dev_dbg(kbdev->dev, "%s\n", __func__);
 
-#if !MALI_USE_CSF
 	enable_gpu_power_control(kbdev);
-#endif
 	return 0;
 }
 
@@ -255,9 +251,7 @@ static void pm_callback_runtime_off(struct kbase_device *kbdev)
 {
 	dev_dbg(kbdev->dev, "%s\n", __func__);
 
-#if !MALI_USE_CSF
 	disable_gpu_power_control(kbdev);
-#endif
 }
 
 static void pm_callback_resume(struct kbase_device *kbdev)

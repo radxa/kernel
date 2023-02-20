@@ -435,12 +435,6 @@ static int hdmi_codec_startup(struct snd_pcm_substream *substream,
 	int ret = 0;
 
 	mutex_lock(&hcp->lock);
-	if (!tx) {
-		dev_err(dai->dev, "hdmi_codec_startup doesn't support capture\n");
-		mutex_unlock(&hcp->lock);
-		return -EINVAL;
-	}
-
 	if (hcp->busy) {
 		dev_err(dai->dev, "Only one simultaneous stream supported!\n");
 		mutex_unlock(&hcp->lock);

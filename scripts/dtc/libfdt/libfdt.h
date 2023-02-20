@@ -14,7 +14,6 @@ extern "C" {
 #endif
 
 #define FDT_FIRST_SUPPORTED_VERSION	0x02
-#define FDT_LAST_COMPATIBLE_VERSION 0x10
 #define FDT_LAST_SUPPORTED_VERSION	0x11
 
 /* Error codes: informative error codes */
@@ -102,11 +101,7 @@ extern "C" {
 	/* FDT_ERR_BADFLAGS: The function was passed a flags field that
 	 * contains invalid flags or an invalid combination of flags. */
 
-#define FDT_ERR_ALIGNMENT	19
-	/* FDT_ERR_ALIGNMENT: The device tree base address is not 8-byte
-	 * aligned. */
-
-#define FDT_ERR_MAX		19
+#define FDT_ERR_MAX		18
 
 /* constants */
 #define FDT_MAX_PHANDLE 0xfffffffe
@@ -127,10 +122,12 @@ static inline void *fdt_offset_ptr_w(void *fdt, int offset, int checklen)
 uint32_t fdt_next_tag(const void *fdt, int offset, int *nextoffset);
 
 /*
- * External helpers to access words from a device tree blob. They're built
- * to work even with unaligned pointers on platforms (such as ARMv5) that don't
- * like unaligned loads and stores.
+ * Alignment helpers:
+ *     These helpers access words from a device tree blob.  They're
+ *     built to work even with unaligned pointers on platforms (ike
+ *     ARM) that don't like unaligned loads and stores
  */
+
 static inline uint32_t fdt32_ld(const fdt32_t *p)
 {
 	const uint8_t *bp = (const uint8_t *)p;
@@ -187,23 +184,23 @@ int fdt_next_node(const void *fdt, int offset, int *depth);
 
 /**
  * fdt_first_subnode() - get offset of first direct subnode
+ *
  * @fdt:	FDT blob
  * @offset:	Offset of node to check
- *
- * Return: offset of first subnode, or -FDT_ERR_NOTFOUND if there is none
+ * @return offset of first subnode, or -FDT_ERR_NOTFOUND if there is none
  */
 int fdt_first_subnode(const void *fdt, int offset);
 
 /**
  * fdt_next_subnode() - get offset of next direct subnode
- * @fdt:	FDT blob
- * @offset:	Offset of previous subnode
  *
  * After first calling fdt_first_subnode(), call this function repeatedly to
  * get direct subnodes of a parent node.
  *
- * Return: offset of next subnode, or -FDT_ERR_NOTFOUND if there are no more
- *         subnodes
+ * @fdt:	FDT blob
+ * @offset:	Offset of previous subnode
+ * @return offset of next subnode, or -FDT_ERR_NOTFOUND if there are no more
+ * subnodes
  */
 int fdt_next_subnode(const void *fdt, int offset);
 
@@ -228,6 +225,7 @@ int fdt_next_subnode(const void *fdt, int offset);
  * Note that this is implemented as a macro and @node is used as
  * iterator in the loop. The parent variable be constant or even a
  * literal.
+ *
  */
 #define fdt_for_each_subnode(node, fdt, parent)		\
 	for (node = fdt_first_subnode(fdt, parent);	\
@@ -271,21 +269,17 @@ fdt_set_hdr_(size_dt_struct);
 /**
  * fdt_header_size - return the size of the tree's header
  * @fdt: pointer to a flattened device tree
- *
- * Return: size of DTB header in bytes
  */
 size_t fdt_header_size(const void *fdt);
 
 /**
- * fdt_header_size_ - internal function to get header size from a version number
- * @version: devicetree version number
- *
- * Return: size of DTB header in bytes
+ * fdt_header_size_ - internal function which takes a version number
  */
 size_t fdt_header_size_(uint32_t version);
 
 /**
  * fdt_check_header - sanity check a device tree header
+
  * @fdt: pointer to data which might be a flattened device tree
  *
  * fdt_check_header() checks that the given buffer contains what
@@ -410,7 +404,8 @@ static inline uint32_t fdt_get_max_phandle(const void *fdt)
  * highest phandle value in the device tree blob) will be returned in the
  * @phandle parameter.
  *
- * Return: 0 on success or a negative error-code on failure
+ * Returns:
+ *   0 on success or a negative error-code on failure
  */
 int fdt_generate_phandle(const void *fdt, uint32_t *phandle);
 
@@ -430,11 +425,9 @@ int fdt_num_mem_rsv(const void *fdt);
 /**
  * fdt_get_mem_rsv - retrieve one memory reserve map entry
  * @fdt: pointer to the device tree blob
- * @n: index of reserve map entry
- * @address: pointer to 64-bit variable to hold the start address
- * @size: pointer to 64-bit variable to hold the size of the entry
+ * @address, @size: pointers to 64-bit variables
  *
- * On success, @address and @size will contain the address and size of
+ * On success, *address and *size will contain the address and size of
  * the n-th reserve map entry from the device tree blob, in
  * native-endian format.
  *
@@ -457,8 +450,6 @@ int fdt_get_mem_rsv(const void *fdt, int n, uint64_t *address, uint64_t *size);
  * namelen characters of name for matching the subnode name.  This is
  * useful for finding subnodes based on a portion of a larger string,
  * such as a full path.
- *
- * Return: offset of the subnode or -FDT_ERR_NOTFOUND if name not found.
  */
 #ifndef SWIG /* Not available in Python */
 int fdt_subnode_offset_namelen(const void *fdt, int parentoffset,
@@ -498,8 +489,6 @@ int fdt_subnode_offset(const void *fdt, int parentoffset, const char *name);
  *
  * Identical to fdt_path_offset(), but only consider the first namelen
  * characters of path as the path name.
- *
- * Return: offset of the node or negative libfdt error value otherwise
  */
 #ifndef SWIG /* Not available in Python */
 int fdt_path_offset_namelen(const void *fdt, const char *path, int namelen);
@@ -599,9 +588,9 @@ int fdt_next_property_offset(const void *fdt, int offset);
 /**
  * fdt_for_each_property_offset - iterate over all properties of a node
  *
- * @property:	property offset (int, lvalue)
- * @fdt:	FDT blob (const void *)
- * @node:	node offset (int)
+ * @property_offset:	property offset (int, lvalue)
+ * @fdt:		FDT blob (const void *)
+ * @node:		node offset (int)
  *
  * This is actually a wrapper around a for loop and would be used like so:
  *
@@ -664,9 +653,6 @@ const struct fdt_property *fdt_get_property_by_offset(const void *fdt,
  *
  * Identical to fdt_get_property(), but only examine the first namelen
  * characters of name for matching the property name.
- *
- * Return: pointer to the structure representing the property, or NULL
- *         if not found
  */
 #ifndef SWIG /* Not available in Python */
 const struct fdt_property *fdt_get_property_namelen(const void *fdt,
@@ -759,8 +745,6 @@ const void *fdt_getprop_by_offset(const void *fdt, int offset,
  *
  * Identical to fdt_getprop(), but only examine the first namelen
  * characters of name for matching the property name.
- *
- * Return: pointer to the property's value or NULL on error
  */
 #ifndef SWIG /* Not available in Python */
 const void *fdt_getprop_namelen(const void *fdt, int nodeoffset,
@@ -782,10 +766,10 @@ static inline void *fdt_getprop_namelen_w(void *fdt, int nodeoffset,
  * @lenp: pointer to an integer variable (will be overwritten) or NULL
  *
  * fdt_getprop() retrieves a pointer to the value of the property
- * named @name of the node at offset @nodeoffset (this will be a
+ * named 'name' of the node at offset nodeoffset (this will be a
  * pointer to within the device blob itself, not a copy of the value).
- * If @lenp is non-NULL, the length of the property value is also
- * returned, in the integer pointed to by @lenp.
+ * If lenp is non-NULL, the length of the property value is also
+ * returned, in the integer pointed to by lenp.
  *
  * returns:
  *	pointer to the property's value
@@ -830,11 +814,8 @@ uint32_t fdt_get_phandle(const void *fdt, int nodeoffset);
  * @name: name of the alias th look up
  * @namelen: number of characters of name to consider
  *
- * Identical to fdt_get_alias(), but only examine the first @namelen
- * characters of @name for matching the alias name.
- *
- * Return: a pointer to the expansion of the alias named @name, if it exists,
- *	   NULL otherwise
+ * Identical to fdt_get_alias(), but only examine the first namelen
+ * characters of name for matching the alias name.
  */
 #ifndef SWIG /* Not available in Python */
 const char *fdt_get_alias_namelen(const void *fdt,
@@ -847,7 +828,7 @@ const char *fdt_get_alias_namelen(const void *fdt,
  * @name: name of the alias th look up
  *
  * fdt_get_alias() retrieves the value of a given alias.  That is, the
- * value of the property named @name in the node /aliases.
+ * value of the property named 'name' in the node /aliases.
  *
  * returns:
  *	a pointer to the expansion of the alias named 'name', if it exists
@@ -1023,13 +1004,14 @@ int fdt_node_offset_by_prop_value(const void *fdt, int startoffset,
 int fdt_node_offset_by_phandle(const void *fdt, uint32_t phandle);
 
 /**
- * fdt_node_check_compatible - check a node's compatible property
+ * fdt_node_check_compatible: check a node's compatible property
  * @fdt: pointer to the device tree blob
  * @nodeoffset: offset of a tree node
  * @compatible: string to match against
  *
+ *
  * fdt_node_check_compatible() returns 0 if the given node contains a
- * @compatible property with the given string as one of its elements,
+ * 'compatible' property with the given string as one of its elements,
  * it returns non-zero otherwise, or on error.
  *
  * returns:
@@ -1093,7 +1075,7 @@ int fdt_node_offset_by_compatible(const void *fdt, int startoffset,
  * one or more strings, each terminated by \0, as is found in a device tree
  * "compatible" property.
  *
- * Return: 1 if the string is found in the list, 0 not found, or invalid list
+ * @return: 1 if the string is found in the list, 0 not found, or invalid list
  */
 int fdt_stringlist_contains(const char *strlist, int listlen, const char *str);
 
@@ -1102,8 +1084,7 @@ int fdt_stringlist_contains(const char *strlist, int listlen, const char *str);
  * @fdt: pointer to the device tree blob
  * @nodeoffset: offset of a tree node
  * @property: name of the property containing the string list
- *
- * Return:
+ * @return:
  *   the number of strings in the given property
  *   -FDT_ERR_BADVALUE if the property value is not NUL-terminated
  *   -FDT_ERR_NOTFOUND if the property does not exist
@@ -1123,7 +1104,7 @@ int fdt_stringlist_count(const void *fdt, int nodeoffset, const char *property);
  * small-valued cell properties, such as #address-cells, when searching for
  * the empty string.
  *
- * return:
+ * @return:
  *   the index of the string in the list of strings
  *   -FDT_ERR_BADVALUE if the property value is not NUL-terminated
  *   -FDT_ERR_NOTFOUND if the property does not exist or does not contain
@@ -1147,7 +1128,7 @@ int fdt_stringlist_search(const void *fdt, int nodeoffset, const char *property,
  * If non-NULL, the length of the string (on success) or a negative error-code
  * (on failure) will be stored in the integer pointer to by lenp.
  *
- * Return:
+ * @return:
  *   A pointer to the string at the given index in the string list or NULL on
  *   failure. On success the length of the string will be stored in the memory
  *   location pointed to by the lenp parameter, if non-NULL. On failure one of
@@ -1236,8 +1217,6 @@ int fdt_size_cells(const void *fdt, int nodeoffset);
  * starting from the given index, and using only the first characters
  * of the name. It is useful when you want to manipulate only one value of
  * an array and you have a string that doesn't end with \0.
- *
- * Return: 0 on success, negative libfdt error value otherwise
  */
 #ifndef SWIG /* Not available in Python */
 int fdt_setprop_inplace_namelen_partial(void *fdt, int nodeoffset,
@@ -1351,13 +1330,8 @@ static inline int fdt_setprop_inplace_u64(void *fdt, int nodeoffset,
 
 /**
  * fdt_setprop_inplace_cell - change the value of a single-cell property
- * @fdt: pointer to the device tree blob
- * @nodeoffset: offset of the node containing the property
- * @name: name of the property to change the value of
- * @val: new value of the 32-bit cell
  *
  * This is an alternative name for fdt_setprop_inplace_u32()
- * Return: 0 on success, negative libfdt error number otherwise.
  */
 static inline int fdt_setprop_inplace_cell(void *fdt, int nodeoffset,
 					   const char *name, uint32_t val)
@@ -1429,7 +1403,7 @@ int fdt_nop_node(void *fdt, int nodeoffset);
 
 /**
  * fdt_create_with_flags - begin creation of a new fdt
- * @buf: pointer to memory allocated where fdt will be created
+ * @fdt: pointer to memory allocated where fdt will be created
  * @bufsize: size of the memory space at fdt
  * @flags: a valid combination of FDT_CREATE_FLAG_ flags, or 0.
  *
@@ -1447,7 +1421,7 @@ int fdt_create_with_flags(void *buf, int bufsize, uint32_t flags);
 
 /**
  * fdt_create - begin creation of a new fdt
- * @buf: pointer to memory allocated where fdt will be created
+ * @fdt: pointer to memory allocated where fdt will be created
  * @bufsize: size of the memory space at fdt
  *
  * fdt_create() is equivalent to fdt_create_with_flags() with flags=0.
@@ -1512,8 +1486,7 @@ int fdt_pack(void *fdt);
 /**
  * fdt_add_mem_rsv - add one memory reserve map entry
  * @fdt: pointer to the device tree blob
- * @address: 64-bit start address of the reserve map entry
- * @size: 64-bit size of the reserved region
+ * @address, @size: 64-bit values (native endian)
  *
  * Adds a reserve map entry to the given blob reserving a region at
  * address address of length size.
@@ -1718,14 +1691,8 @@ static inline int fdt_setprop_u64(void *fdt, int nodeoffset, const char *name,
 
 /**
  * fdt_setprop_cell - set a property to a single cell value
- * @fdt: pointer to the device tree blob
- * @nodeoffset: offset of the node whose property to change
- * @name: name of the property to change
- * @val: 32-bit integer value for the property (native endian)
  *
  * This is an alternative name for fdt_setprop_u32()
- *
- * Return: 0 on success, negative libfdt error value otherwise.
  */
 static inline int fdt_setprop_cell(void *fdt, int nodeoffset, const char *name,
 				   uint32_t val)
@@ -1896,14 +1863,8 @@ static inline int fdt_appendprop_u64(void *fdt, int nodeoffset,
 
 /**
  * fdt_appendprop_cell - append a single cell value to a property
- * @fdt: pointer to the device tree blob
- * @nodeoffset: offset of the node whose property to change
- * @name: name of the property to change
- * @val: 32-bit integer value to append to the property (native endian)
  *
  * This is an alternative name for fdt_appendprop_u32()
- *
- * Return: 0 on success, negative libfdt error value otherwise.
  */
 static inline int fdt_appendprop_cell(void *fdt, int nodeoffset,
 				      const char *name, uint32_t val)
@@ -2006,16 +1967,13 @@ int fdt_delprop(void *fdt, int nodeoffset, const char *name);
  * fdt_add_subnode_namelen - creates a new node based on substring
  * @fdt: pointer to the device tree blob
  * @parentoffset: structure block offset of a node
- * @name: name of the subnode to create
+ * @name: name of the subnode to locate
  * @namelen: number of characters of name to consider
  *
- * Identical to fdt_add_subnode(), but use only the first @namelen
- * characters of @name as the name of the new node.  This is useful for
+ * Identical to fdt_add_subnode(), but use only the first namelen
+ * characters of name as the name of the new node.  This is useful for
  * creating subnodes based on a portion of a larger string, such as a
  * full path.
- *
- * Return: structure block offset of the created subnode (>=0),
- *	   negative libfdt error value otherwise
  */
 #ifndef SWIG /* Not available in Python */
 int fdt_add_subnode_namelen(void *fdt, int parentoffset,
@@ -2034,7 +1992,7 @@ int fdt_add_subnode_namelen(void *fdt, int parentoffset,
  *
  * This function will insert data into the blob, and will therefore
  * change the offsets of some existing nodes.
- *
+
  * returns:
  *	structure block offset of the created nodeequested subnode (>=0), on
  *		success

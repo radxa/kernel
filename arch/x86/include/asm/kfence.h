@@ -56,13 +56,8 @@ static inline bool kfence_protect_page(unsigned long addr, bool protect)
 	else
 		set_pte(pte, __pte(pte_val(*pte) | _PAGE_PRESENT));
 
-	/*
-	 * Flush this CPU's TLB, assuming whoever did the allocation/free is
-	 * likely to continue running on this CPU.
-	 */
-	preempt_disable();
+	/* Flush this CPU's TLB. */
 	flush_tlb_one_kernel(addr);
-	preempt_enable();
 	return true;
 }
 

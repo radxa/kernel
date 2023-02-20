@@ -1747,6 +1747,14 @@ static int vop_plane_atomic_check(struct drm_plane *plane,
 	if (WARN_ON(!crtc_state))
 		return -EINVAL;
 
+	src->x1 = state->src_x;
+	src->y1 = state->src_y;
+	src->x2 = state->src_x + state->src_w;
+	src->y2 = state->src_y + state->src_h;
+	dest->x1 = state->crtc_x;
+	dest->y1 = state->crtc_y;
+	dest->x2 = state->crtc_x + state->crtc_w;
+	dest->y2 = state->crtc_y + state->crtc_h;
 	vop_plane_state->zpos = state->zpos;
 	vop_plane_state->blend_mode = state->pixel_blend_mode;
 
@@ -1756,22 +1764,8 @@ static int vop_plane_atomic_check(struct drm_plane *plane,
 	if (ret)
 		return ret;
 
-	if (!state->visible) {
-		DRM_ERROR("%s is invisible(src: pos[%d, %d] rect[%d x %d] dst: pos[%d, %d] rect[%d x %d]\n",
-			  plane->name, state->src_x >> 16, state->src_y >> 16, state->src_w >> 16,
-			  state->src_h >> 16, state->crtc_x, state->crtc_y, state->crtc_w,
-			  state->crtc_h);
+	if (!state->visible)
 		return 0;
-	}
-
-	src->x1 = state->src.x1;
-	src->y1 = state->src.y1;
-	src->x2 = state->src.x2;
-	src->y2 = state->src.y2;
-	dest->x1 = state->dst.x1;
-	dest->y1 = state->dst.y1;
-	dest->x2 = state->dst.x2;
-	dest->y2 = state->dst.y2;
 
 	vop_plane_state->format = vop_convert_format(fb->format->format);
 	if (vop_plane_state->format < 0)
@@ -1780,13 +1774,12 @@ static int vop_plane_atomic_check(struct drm_plane *plane,
 	vop = to_vop(crtc);
 	vop_data = vop->data;
 
-	if (drm_rect_width(src) >> 16 < 4 || drm_rect_height(src) >> 16 < 4 ||
-	    drm_rect_width(dest) < 4 || drm_rect_width(dest) < 4) {
+	if (state->src_w >> 16 < 4 || state->src_h >> 16 < 4 ||
+	    state->crtc_w < 4 || state->crtc_h < 4) {
 		DRM_ERROR("Invalid size: %dx%d->%dx%d, min size is 4x4\n",
-			  drm_rect_width(src) >> 16, drm_rect_height(src) >> 16,
-			  drm_rect_width(dest), drm_rect_height(dest));
-		state->visible = false;
-		return 0;
+			  state->src_w >> 16, state->src_h >> 16,
+			  state->crtc_w, state->crtc_h);
+		return -EINVAL;
 	}
 
 	if (drm_rect_width(src) >> 16 > vop_data->max_input.width ||
@@ -2743,12 +2736,7 @@ vop_crtc_mode_valid(struct drm_crtc *crtc, const struct drm_display_mode *mode)
 	    VOP_MINOR(vop->version) <= 2)
 		return MODE_BAD;
 
-	/*
-	 * Dclk need to be double if BT656 interface and vop version >= 2.12.
-	 */
-	if (mode->flags & DRM_MODE_FLAG_DBLCLK ||
-	    (VOP_MAJOR(vop->version) == 2 && VOP_MINOR(vop->version) >= 12 &&
-	     s->output_if & VOP_OUTPUT_IF_BT656))
+	if (mode->flags & DRM_MODE_FLAG_DBLCLK)
 		request_clock *= 2;
 	clock = clk_round_rate(vop->dclk, request_clock * 1000) / 1000;
 
@@ -3050,8 +3038,6 @@ static bool vop_crtc_mode_fixup(struct drm_crtc *crtc,
 {
 	struct vop *vop = to_vop(crtc);
 	const struct vop_data *vop_data = vop->data;
-	struct rockchip_crtc_state *s =
-			to_rockchip_crtc_state(crtc->state);
 
 	if (mode->hdisplay > vop_data->max_output.width)
 		return false;
@@ -3059,12 +3045,7 @@ static bool vop_crtc_mode_fixup(struct drm_crtc *crtc,
 	drm_mode_set_crtcinfo(adj_mode,
 			      CRTC_INTERLACE_HALVE_V | CRTC_STEREO_DOUBLE);
 
-	/*
-	 * Dclk need to be double if BT656 interface and vop version >= 2.12.
-	 */
-	if (mode->flags & DRM_MODE_FLAG_DBLCLK ||
-	    (VOP_MAJOR(vop->version) == 2 && VOP_MINOR(vop->version) >= 12 &&
-	     s->output_if & VOP_OUTPUT_IF_BT656))
+	if (mode->flags & DRM_MODE_FLAG_DBLCLK)
 		adj_mode->crtc_clock *= 2;
 
 	adj_mode->crtc_clock =
@@ -3275,9 +3256,6 @@ static void vop_crtc_atomic_enable(struct drm_crtc *crtc,
 		vop_mcu_mode(crtc);
 
 	dclk_inv = (s->bus_flags & DRM_BUS_FLAG_PIXDATA_DRIVE_NEGEDGE) ? 1 : 0;
-	/* For improving signal quality, dclk need to be inverted by default on rv1106. */
-	if ((VOP_MAJOR(vop->version) == 2 && VOP_MINOR(vop->version) == 12))
-		dclk_inv = !dclk_inv;
 
 	VOP_CTRL_SET(vop, dclk_pol, dclk_inv);
 	val = (adjusted_mode->flags & DRM_MODE_FLAG_NHSYNC) ?
@@ -4078,6 +4056,9 @@ static struct drm_crtc_state *vop_crtc_duplicate_state(struct drm_crtc *crtc)
 {
 	struct rockchip_crtc_state *rockchip_state, *old_state;
 
+	if (WARN_ON(!crtc->state))
+		return NULL;
+
 	old_state = to_rockchip_crtc_state(crtc->state);
 	rockchip_state = kmemdup(old_state, sizeof(*old_state), GFP_KERNEL);
 	if (!rockchip_state)
@@ -4499,7 +4480,7 @@ static int vop_plane_init(struct vop *vop, struct vop_win *win,
 		win->color_key_prop = drm_property_create_range(vop->drm_dev, 0,
 								"colorkey", 0, 0x80ffffff);
 	if (!win->input_width_prop || !win->input_height_prop ||
-	    !win->scale_prop) {
+	    !win->scale_prop || !win->color_key_prop) {
 		DRM_ERROR("failed to create property\n");
 		return -ENOMEM;
 	}
@@ -4509,8 +4490,7 @@ static int vop_plane_init(struct vop *vop, struct vop_win *win,
 	drm_object_attach_property(&win->base.base, win->output_width_prop, 0);
 	drm_object_attach_property(&win->base.base, win->output_height_prop, 0);
 	drm_object_attach_property(&win->base.base, win->scale_prop, 0);
-	if (VOP_WIN_SUPPORT(vop, win, color_key))
-		drm_object_attach_property(&win->base.base, win->color_key_prop, 0);
+	drm_object_attach_property(&win->base.base, win->color_key_prop, 0);
 
 	return 0;
 }

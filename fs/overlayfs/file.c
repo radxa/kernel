@@ -431,7 +431,6 @@ static ssize_t ovl_splice_write(struct pipe_inode_info *pipe, struct file *out,
 	/* Update mode */
 	ovl_copyattr(realinode, inode);
 	ret = file_remove_privs(out);
-	if (ret)
 		goto out_unlock;
 
 	ret = ovl_real_fdget(out, &real);
@@ -446,7 +445,7 @@ static ssize_t ovl_splice_write(struct pipe_inode_info *pipe, struct file *out,
 	file_end_write(real.file);
 	/* Update size */
 	ovl_copyattr(realinode, inode);
-	ovl_revert_creds(inode->i_sb, old_cred);
+	revert_creds(old_cred);
 	fdput(real);
 
 out_unlock:

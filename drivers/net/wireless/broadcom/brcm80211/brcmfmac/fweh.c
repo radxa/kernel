@@ -355,42 +355,26 @@ int brcmf_fweh_activate_events(struct brcmf_if *ifp)
 {
 	struct brcmf_pub *drvr = ifp->drvr;
 	int i, err;
-	struct eventmsgs_ext *eventmask_msg;
-	u32 msglen;
+	s8 eventmask[BRCMF_EVENTING_MASK_LEN];
 
-	msglen = EVENTMSGS_EXT_STRUCT_SIZE + BRCMF_EVENTING_MASK_LEN;
-	eventmask_msg = kzalloc(msglen, GFP_KERNEL);
-	if (!eventmask_msg)
-		return -ENOMEM;
-
+	memset(eventmask, 0, sizeof(eventmask));
 	for (i = 0; i < BRCMF_E_LAST; i++) {
 		if (ifp->drvr->fweh.evt_handler[i]) {
 			brcmf_dbg(EVENT, "enable event %s\n",
 				  brcmf_fweh_event_name(i));
-			setbit(eventmask_msg->mask, i);
+			setbit(eventmask, i);
 		}
 	}
 
 	/* want to handle IF event as well */
 	brcmf_dbg(EVENT, "enable event IF\n");
-	setbit(eventmask_msg->mask, BRCMF_E_IF);
+	setbit(eventmask, BRCMF_E_IF);
 
-	eventmask_msg->ver = EVENTMSGS_VER;
-	eventmask_msg->command = EVENTMSGS_SET_MASK;
-	eventmask_msg->len = BRCMF_EVENTING_MASK_LEN;
-
-	err = brcmf_fil_iovar_data_set(ifp, "event_msgs_ext", eventmask_msg,
-				       msglen);
-	if (!err)
-		goto end;
-
-	err = brcmf_fil_iovar_data_set(ifp, "event_msgs", eventmask_msg->mask,
-				       BRCMF_EVENTING_MASK_LEN);
+	err = brcmf_fil_iovar_data_set(ifp, "event_msgs",
+				       eventmask, BRCMF_EVENTING_MASK_LEN);
 	if (err)
 		bphy_err(drvr, "Set event_msgs error (%d)\n", err);
 
-end:
-	kfree(eventmask_msg);
 	return err;
 }
 

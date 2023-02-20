@@ -570,12 +570,12 @@ static int wifi_ctrlfunc_register_drv(void)
 	}
 	adapter->name = "DHD generic adapter";
 	adapter->index = -1;
-#if defined(BCMDHD_MDRIVER) && !defined(DHD_STATIC_IN_DRIVER)
+#ifdef BCMDHD_MDRIVER
 #ifdef BCMSDIO
 	adapter->index = 0;
-#elif defined(BCMPCIE)
+#elif BCMPCIE
 	adapter->index = 1;
-#elif defined(BCMDBUS)
+#elif BCMUSB
 	adapter->index = 2;
 #endif
 #endif

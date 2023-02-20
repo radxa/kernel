@@ -1136,6 +1136,9 @@ int add_memory_subsection(int nid, u64 start, u64 size)
 	struct resource *res;
 	int ret;
 
+	if (size == memory_block_size_bytes())
+		return add_memory(nid, start, size, MHP_NONE);
+
 	if (!IS_ALIGNED(start, SUBSECTION_SIZE) ||
 	    !IS_ALIGNED(size, SUBSECTION_SIZE)) {
 		pr_err("%s: start 0x%llx size 0x%llx not aligned to subsection size\n",
@@ -1541,7 +1544,7 @@ int __ref offline_pages(unsigned long start_pfn, unsigned long nr_pages)
 				       MEMORY_OFFLINE | REPORT_FAILURE, NULL);
 	if (ret) {
 		reason = "failure to isolate range";
-		goto failed_removal_lru_cache_disabled;
+		goto failed_removal;
 	}
 
 	drain_all_pages(zone);
@@ -1656,8 +1659,6 @@ int __ref offline_pages(unsigned long start_pfn, unsigned long nr_pages)
 failed_removal_isolated:
 	undo_isolate_page_range(start_pfn, end_pfn, MIGRATE_MOVABLE);
 	memory_notify(MEM_CANCEL_OFFLINE, &arg);
-failed_removal_lru_cache_disabled:
-	lru_cache_enable();
 failed_removal:
 	pr_debug("memory offlining [mem %#010llx-%#010llx] failed due to %s\n",
 		 (unsigned long long) start_pfn << PAGE_SHIFT,
@@ -1836,6 +1837,9 @@ EXPORT_SYMBOL_GPL(remove_memory);
 
 int remove_memory_subsection(int nid, u64 start, u64 size)
 {
+	if (size ==  memory_block_size_bytes())
+		return remove_memory(nid, start, size);
+
 	if (!IS_ALIGNED(start, SUBSECTION_SIZE) ||
 	    !IS_ALIGNED(size, SUBSECTION_SIZE)) {
 		pr_err("%s: start 0x%llx size 0x%llx not aligned to subsection size\n",

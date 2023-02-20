@@ -53,7 +53,7 @@ max96752f_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 	const struct drm_bridge_state *bridge_state;
 	bool oldi_format;
 
-	max96752f_init(des->parent);
+	max96752f_regcache_sync(des->parent);
 
 	bridge_state = drm_atomic_get_new_bridge_state(state, bridge);
 	switch (bridge_state->output_bus_cfg.format) {
@@ -97,6 +97,12 @@ max96752f_bridge_atomic_disable(struct drm_bridge *bridge,
 				struct drm_bridge_state *old_bridge_state)
 {
 	struct max96752f_bridge *des = to_max96752f_bridge(bridge);
+	struct drm_connector *connector =
+		drm_atomic_get_old_connector_for_encoder(old_bridge_state->base.state,
+							 bridge->encoder);
+
+	if (connector->status == connector_status_disconnected)
+		regcache_cache_only(des->regmap, true);
 
 	if (des->panel)
 		drm_panel_disable(des->panel);
@@ -141,19 +147,6 @@ max96752f_bridge_atomic_get_output_bus_fmts(struct drm_bridge *bridge,
 	return out_bus_fmts;
 }
 
-static bool max96752f_bridge_video_locked(struct max96752f_bridge *des)
-{
-	u32 val;
-
-	if (regmap_read(des->regmap, 0x0003, &val))
-		return false;
-
-	if (!FIELD_GET(VIDEO_LOCK, val))
-		return false;
-
-	return true;
-}
-
 static int max96752f_bridge_attach(struct drm_bridge *bridge,
 				   enum drm_bridge_attach_flags flags)
 {
@@ -164,13 +157,6 @@ static int max96752f_bridge_attach(struct drm_bridge *bridge,
 					  &des->next_bridge);
 	if (ret)
 		return ret;
-
-	if (max96752f_bridge_video_locked(des)) {
-		if (des->panel) {
-			drm_panel_prepare(des->panel);
-			drm_panel_enable(des->panel);
-		}
-	}
 
 	if (des->next_bridge)
 		return drm_bridge_attach(bridge->encoder, des->next_bridge,

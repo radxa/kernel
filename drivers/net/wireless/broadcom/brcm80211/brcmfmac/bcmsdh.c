@@ -36,7 +36,6 @@
 #include "sdio.h"
 #include "core.h"
 #include "common.h"
-#include "cfg80211.h"
 
 #define SDIOH_API_ACCESS_RETRY_LIMIT	2
 
@@ -44,12 +43,9 @@
 
 #define SDIO_FUNC1_BLOCKSIZE		64
 #define SDIO_FUNC2_BLOCKSIZE		512
-#define SDIO_4373_FUNC2_BLOCKSIZE	128
+#define SDIO_4373_FUNC2_BLOCKSIZE	256
 #define SDIO_435X_FUNC2_BLOCKSIZE	256
 #define SDIO_4329_FUNC2_BLOCKSIZE	128
-#define SDIO_89459_FUNC2_BLOCKSIZE	256
-#define SDIO_CYW55560_FUNC2_BLOCKSIZE	256
-
 /* Maximum milliseconds to wait for F2 to come up */
 #define SDIO_WAIT_F2RDY	3000
 
@@ -334,75 +330,6 @@ static int brcmf_sdiod_skbuff_write(struct brcmf_sdio_dev *sdiodev,
 	return err;
 }
 
-#ifdef CONFIG_BRCMF_SDIO_TX_COPY
-static int brcmf_sdiod_skbuff_list_write(struct brcmf_sdio_dev *sdiodev,
-				 struct sdio_func *func,
-				 u32 addr,
-				 struct sk_buff_head *pktlist)
-{
-	int err;
-	struct sk_buff *pkt_next = NULL;
-	char *buf = sdiodev->membuf;
-    u32 cur_addr = addr;
-	unsigned int blk_size = func->cur_blksize;
-	unsigned int req_size = 0;
-	unsigned int pad_size = 0;
-
-    skb_queue_walk(pktlist, pkt_next) {
-        unsigned int remain_size = pkt_next->len;
-        unsigned int offset = 0;
-
-        do {
-            unsigned int cpy_size;
-
-            if ((req_size + remain_size) > BRCMF_SDIO_MAX_MEMBUF_SIZE) {
-                cpy_size = BRCMF_SDIO_MAX_MEMBUF_SIZE - req_size;
-
-                memcpy(buf + req_size, ((char*)(pkt_next->data)) + offset, cpy_size);   
-
-                err = sdio_memcpy_toio(func, cur_addr, buf, BRCMF_SDIO_MAX_MEMBUF_SIZE);
-                if (err) {
-                    goto done;
-                }
-
-                req_size = 0;
-                offset += cpy_size;
-                remain_size -= cpy_size;
-                cur_addr += BRCMF_SDIO_MAX_MEMBUF_SIZE;
-            } else {
-                cpy_size = remain_size;
-
-                memcpy(buf + req_size, ((char*)(pkt_next->data)) + offset, cpy_size);   
-
-                req_size += cpy_size;
-                offset = 0;
-                remain_size = 0;
-            }
-        } while (remain_size > 0);
-    }
-
-    pad_size = req_size % blk_size;
-    if ((req_size + pad_size) > BRCMF_SDIO_MAX_MEMBUF_SIZE) {
-        pad_size = BRCMF_SDIO_MAX_MEMBUF_SIZE - req_size;
-    }
-
-    if (pad_size > 0) {
-        memset(buf + req_size, 0, pad_size);
-    }
-
-	req_size = (req_size + 3) & ((uint)~3);
-
-	err = sdio_memcpy_toio(func, cur_addr, buf, req_size);
-
-done:
-	if (err == -ENOMEDIUM) {
-		brcmf_sdiod_change_state(sdiodev, BRCMF_SDIOD_NOMEDIUM);
-    }
-
-	return err;
-}
-#endif /* CONFIG_BRCMF_SDIO_TX_COPY */
-
 static int mmc_submit_one(struct mmc_data *md, struct mmc_request *mr,
 			  struct mmc_command *mc, int sg_cnt, int req_sz,
 			  int func_blk_sz, u32 *addr,
@@ -497,6 +424,23 @@ static int brcmf_sdiod_sglist_rw(struct brcmf_sdio_dev *sdiodev,
 	max_seg_cnt = min_t(unsigned short, sdiodev->max_segment_count,
 			    target_list->qlen);
 
+	memset(&mmc_req, 0, sizeof(struct mmc_request));
+	memset(&mmc_cmd, 0, sizeof(struct mmc_command));
+	memset(&mmc_dat, 0, sizeof(struct mmc_data));
+
+	mmc_dat.sg = sdiodev->sgtable.sgl;
+	mmc_dat.blksz = func_blk_sz;
+	mmc_dat.flags = write ? MMC_DATA_WRITE : MMC_DATA_READ;
+	mmc_cmd.opcode = SD_IO_RW_EXTENDED;
+	mmc_cmd.arg = write ? 1<<31 : 0;	/* write flag  */
+	mmc_cmd.arg |= (func->num & 0x7) << 28;	/* SDIO func num */
+	mmc_cmd.arg |= 1 << 27;			/* block mode */
+	/* for function 1 the addr will be incremented */
+	mmc_cmd.arg |= (func->num == 1) ? 1 << 26 : 0;
+	mmc_cmd.flags = MMC_RSP_SPI_R5 | MMC_RSP_R5 | MMC_CMD_ADTC;
+	mmc_req.cmd = &mmc_cmd;
+	mmc_req.data = &mmc_dat;
+
 	req_sz = 0;
 	sg_cnt = 0;
 	sgl = sdiodev->sgtable.sgl;
@@ -517,23 +461,6 @@ static int brcmf_sdiod_sglist_rw(struct brcmf_sdio_dev *sdiodev,
 			req_sz += sg_data_sz;
 			pkt_offset += sg_data_sz;
 			if (req_sz >= max_req_sz || sg_cnt >= max_seg_cnt) {
-                memset(&mmc_req, 0, sizeof(struct mmc_request));
-                memset(&mmc_cmd, 0, sizeof(struct mmc_command));
-                memset(&mmc_dat, 0, sizeof(struct mmc_data));
-            
-                mmc_dat.sg = sdiodev->sgtable.sgl;
-                mmc_dat.blksz = func_blk_sz;
-                mmc_dat.flags = write ? MMC_DATA_WRITE : MMC_DATA_READ;
-                mmc_cmd.opcode = SD_IO_RW_EXTENDED;
-                mmc_cmd.arg = write ? 1<<31 : 0;    /* write flag  */
-                mmc_cmd.arg |= (func->num & 0x7) << 28; /* SDIO func num */
-                mmc_cmd.arg |= 1 << 27;         /* block mode */
-                /* for function 1 the addr will be incremented */
-                mmc_cmd.arg |= (func->num == 1) ? 1 << 26 : 0;
-                mmc_cmd.flags = MMC_RSP_SPI_R5 | MMC_RSP_R5 | MMC_CMD_ADTC;
-                mmc_req.cmd = &mmc_cmd;
-                mmc_req.data = &mmc_dat;
-
 				ret = mmc_submit_one(&mmc_dat, &mmc_req, &mmc_cmd,
 						     sg_cnt, req_sz, func_blk_sz,
 						     &addr, sdiodev, func, write);
@@ -541,40 +468,17 @@ static int brcmf_sdiod_sglist_rw(struct brcmf_sdio_dev *sdiodev,
 					goto exit_queue_walk;
 				req_sz = 0;
 				sg_cnt = 0;
-                sg_init_table(sdiodev->sgtable.sgl, sdiodev->sgtable.orig_nents);
 				sgl = sdiodev->sgtable.sgl;
 			}
 		}
 	}
-	if (sg_cnt) {
-        memset(&mmc_req, 0, sizeof(struct mmc_request));
-        memset(&mmc_cmd, 0, sizeof(struct mmc_command));
-        memset(&mmc_dat, 0, sizeof(struct mmc_data));
-        
-        mmc_dat.sg = sdiodev->sgtable.sgl;
-        mmc_dat.blksz = func_blk_sz;
-        mmc_dat.flags = write ? MMC_DATA_WRITE : MMC_DATA_READ;
-        mmc_cmd.opcode = SD_IO_RW_EXTENDED;
-        mmc_cmd.arg = write ? 1<<31 : 0;    /* write flag  */
-        mmc_cmd.arg |= (func->num & 0x7) << 28; /* SDIO func num */
-        mmc_cmd.arg |= 1 << 27;         /* block mode */
-        /* for function 1 the addr will be incremented */
-        mmc_cmd.arg |= (func->num == 1) ? 1 << 26 : 0;
-        mmc_cmd.flags = MMC_RSP_SPI_R5 | MMC_RSP_R5 | MMC_CMD_ADTC;
-        mmc_req.cmd = &mmc_cmd;
-        mmc_req.data = &mmc_dat;
-
+	if (sg_cnt)
 		ret = mmc_submit_one(&mmc_dat, &mmc_req, &mmc_cmd,
 				     sg_cnt, req_sz, func_blk_sz,
 				     &addr, sdiodev, func, write);
-    }
 exit_queue_walk:
 	if (!write && sdiodev->settings->bus.sdio.broken_sg_support) {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
 		src = __skb_peek(&local_list);
-#else /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)) */
-        src = local_list.next;
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)) */
 		src_offset = 0;
 		skb_queue_walk(pktlist, pkt_next) {
 			dst_offset = 0;
@@ -670,13 +574,8 @@ int brcmf_sdiod_recv_chain(struct brcmf_sdio_dev *sdiodev,
 	addr |= SBSDIO_SB_ACCESS_2_4B_FLAG;
 
 	if (pktq->qlen == 1)
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
 		err = brcmf_sdiod_skbuff_read(sdiodev, sdiodev->func2, addr,
 					      __skb_peek(pktq));
-#else /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)) */
-		err = brcmf_sdiod_skbuff_read(sdiodev, sdiodev->func2, addr,
-					      pktq->next);
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)) */
 	else if (!sdiodev->sg_support) {
 		glom_skb = brcmu_pkt_buf_get_skb(totlen);
 		if (!glom_skb)
@@ -753,12 +652,8 @@ int brcmf_sdiod_send_pkt(struct brcmf_sdio_dev *sdiodev,
 				break;
 		}
 	} else {
-#ifdef CONFIG_BRCMF_SDIO_TX_COPY
-        err = brcmf_sdiod_skbuff_list_write(sdiodev, sdiodev->func2, addr, pktq);
-#else /* CONFIG_BRCMF_SDIO_TX_COPY */
 		err = brcmf_sdiod_sglist_rw(sdiodev, sdiodev->func2, true,
 					    addr, pktq);
-#endif /* CONFIG_BRCMF_SDIO_TX_COPY */
 	}
 
 	return err;
@@ -774,7 +669,7 @@ brcmf_sdiod_ramrw(struct brcmf_sdio_dev *sdiodev, bool write, u32 address,
 	uint dsize;
 
 	dsize = min_t(uint, SBSDIO_SB_OFT_ADDR_LIMIT, size);
-	pkt = __dev_alloc_skb(dsize, GFP_KERNEL);
+	pkt = dev_alloc_skb(dsize);
 	if (!pkt) {
 		brcmf_err("dev_alloc_skb failed: len %d\n", dsize);
 		return -EIO;
@@ -993,14 +888,6 @@ int brcmf_sdiod_remove(struct brcmf_sdio_dev *sdiodev)
 	sdiodev->sbwad = 0;
 
 	pm_runtime_allow(sdiodev->func1->card->host->parent);
-
-#ifdef CONFIG_BRCMF_SDIO_TX_COPY
-    if (sdiodev->membuf) {
-        kfree(sdiodev->membuf);
-        sdiodev->membuf = NULL;
-    }
-#endif /* CONFIG_BRCMF_SDIO_TX_COPY */
-
 	return 0;
 }
 
@@ -1016,14 +903,6 @@ int brcmf_sdiod_probe(struct brcmf_sdio_dev *sdiodev)
 {
 	int ret = 0;
 	unsigned int f2_blksz = SDIO_FUNC2_BLOCKSIZE;
-
-#ifdef CONFIG_BRCMF_SDIO_TX_COPY
-    sdiodev->membuf = kzalloc(BRCMF_SDIO_MAX_MEMBUF_SIZE, GFP_KERNEL);
-    if(!sdiodev->membuf) {
-    	brcmf_err("alloc membuf failed\n");
-        return -ENOMEM;
-    }
-#endif /* CONFIG_BRCMF_SDIO_TX_COPY */
 
 	sdio_claim_host(sdiodev->func1);
 
@@ -1044,15 +923,6 @@ int brcmf_sdiod_probe(struct brcmf_sdio_dev *sdiodev)
 		break;
 	case SDIO_DEVICE_ID_BROADCOM_4329:
 		f2_blksz = SDIO_4329_FUNC2_BLOCKSIZE;
-		break;
-	case SDIO_DEVICE_ID_BROADCOM_CYPRESS_89459:
-	case SDIO_DEVICE_ID_CYPRESS_54590:
-	case SDIO_DEVICE_ID_CYPRESS_54591:
-	case SDIO_DEVICE_ID_CYPRESS_54594:
-		f2_blksz = SDIO_89459_FUNC2_BLOCKSIZE;
-		break;
-	case SDIO_DEVICE_ID_CYPRESS_55560:
-		f2_blksz = SDIO_CYW55560_FUNC2_BLOCKSIZE;
 		break;
 	default:
 		break;
@@ -1099,9 +969,6 @@ out:
 #define BRCMF_SDIO_DEVICE(dev_id)	\
 	{SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, dev_id)}
 
-#define CYF_SDIO_DEVICE(dev_id)	\
-	{SDIO_DEVICE(SDIO_VENDOR_ID_CYPRESS, dev_id)}
-
 /* devices we support, null terminated */
 static const struct sdio_device_id brcmf_sdmmc_ids[] = {
 	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_43143),
@@ -1121,15 +988,9 @@ static const struct sdio_device_id brcmf_sdmmc_ids[] = {
 	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_4354),
 	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_4356),
 	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_4359),
-	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_CYPRESS_43439),
 	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_CYPRESS_4373),
 	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_CYPRESS_43012),
-	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_CYPRESS_89459),
-	CYF_SDIO_DEVICE(SDIO_DEVICE_ID_CYPRESS_43439),
-	CYF_SDIO_DEVICE(SDIO_DEVICE_ID_CYPRESS_54590),
-	CYF_SDIO_DEVICE(SDIO_DEVICE_ID_CYPRESS_54591),
-	CYF_SDIO_DEVICE(SDIO_DEVICE_ID_CYPRESS_54594),
-	CYF_SDIO_DEVICE(SDIO_DEVICE_ID_CYPRESS_55560),
+	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_CYPRESS_89359),
 	{ /* end: all zeroes */ }
 };
 MODULE_DEVICE_TABLE(sdio, brcmf_sdmmc_ids);
@@ -1198,7 +1059,6 @@ static int brcmf_ops_sdio_probe(struct sdio_func *func,
 	dev_set_drvdata(&func->dev, bus_if);
 	dev_set_drvdata(&sdiodev->func1->dev, bus_if);
 	sdiodev->dev = &sdiodev->func1->dev;
-	dev_set_drvdata(&sdiodev->func2->dev, bus_if);
 
 	brcmf_sdiod_change_state(sdiodev, BRCMF_SDIOD_DOWN);
 
@@ -1215,7 +1075,6 @@ static int brcmf_ops_sdio_probe(struct sdio_func *func,
 fail:
 	dev_set_drvdata(&func->dev, NULL);
 	dev_set_drvdata(&sdiodev->func1->dev, NULL);
-	dev_set_drvdata(&sdiodev->func2->dev, NULL);
 	kfree(sdiodev);
 	kfree(bus_if);
 	return err;
@@ -1270,27 +1129,15 @@ static int brcmf_ops_sdio_suspend(struct device *dev)
 	struct brcmf_bus *bus_if;
 	struct brcmf_sdio_dev *sdiodev;
 	mmc_pm_flag_t pm_caps, sdio_flags;
-	struct brcmf_cfg80211_info *config;
-	int retry = BRCMF_PM_WAIT_MAXRETRY;
 	int ret = 0;
 
 	func = container_of(dev, struct sdio_func, dev);
-	bus_if = dev_get_drvdata(dev);
-	config = bus_if->drvr->config;
-
 	brcmf_dbg(SDIO, "Enter: F%d\n", func->num);
-
-	while (retry &&
-	       config->pm_state == BRCMF_CFG80211_PM_STATE_SUSPENDING) {
-		usleep_range(10000, 20000);
-		retry--;
-	}
-	if (!retry && config->pm_state == BRCMF_CFG80211_PM_STATE_SUSPENDING)
-		brcmf_err("timed out wait for cfg80211 suspended\n");
-
 	if (func->num != 1)
 		return 0;
 
+
+	bus_if = dev_get_drvdata(dev);
 	sdiodev = bus_if->bus_priv.sdio;
 
 	pm_caps = sdio_get_host_pm_caps(func);
@@ -1366,19 +1213,13 @@ static struct sdio_driver brcmf_sdmmc_driver = {
 #ifdef CONFIG_PM_SLEEP
 		.pm = &brcmf_sdio_pm_ops,
 #endif	/* CONFIG_PM_SLEEP */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0))
 		.coredump = brcmf_dev_coredump,
-#endif
 	},
 };
 
-void brcmf_sdio_register(void)
+int brcmf_sdio_register(void)
 {
-	int ret;
-
-	ret = sdio_register_driver(&brcmf_sdmmc_driver);
-	if (ret)
-		brcmf_err("sdio_register_driver failed: %d\n", ret);
+	return sdio_register_driver(&brcmf_sdmmc_driver);
 }
 
 void brcmf_sdio_exit(void)

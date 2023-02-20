@@ -158,7 +158,6 @@ struct SC301IOT {
 	struct v4l2_ctrl	*vblank;
 	struct v4l2_ctrl	*test_pattern;
 	struct mutex		mutex;
-	struct v4l2_fract	cur_fps;
 	bool			streaming;
 	bool			power_on;
 	const struct SC301IOT_mode *cur_mode;
@@ -1175,8 +1174,6 @@ static int SC301IOT_set_fmt(struct v4l2_subdev *sd,
 		__v4l2_ctrl_modify_range(SC301IOT->vblank, SC301IOT_VTS_MIN - vblank_def,
 					 SC301IOT_VTS_MAX - mode->height,
 					 1, vblank_def);
-		SC301IOT->cur_fps = mode->max_fps;
-		SC301IOT->cur_vts = mode->vts_def;
 	}
 
 	mutex_unlock(&SC301IOT->mutex);
@@ -1268,10 +1265,9 @@ static int SC301IOT_g_frame_interval(struct v4l2_subdev *sd,
 	struct SC301IOT *SC301IOT = to_SC301IOT(sd);
 	const struct SC301IOT_mode *mode = SC301IOT->cur_mode;
 
-	if (SC301IOT->streaming)
-		fi->interval = SC301IOT->cur_fps;
-	else
-		fi->interval = mode->max_fps;
+	mutex_lock(&SC301IOT->mutex);
+	fi->interval = mode->max_fps;
+	mutex_unlock(&SC301IOT->mutex);
 
 	return 0;
 }
@@ -1306,23 +1302,10 @@ static void SC301IOT_get_module_inf(struct SC301IOT *SC301IOT,
 	strscpy(inf->base.lens, SC301IOT->len_name, sizeof(inf->base.lens));
 }
 
-static int SC301IOT_get_channel_info(struct SC301IOT *SC301IOT,
-					    struct rkmodule_channel_info *ch_info)
-{
-	if (ch_info->index < PAD0 || ch_info->index >= PAD_MAX)
-		return -EINVAL;
-	ch_info->vc = SC301IOT->cur_mode->vc[ch_info->index];
-	ch_info->width = SC301IOT->cur_mode->width;
-	ch_info->height = SC301IOT->cur_mode->height;
-	ch_info->bus_fmt = SC301IOT->cur_mode->bus_fmt;
-	return 0;
-}
-
 static long SC301IOT_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
 	struct SC301IOT *SC301IOT = to_SC301IOT(sd);
 	struct rkmodule_hdr_cfg *hdr;
-	struct rkmodule_channel_info *ch_info;
 	u32 i, h, w;
 	long ret = 0;
 	u32 stream = 0;
@@ -1361,8 +1344,6 @@ static long SC301IOT_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 			__v4l2_ctrl_modify_range(SC301IOT->vblank,
 				SC301IOT_VTS_MIN - SC301IOT->cur_mode->height,
 				SC301IOT_VTS_MAX - SC301IOT->cur_mode->height, 1, h);
-			SC301IOT->cur_fps = SC301IOT->cur_mode->max_fps;
-			SC301IOT->cur_vts = SC301IOT->cur_mode->vts_def;
 		}
 		break;
 	case PREISP_CMD_SET_HDRAE_EXP:
@@ -1389,10 +1370,6 @@ static long SC301IOT_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 		SC301IOT->sync_mode = sync_mode;
 		dev_info(&SC301IOT->client->dev, "sync_mode = [%u]\n", SC301IOT->sync_mode);
 		break;
-	case RKMODULE_GET_CHANNEL_INFO:
-		ch_info = (struct rkmodule_channel_info *)arg;
-		ret = SC301IOT_get_channel_info(SC301IOT, ch_info);
-		break;
 	default:
 		ret = -ENOIOCTLCMD;
 		break;
@@ -1410,7 +1387,6 @@ static long SC301IOT_compat_ioctl32(struct v4l2_subdev *sd,
 	struct rkmodule_awb_cfg *cfg;
 	struct rkmodule_hdr_cfg *hdr;
 	struct preisp_hdrae_exp_s *hdrae;
-	struct rkmodule_channel_info *ch_info;
 	long ret;
 	u32 stream = 0;
 
@@ -1490,21 +1466,6 @@ static long SC301IOT_compat_ioctl32(struct v4l2_subdev *sd,
 		if (copy_from_user(&stream, up, sizeof(u32)))
 			return -EFAULT;
 		ret = SC301IOT_ioctl(sd, cmd, &stream);
-		break;
-	case RKMODULE_GET_CHANNEL_INFO:
-		ch_info = kzalloc(sizeof(*ch_info), GFP_KERNEL);
-		if (!ch_info) {
-			ret = -ENOMEM;
-			return ret;
-		}
-
-		ret = SC301IOT_ioctl(sd, cmd, ch_info);
-		if (!ret) {
-			ret = copy_to_user(up, ch_info, sizeof(*ch_info));
-			if (ret)
-				ret = -EFAULT;
-		}
-		kfree(ch_info);
 		break;
 	default:
 		ret = -ENOIOCTLCMD;
@@ -1865,14 +1826,6 @@ static const struct v4l2_subdev_ops SC301IOT_subdev_ops = {
 	.pad	= &SC301IOT_pad_ops,
 };
 
-static void SC301IOT_modify_fps_info(struct SC301IOT *SC301IOT)
-{
-	const struct SC301IOT_mode *mode = SC301IOT->cur_mode;
-
-	SC301IOT->cur_fps.denominator = mode->max_fps.denominator * mode->vts_def /
-					SC301IOT->cur_vts;
-}
-
 static int SC301IOT_set_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct SC301IOT *SC301IOT = container_of(ctrl->handler,
@@ -1931,10 +1884,7 @@ static int SC301IOT_set_ctrl(struct v4l2_ctrl *ctrl)
 					 SC301IOT_REG_VALUE_08BIT,
 					 (ctrl->val + SC301IOT->cur_mode->height)
 					 & 0xff);
-		if (!ret)
-			SC301IOT->cur_vts = ctrl->val + SC301IOT->cur_mode->height;
-		if (SC301IOT->cur_vts != SC301IOT->cur_mode->vts_def)
-			SC301IOT_modify_fps_info(SC301IOT);
+		SC301IOT->cur_vts = ctrl->val + SC301IOT->cur_mode->height;
 		break;
 	case V4L2_CID_TEST_PATTERN:
 		ret = SC301IOT_enable_test_pattern(SC301IOT, ctrl->val);
@@ -2031,8 +1981,6 @@ static int SC301IOT_initialize_controls(struct SC301IOT *SC301IOT)
 
 	SC301IOT->subdev.ctrl_handler = handler;
 	SC301IOT->has_init_exp = false;
-	SC301IOT->cur_fps = mode->max_fps;
-	SC301IOT->cur_vts = mode->vts_def;
 
 	return 0;
 

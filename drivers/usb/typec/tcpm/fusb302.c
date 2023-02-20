@@ -80,7 +80,7 @@ struct fusb302_chip {
 
 	spinlock_t irq_lock;
 	struct kthread_work irq_work;
-	struct kthread_worker *irq_worker;
+	struct kthread_worker *irq_wq;
 	bool irq_suspended;
 	bool irq_while_suspended;
 	struct gpio_desc *gpio_int_n;
@@ -684,7 +684,7 @@ static int tcpm_set_cc(struct tcpc_dev *dev, enum typec_cc_status cc)
 					     FUSB_REG_MASK_COMP_CHNG,
 					     FUSB_REG_MASK_COMP_CHNG);
 		if (ret < 0) {
-			fusb302_log(chip, "cannot set SRC interrupt, ret=%d",
+			fusb302_log(chip, "cannot set SNK interrupt, ret=%d",
 				    ret);
 			goto done;
 		}
@@ -1484,7 +1484,7 @@ static irqreturn_t fusb302_irq_intn(int irq, void *dev_id)
 	if (chip->irq_suspended)
 		chip->irq_while_suspended = true;
 	else
-		kthread_queue_work(chip->irq_worker, &chip->irq_work);
+		kthread_queue_work(chip->irq_wq, &chip->irq_work);
 	spin_unlock_irqrestore(&chip->irq_lock, flags);
 
 	return IRQ_HANDLED;
@@ -1719,10 +1719,10 @@ static int fusb302_probe(struct i2c_client *client,
 	if (!chip->wq)
 		return -ENOMEM;
 
-	chip->irq_worker = kthread_create_worker(0, dev_name(dev));
-	if (IS_ERR(chip->irq_worker))
-		return PTR_ERR(chip->irq_worker);
-	sched_set_fifo(chip->irq_worker->task);
+	chip->irq_wq = kthread_create_worker(0, dev_name(dev));
+	if (IS_ERR(chip->irq_wq))
+		return PTR_ERR(chip->irq_wq);
+	sched_set_fifo(chip->irq_wq->task);
 
 	spin_lock_init(&chip->irq_lock);
 	kthread_init_work(&chip->irq_work, fusb302_irq_work);
@@ -1781,7 +1781,7 @@ static int fusb302_remove(struct i2c_client *client)
 
 	disable_irq_wake(chip->gpio_int_n_irq);
 	free_irq(chip->gpio_int_n_irq, chip);
-	kthread_destroy_worker(chip->irq_worker);
+	kthread_destroy_worker(chip->irq_wq);;
 	cancel_delayed_work_sync(&chip->bc_lvl_handler);
 	tcpm_unregister_port(chip->tcpm_port);
 	fwnode_handle_put(chip->tcpc_dev.fwnode);
@@ -1801,7 +1801,7 @@ static int fusb302_pm_suspend(struct device *dev)
 	spin_unlock_irqrestore(&chip->irq_lock, flags);
 
 	/* Make sure any pending irq_work is finished before the bus suspends */
-	kthread_flush_worker(chip->irq_worker);
+	kthread_flush_worker(chip->irq_wq);
 	return 0;
 }
 
@@ -1823,7 +1823,7 @@ static int fusb302_pm_resume(struct device *dev)
 
 	spin_lock_irqsave(&chip->irq_lock, flags);
 	if (chip->irq_while_suspended) {
-		kthread_queue_work(chip->irq_worker, &chip->irq_work);
+		kthread_queue_work(chip->irq_wq, &chip->irq_work);
 		chip->irq_while_suspended = false;
 	}
 	chip->irq_suspended = false;

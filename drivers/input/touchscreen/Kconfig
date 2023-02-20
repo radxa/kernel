@@ -425,15 +425,6 @@ config TOUCHSCREEN_GSLX680_PAD
 config TOUCHSCREEN_GT1X
 	tristate "GT1X touchscreens support"
 
-config TOUCHSCREEN_GT9XX
-	tristate "Goodix gt9xx support for rockchip platform"
-	depends on I2C && ARCH_ROCKCHIP
-	help
-	  Say Y here if you have a touchscreen interface using the gt9xx
-	  on Rockchip platform, and your board-specific initialization
-	  code includes that in its table of IIC devices.
-	  If unsure, say N.
-
 config TOUCHSCREEN_HIDEEP
 	tristate "HiDeep Touch IC"
 	depends on I2C
@@ -755,12 +746,6 @@ config TOUCHSCREEN_RASPBERRYPI_FW
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called raspberrypi-ts.
-
-config TOUCHSCREEN_RASPITS_FT5426
-	tristate "Raspberry Pi 7 inch touchscreen touch control IC FT5426"
-	depends on I2C
-	help
-	  Control FT5426 touch IC.
 
 config TOUCHSCREEN_MIGOR
 	tristate "Renesas MIGO-R touchscreen"

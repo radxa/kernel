@@ -100,10 +100,11 @@ extra-$(CONFIG_OF_ALL_DTBS)	+= $(dtb-)
 
 ifneq ($(CHECK_DTBS),)
 extra-y += $(patsubst %.dtb,%.dt.yaml, $(dtb-y))
-extra-y += $(patsubst %.dtbo,%.dt.yaml, $(dtb-y))
 extra-$(CONFIG_OF_ALL_DTBS) += $(patsubst %.dtb,%.dt.yaml, $(dtb-))
-extra-$(CONFIG_OF_ALL_DTBS) += $(patsubst %.dtbo,%.dt.yaml, $(dtb-))
 endif
+
+# Overlay targets
+extra-y		+= $(dtbo-y) $(scr-y) $(dtbotxt-y)
 
 # Add subdir path
 
@@ -383,9 +384,6 @@ cmd_dtc = $(HOSTCC) -E $(dtc_cpp_flags) -x assembler-with-cpp -o $(dtc-tmp) $< ;
 $(obj)/%.dtb: $(src)/%.dts $(DTC) FORCE
 	$(call if_changed_dep,dtc)
 
-$(obj)/%.dtbo: $(src)/%.dts $(DTC) FORCE
-	$(call if_changed_dep,dtc)
-
 DT_CHECKER ?= dt-validate
 DT_BINDING_DIR := Documentation/devicetree/bindings
 # DT_TMP_SCHEMA may be overridden from Documentation/devicetree/bindings/Makefile
@@ -412,6 +410,12 @@ cmd_dtco = mkdir -p $(dir ${dtc-tmp}) ; \
 
 $(obj)/%.dtbo: $(src)/%.dts FORCE
 	$(call if_changed_dep,dtco)
+
+quiet_cmd_scr = MKIMAGE $@
+cmd_scr = mkimage -C none -A $(ARCH) -T script -d $< $@
+
+$(obj)/%.scr: $(src)/%.scr-cmd FORCE
+	$(call if_changed,scr)
 
 dtc-tmp = $(subst $(comma),_,$(dot-target).dts.tmp)
 

@@ -19,7 +19,6 @@
 #include "core.h"
 #include "common.h"
 #include "bcdc.h"
-#include "cfg80211.h"
 
 
 #define IOCTL_RESP_TIMEOUT		msecs_to_jiffies(2000)
@@ -40,7 +39,7 @@ BRCMF_FW_DEF(43143, "brcmfmac43143");
 BRCMF_FW_DEF(43236B, "brcmfmac43236b");
 BRCMF_FW_DEF(43242A, "brcmfmac43242a");
 BRCMF_FW_DEF(43569, "brcmfmac43569");
-CY_FW_DEF(4373, "cyfmac4373");
+BRCMF_FW_DEF(4373, "brcmfmac4373");
 
 static const struct brcmf_firmware_mapping brcmf_usb_fwnames[] = {
 	BRCMF_FW_ENTRY(BRCM_CC_43143_CHIP_ID, 0xFFFFFFFF, 43143),
@@ -639,10 +638,6 @@ static int brcmf_usb_tx(struct device *dev, struct sk_buff *skb)
 		goto fail;
 	}
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
-	if (devinfo->bus_pub.bus->allow_skborphan)
-		skb_orphan(skb);
-#endif
 	req->skb = skb;
 	req->devinfo = devinfo;
 	usb_fill_bulk_urb(req->urb, devinfo->usbdev, devinfo->tx_pipe,
@@ -1224,14 +1219,8 @@ static void brcmf_usb_probe_phase2(struct device *dev, int ret,
 	if (ret)
 		goto error;
 
-	if (BRCMF_FWCON_ON()) {
-		ret = brcmf_fwlog_attach(devinfo->dev);
-		if (ret)
-			goto error;
-	}
-
 	/* Attach to the common driver interface */
-	ret = brcmf_attach(devinfo->dev, true);
+	ret = brcmf_attach(devinfo->dev);
 	if (ret)
 		goto error;
 
@@ -1290,9 +1279,6 @@ static int brcmf_usb_probe_cb(struct brcmf_usbdev_info *devinfo)
 	bus->ops = &brcmf_usb_bus_ops;
 	bus->proto_type = BRCMF_PROTO_BCDC;
 	bus->always_use_fws_queue = true;
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
-	bus->allow_skborphan = true;
-#endif
 #ifdef CONFIG_PM
 	bus->wowl_supported = true;
 #endif
@@ -1309,17 +1295,9 @@ static int brcmf_usb_probe_cb(struct brcmf_usbdev_info *devinfo)
 		ret = brcmf_alloc(devinfo->dev, devinfo->settings);
 		if (ret)
 			goto fail;
-
-		if (BRCMF_FWCON_ON()) {
-			ret = brcmf_fwlog_attach(devinfo->dev);
-			if (ret)
-				goto fail;
-		}
-
-		ret = brcmf_attach(devinfo->dev, true);
+		ret = brcmf_attach(devinfo->dev);
 		if (ret)
 			goto fail;
-
 		/* we are done */
 		complete(&devinfo->dev_init_done);
 		return 0;
@@ -1502,22 +1480,8 @@ static int brcmf_usb_suspend(struct usb_interface *intf, pm_message_t state)
 {
 	struct usb_device *usb = interface_to_usbdev(intf);
 	struct brcmf_usbdev_info *devinfo = brcmf_usb_get_businfo(&usb->dev);
-	struct brcmf_bus *bus;
-	struct brcmf_cfg80211_info *config;
-	int retry = BRCMF_PM_WAIT_MAXRETRY;
 
 	brcmf_dbg(USB, "Enter\n");
-
-	bus = devinfo->bus_pub.bus;
-	config = bus->drvr->config;
-	while (retry &&
-	       config->pm_state == BRCMF_CFG80211_PM_STATE_SUSPENDING) {
-		usleep_range(10000, 20000);
-		retry--;
-	}
-	if (!retry && config->pm_state == BRCMF_CFG80211_PM_STATE_SUSPENDING)
-		brcmf_err("timed out wait for cfg80211 suspended\n");
-
 	devinfo->bus_pub.state = BRCMFMAC_USB_STATE_SLEEP;
 	brcmf_cancel_all_urbs(devinfo);
 	device_set_wakeup_enable(devinfo->dev, true);
@@ -1594,9 +1558,7 @@ static struct usb_driver brcmf_usbdrvr = {
 	.resume = brcmf_usb_resume,
 	.reset_resume = brcmf_usb_reset_resume,
 	.supports_autosuspend = true,
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0))
 	.disable_hub_initiated_lpm = 1,
-#endif
 };
 
 static int brcmf_usb_reset_device(struct device *dev, void *notused)
@@ -1622,12 +1584,8 @@ void brcmf_usb_exit(void)
 	usb_deregister(&brcmf_usbdrvr);
 }
 
-void brcmf_usb_register(void)
+int brcmf_usb_register(void)
 {
-	int ret;
-
 	brcmf_dbg(USB, "Enter\n");
-	ret = usb_register(&brcmf_usbdrvr);
-	if (ret)
-		brcmf_err("usb_register failed %d\n", ret);
+	return usb_register(&brcmf_usbdrvr);
 }

@@ -58,17 +58,11 @@
 			size = <0x1000000>;
 			linux,cma-default;
 		};
-
-		drm_logo: drm-logo@00000000 {
-			compatible = "rockchip,drm-logo";
-			reg = <0x0 0x0>;
-		};
 	};
 };
 
 &display_subsystem {
 	status = "okay";
-	logo-memory-region = <&drm_logo>;
 };
 
 &pwm3 {
@@ -241,10 +235,6 @@
 
 &rgb_in_vop {
 	status = "okay";
-};
-
-&route_rgb {
-	status = "disabled";
 };
 
 /*

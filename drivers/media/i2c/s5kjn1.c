@@ -5,10 +5,6 @@
  * Copyright (C) 2022 Fuzhou Rockchip Electronics Co., Ltd.
  *
  * V0.0X01.0X00 init version.
- * V0.0X01.0X01 adjust supply sequence to suit spec
- * V0.0X01.0X02
- * 1. set binning output 32 pixel aligned.
- * 2. fix channel info omitted copy from user issue.
  */
 //#define DEBUG
 #include <linux/clk.h>
@@ -34,7 +30,7 @@
 #include <linux/of_graph.h>
 #include "otp_eeprom.h"
 
-#define DRIVER_VERSION			KERNEL_VERSION(0, 0x01, 0x02)
+#define DRIVER_VERSION			KERNEL_VERSION(0, 0x01, 0x00)
 
 #ifndef V4L2_CID_DIGITAL_GAIN
 #define V4L2_CID_DIGITAL_GAIN		V4L2_CID_GAIN
@@ -95,9 +91,9 @@
 #define S5KJN1_NAME			"s5kjn1"
 
 static const char * const s5kjn1_supply_names[] = {
+	"avdd",		/* Analog power */
 	"dovdd",	/* Digital I/O power */
 	"dvdd",		/* Digital core power */
-	"avdd",		/* Analog power */
 };
 
 #define S5KJN1_NUM_SUPPLIES ARRAY_SIZE(s5kjn1_supply_names)
@@ -1438,16 +1434,12 @@ static long s5kjn1_compat_ioctl32(struct v4l2_subdev *sd,
 			ret = -ENOMEM;
 			return ret;
 		}
-		ret = copy_from_user(ch_info, up, sizeof(*ch_info));
+
+		ret = s5kjn1_ioctl(sd, cmd, ch_info);
 		if (!ret) {
-			ret = s5kjn1_ioctl(sd, cmd, ch_info);
-			if (!ret) {
-				ret = copy_to_user(up, ch_info, sizeof(*ch_info));
-				if (ret)
-					ret = -EFAULT;
-			}
-		} else {
-			ret = -EFAULT;
+			ret = copy_to_user(up, ch_info, sizeof(*ch_info));
+			if (ret)
+				ret = -EFAULT;
 		}
 		kfree(ch_info);
 		break;
@@ -1579,31 +1571,6 @@ static inline u32 s5kjn1_cal_delay(u32 cycles)
 	return DIV_ROUND_UP(cycles, S5KJN1_XVCLK_FREQ / 1000 / 1000);
 }
 
-static int s5kjn1_enable_regulators(struct s5kjn1 *s5kjn1,
-				    struct regulator_bulk_data *consumers)
-{
-	int i, j;
-	int ret = 0;
-	struct device *dev = &s5kjn1->client->dev;
-	int num_consumers = S5KJN1_NUM_SUPPLIES;
-
-	for (i = 0; i < num_consumers; i++) {
-
-		ret = regulator_enable(consumers[i].consumer);
-		if (ret < 0) {
-			dev_err(dev, "Failed to enable regulator: %s\n",
-				consumers[i].supply);
-			goto err;
-		}
-	}
-	return 0;
-err:
-	for (j = 0; j < i; j++)
-		regulator_disable(consumers[j].consumer);
-
-	return ret;
-}
-
 static int __s5kjn1_power_on(struct s5kjn1 *s5kjn1)
 {
 	int ret;
@@ -1632,7 +1599,7 @@ static int __s5kjn1_power_on(struct s5kjn1 *s5kjn1)
 	if (!IS_ERR(s5kjn1->reset_gpio))
 		gpiod_direction_output(s5kjn1->reset_gpio, 0);
 
-	ret = s5kjn1_enable_regulators(s5kjn1, s5kjn1->supplies);
+	ret = regulator_bulk_enable(S5KJN1_NUM_SUPPLIES, s5kjn1->supplies);
 	if (ret < 0) {
 		dev_err(dev, "Failed to enable regulators\n");
 		goto disable_clk;
@@ -1757,33 +1724,27 @@ static int s5kjn1_enum_frame_interval(struct v4l2_subdev *sd,
 	fie->reserved[0] = s5kjn1->support_modes[fie->index].hdr_mode;
 	return 0;
 }
-
+//#define RK356X_TEST
+#ifdef RK356X_TEST
 #define CROP_START(SRC, DST) (((SRC) - (DST)) / 2 / 4 * 4)
-#define DST_WIDTH 4064
-#define DST_HEIGHT 3072
+#define DST_WIDTH 4096
+#define DST_HEIGHT 2304
 static int s5kjn1_get_selection(struct v4l2_subdev *sd,
 				struct v4l2_subdev_pad_config *cfg,
 				struct v4l2_subdev_selection *sel)
 {
 	struct s5kjn1 *s5kjn1 = to_s5kjn1(sd);
 
-
 	if (sel->target == V4L2_SEL_TGT_CROP_BOUNDS) {
-		if (s5kjn1->cur_mode->width == 4080) {
-			sel->r.left = CROP_START(s5kjn1->cur_mode->width, DST_WIDTH);
-			sel->r.width = DST_WIDTH;
-			sel->r.top = CROP_START(s5kjn1->cur_mode->height, DST_HEIGHT);
-			sel->r.height = DST_HEIGHT;
-		} else {
-			sel->r.left = CROP_START(s5kjn1->cur_mode->width, s5kjn1->cur_mode->width);
-			sel->r.width = s5kjn1->cur_mode->width;
-			sel->r.top = CROP_START(s5kjn1->cur_mode->height, s5kjn1->cur_mode->height);
-			sel->r.height = s5kjn1->cur_mode->height;
-		}
+		sel->r.left = CROP_START(s5kjn1->cur_mode->width, DST_WIDTH);
+		sel->r.width = DST_WIDTH;
+		sel->r.top = CROP_START(s5kjn1->cur_mode->height, DST_HEIGHT);
+		sel->r.height = DST_HEIGHT;
 		return 0;
 	}
 	return -EINVAL;
 }
+#endif
 
 static const struct dev_pm_ops s5kjn1_pm_ops = {
 	SET_RUNTIME_PM_OPS(s5kjn1_runtime_suspend,
@@ -1815,7 +1776,9 @@ static const struct v4l2_subdev_pad_ops s5kjn1_pad_ops = {
 	.enum_frame_interval = s5kjn1_enum_frame_interval,
 	.get_fmt = s5kjn1_get_fmt,
 	.set_fmt = s5kjn1_set_fmt,
+#ifdef RK356X_TEST
 	.get_selection = s5kjn1_get_selection,
+#endif
 	.get_mbus_config = s5kjn1_g_mbus_config,
 };
 

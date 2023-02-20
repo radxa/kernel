@@ -5,7 +5,6 @@
 
 #include <linux/kernel.h>
 #include <linux/etherdevice.h>
-#include <linux/ethtool.h>
 #include <linux/module.h>
 #include <linux/inetdevice.h>
 #include <net/cfg80211.h>
@@ -63,14 +62,6 @@ struct wlc_d11rxhdr {
 	s8 rxpwr[4];
 } __packed;
 
-#define BRCMF_IF_STA_LIST_LOCK_INIT(ifp) spin_lock_init(&(ifp)->sta_list_lock)
-#define BRCMF_IF_STA_LIST_LOCK(ifp, flags) \
-	spin_lock_irqsave(&(ifp)->sta_list_lock, (flags))
-#define BRCMF_IF_STA_LIST_UNLOCK(ifp, flags) \
-	spin_unlock_irqrestore(&(ifp)->sta_list_lock, (flags))
-
-#define BRCMF_STA_NULL ((struct brcmf_sta *)NULL)
-
 char *brcmf_ifname(struct brcmf_if *ifp)
 {
 	if (!ifp)
@@ -104,11 +95,6 @@ void brcmf_configure_arp_nd_offload(struct brcmf_if *ifp, bool enable)
 {
 	s32 err;
 	u32 mode;
-
-	if (enable && brcmf_is_apmode_operating(ifp->drvr->wiphy)) {
-		brcmf_dbg(TRACE, "Skip ARP/ND offload enable when soft AP is running\n");
-		return;
-	}
 
 	if (enable)
 		mode = BRCMF_ARP_OL_AGENT | BRCMF_ARP_OL_PEER_AUTO_REPLY;
@@ -304,6 +290,7 @@ static netdev_tx_t brcmf_netdev_start_xmit(struct sk_buff *skb,
 	struct brcmf_pub *drvr = ifp->drvr;
 	struct ethhdr *eh;
 	int head_delta;
+	unsigned int tx_bytes = skb->len;
 
 	brcmf_dbg(DATA, "Enter, bsscfgidx=%d\n", ifp->bsscfgidx);
 
@@ -366,10 +353,8 @@ static netdev_tx_t brcmf_netdev_start_xmit(struct sk_buff *skb,
 	if ((skb->priority == 0) || (skb->priority > 7))
 		skb->priority = cfg80211_classify8021d(skb, NULL);
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0))
 	/* set pacing shift for packet aggregation */
 	sk_pacing_shift_update(skb->sk, 8);
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)) */
 
 	ret = brcmf_proto_tx_queue_data(drvr, ifp->ifidx, skb);
 	if (ret < 0)
@@ -380,7 +365,7 @@ done:
 		ndev->stats.tx_dropped++;
 	} else {
 		ndev->stats.tx_packets++;
-		ndev->stats.tx_bytes += skb->len;
+		ndev->stats.tx_bytes += tx_bytes;
 	}
 
 	/* Return ok: we always eat the packet */
@@ -468,7 +453,7 @@ void brcmf_netif_mon_rx(struct brcmf_if *ifp, struct sk_buff *skb)
 		skb_pull(skb, offset);
 
 		/* TODO: use RX header to fill some radiotap data */
-		radiotap = (struct ieee80211_radiotap_header*)skb_push(skb, sizeof(*radiotap));
+		radiotap = skb_push(skb, sizeof(*radiotap));
 		memset(radiotap, 0, sizeof(*radiotap));
 		radiotap->it_len = cpu_to_le16(sizeof(*radiotap));
 
@@ -478,7 +463,7 @@ void brcmf_netif_mon_rx(struct brcmf_if *ifp, struct sk_buff *skb)
 		struct ieee80211_radiotap_header *radiotap;
 
 		/* TODO: use RX status to fill some radiotap data */
-		radiotap = (struct ieee80211_radiotap_header*)skb_push(skb, sizeof(*radiotap));
+		radiotap = skb_push(skb, sizeof(*radiotap));
 		memset(radiotap, 0, sizeof(*radiotap));
 		radiotap->it_len = cpu_to_le16(sizeof(*radiotap));
 
@@ -592,9 +577,6 @@ static void brcmf_ethtool_get_drvinfo(struct net_device *ndev,
 
 static const struct ethtool_ops brcmf_ethtool_ops = {
 	.get_drvinfo = brcmf_ethtool_get_drvinfo,
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0))
-	.get_ts_info = ethtool_op_get_ts_info,
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0)) */
 };
 
 static int brcmf_netdev_stop(struct net_device *ndev)
@@ -652,21 +634,6 @@ static const struct net_device_ops brcmf_netdev_ops_pri = {
 	.ndo_set_rx_mode = brcmf_netdev_set_multicast_list
 };
 
-#undef netdev_set_priv_destructor
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 9))
-#define netdev_set_priv_destructor(_dev, _destructor) \
-	(_dev)->destructor = (_destructor)
-#else
-#define netdev_set_priv_destructor(_dev, _destructor) \
-	(_dev)->priv_destructor = (_destructor)
-#endif
-
-static void __brcmf_cfg80211_free_netdev(struct net_device *ndev)
-{
-	brcmf_cfg80211_free_netdev(ndev);
-	free_netdev(ndev);
-}
-
 int brcmf_net_attach(struct brcmf_if *ifp, bool rtnl_locked)
 {
 	struct brcmf_pub *drvr = ifp->drvr;
@@ -701,7 +668,7 @@ int brcmf_net_attach(struct brcmf_if *ifp, bool rtnl_locked)
 
 	netif_carrier_off(ndev);
 
-	netdev_set_priv_destructor(ndev, brcmf_cfg80211_free_netdev);
+	ndev->priv_destructor = brcmf_cfg80211_free_netdev;
 	brcmf_dbg(INFO, "%s: Broadcom Dongle Host Driver\n", ndev->name);
 	return 0;
 
@@ -917,7 +884,7 @@ struct brcmf_if *brcmf_add_if(struct brcmf_pub *drvr, s32 bsscfgidx, s32 ifidx,
 		if (!ndev)
 			return ERR_PTR(-ENOMEM);
 
-		netdev_set_priv_destructor(ndev, __brcmf_cfg80211_free_netdev);
+		ndev->needs_free_netdev = true;
 		ifp = netdev_priv(ndev);
 		ifp->ndev = ndev;
 		/* store mapping ifidx to bsscfgidx */
@@ -932,9 +899,7 @@ struct brcmf_if *brcmf_add_if(struct brcmf_pub *drvr, s32 bsscfgidx, s32 ifidx,
 
 	init_waitqueue_head(&ifp->pend_8021x_wait);
 	spin_lock_init(&ifp->netif_stop_lock);
-	BRCMF_IF_STA_LIST_LOCK_INIT(ifp);
-	 /* Initialize STA info list */
-	INIT_LIST_HEAD(&ifp->sta_list);
+
 	if (mac_addr != NULL)
 		memcpy(ifp->mac_addr, mac_addr, ETH_ALEN);
 
@@ -1166,15 +1131,6 @@ static int brcmf_inet6addr_changed(struct notifier_block *nb,
 }
 #endif
 
-
-int brcmf_fwlog_attach(struct device *dev)
-{
-	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
-	struct brcmf_pub *drvr = bus_if->drvr;
-
-	return brcmf_debug_fwlog_init(drvr);
-}
-
 static int brcmf_revinfo_read(struct seq_file *s, void *data)
 {
 	struct brcmf_bus *bus_if = dev_get_drvdata(s->private);
@@ -1364,7 +1320,7 @@ int brcmf_alloc(struct device *dev, struct brcmf_mp_device *settings)
 	return 0;
 }
 
-int brcmf_attach(struct device *dev, bool start_bus)
+int brcmf_attach(struct device *dev)
 {
 	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
 	struct brcmf_pub *drvr = bus_if->drvr;
@@ -1381,7 +1337,6 @@ int brcmf_attach(struct device *dev, bool start_bus)
 	/* Link to bus module */
 	drvr->hdrlen = 0;
 
-	drvr->req_mpc = 1;
 	/* Attach and link in the protocol */
 	ret = brcmf_proto_attach(drvr);
 	if (ret != 0) {
@@ -1396,13 +1351,10 @@ int brcmf_attach(struct device *dev, bool start_bus)
 	/* attach firmware event handler */
 	brcmf_fweh_attach(drvr);
 
-	if (start_bus) {
-		ret = brcmf_bus_started(drvr, drvr->ops);
-		if (ret != 0) {
-			bphy_err(drvr, "dongle is not responding: err=%d\n",
-				 ret);
-			goto fail;
-		}
+	ret = brcmf_bus_started(drvr, drvr->ops);
+	if (ret != 0) {
+		bphy_err(drvr, "dongle is not responding: err=%d\n", ret);
+		goto fail;
 	}
 
 	return 0;
@@ -1452,24 +1404,7 @@ void brcmf_fw_crashed(struct device *dev)
 
 	brcmf_dev_coredump(dev);
 
-	if (drvr->bus_reset.func)
-		schedule_work(&drvr->bus_reset);
-}
-
-void brcmf_bus_handle_cmd_timeout(struct brcmf_bus *bus)
-{
-	struct brcmf_pub *drvr = bus->drvr;
-
-    drvr->cmd_timeout++;
-
-	bphy_err(drvr, "cmd timeout = %d\n", drvr->cmd_timeout);
-
-    if (drvr->cmd_timeout == BRCMF_MAX_CMD_TIMEOUT) {
-        drvr->cmd_timeout = 0;
-
-    	if (drvr->bus_reset.func)
-    		schedule_work(&drvr->bus_reset);
-    }
+	schedule_work(&drvr->bus_reset);
 }
 
 void brcmf_detach(struct device *dev)
@@ -1551,10 +1486,8 @@ int brcmf_netdev_wait_pend8021x(struct brcmf_if *ifp)
 				 !brcmf_get_pend_8021x_cnt(ifp),
 				 MAX_WAIT_FOR_8021X_TX);
 
-	if (!err) {
+	if (!err)
 		bphy_err(drvr, "Timed out waiting for no pending 802.1x packets\n");
-		atomic_set(&ifp->pend_8021x_cnt, 0);
-	}
 
 	return !err;
 }
@@ -1586,307 +1519,34 @@ void brcmf_bus_change_state(struct brcmf_bus *bus, enum brcmf_bus_state state)
 	}
 }
 
-static void brcmf_driver_register(struct work_struct *work)
-{
-#ifdef CONFIG_BRCMFMAC_SDIO
-	brcmf_sdio_register();
-#endif
-#ifdef CONFIG_BRCMFMAC_USB
-	brcmf_usb_register();
-#endif
-#ifdef CONFIG_BRCMFMAC_PCIE
-	brcmf_pcie_register();
-#endif
-}
-static DECLARE_WORK(brcmf_driver_work, brcmf_driver_register);
-
 int __init brcmf_core_init(void)
 {
-	if (!schedule_work(&brcmf_driver_work))
-		return -EBUSY;
+	int err;
 
+	err = brcmf_sdio_register();
+	if (err)
+		return err;
+
+	err = brcmf_usb_register();
+	if (err)
+		goto error_usb_register;
+
+	err = brcmf_pcie_register();
+	if (err)
+		goto error_pcie_register;
 	return 0;
-}
 
-void brcmf_core_exit(void)
-{
-	cancel_work_sync(&brcmf_driver_work);
-
-#ifdef CONFIG_BRCMFMAC_SDIO
-	brcmf_sdio_exit();
-#endif
-#ifdef CONFIG_BRCMFMAC_USB
+error_pcie_register:
 	brcmf_usb_exit();
-#endif
-#ifdef CONFIG_BRCMFMAC_PCIE
+error_usb_register:
+	brcmf_sdio_exit();
+	return err;
+}
+
+void __exit brcmf_core_exit(void)
+{
+	brcmf_sdio_exit();
+	brcmf_usb_exit();
 	brcmf_pcie_exit();
-#endif
 }
 
-int
-brcmf_pktfilter_add_remove(struct net_device *ndev, int filter_num, bool add)
-{
-	struct brcmf_if *ifp =  netdev_priv(ndev);
-	struct brcmf_pub *drvr = ifp->drvr;
-	struct brcmf_pkt_filter_le *pkt_filter;
-	int filter_fixed_len = offsetof(struct brcmf_pkt_filter_le, u);
-	int pattern_fixed_len = offsetof(struct brcmf_pkt_filter_pattern_le,
-				  mask_and_pattern);
-	u16 mask_and_pattern[MAX_PKTFILTER_PATTERN_SIZE];
-	int buflen = 0;
-	int ret = 0;
-
-	brcmf_dbg(INFO, "%s packet filter number %d\n",
-		  (add ? "add" : "remove"), filter_num);
-
-	pkt_filter = kzalloc(sizeof(*pkt_filter) +
-			(MAX_PKTFILTER_PATTERN_SIZE * 2), GFP_ATOMIC);
-	if (!pkt_filter)
-		return -ENOMEM;
-
-	switch (filter_num) {
-	case BRCMF_UNICAST_FILTER_NUM:
-		pkt_filter->id = 100;
-		pkt_filter->type = 0;
-		pkt_filter->negate_match = 0;
-		pkt_filter->u.pattern.offset = 0;
-		pkt_filter->u.pattern.size_bytes = 1;
-		mask_and_pattern[0] = 0x0001;
-		break;
-	case BRCMF_BROADCAST_FILTER_NUM:
-		//filter_pattern = "101 0 0 0 0xFFFFFFFFFFFF 0xFFFFFFFFFFFF";
-		pkt_filter->id = 101;
-		pkt_filter->type = 0;
-		pkt_filter->negate_match = 0;
-		pkt_filter->u.pattern.offset = 0;
-		pkt_filter->u.pattern.size_bytes = 6;
-		mask_and_pattern[0] = 0xFFFF;
-		mask_and_pattern[1] = 0xFFFF;
-		mask_and_pattern[2] = 0xFFFF;
-		mask_and_pattern[3] = 0xFFFF;
-		mask_and_pattern[4] = 0xFFFF;
-		mask_and_pattern[5] = 0xFFFF;
-		break;
-	case BRCMF_MULTICAST4_FILTER_NUM:
-		//filter_pattern = "102 0 0 0 0xFFFFFF 0x01005E";
-		pkt_filter->id = 102;
-		pkt_filter->type = 0;
-		pkt_filter->negate_match = 0;
-		pkt_filter->u.pattern.offset = 0;
-		pkt_filter->u.pattern.size_bytes = 3;
-		mask_and_pattern[0] = 0xFFFF;
-		mask_and_pattern[1] = 0x01FF;
-		mask_and_pattern[2] = 0x5E00;
-		break;
-	case BRCMF_MULTICAST6_FILTER_NUM:
-		//filter_pattern = "103 0 0 0 0xFFFF 0x3333";
-		pkt_filter->id = 103;
-		pkt_filter->type = 0;
-		pkt_filter->negate_match = 0;
-		pkt_filter->u.pattern.offset = 0;
-		pkt_filter->u.pattern.size_bytes = 2;
-		mask_and_pattern[0] = 0xFFFF;
-		mask_and_pattern[1] = 0x3333;
-		break;
-	case BRCMF_MDNS_FILTER_NUM:
-		//filter_pattern = "104 0 0 0 0xFFFFFFFFFFFF 0x01005E0000FB";
-		pkt_filter->id = 104;
-		pkt_filter->type = 0;
-		pkt_filter->negate_match = 0;
-		pkt_filter->u.pattern.offset = 0;
-		pkt_filter->u.pattern.size_bytes = 6;
-		mask_and_pattern[0] = 0xFFFF;
-		mask_and_pattern[1] = 0xFFFF;
-		mask_and_pattern[2] = 0xFFFF;
-		mask_and_pattern[3] = 0x0001;
-		mask_and_pattern[4] = 0x005E;
-		mask_and_pattern[5] = 0xFB00;
-		break;
-	case BRCMF_ARP_FILTER_NUM:
-		//filter_pattern = "105 0 0 12 0xFFFF 0x0806";
-		pkt_filter->id = 105;
-		pkt_filter->type = 0;
-		pkt_filter->negate_match = 0;
-		pkt_filter->u.pattern.offset = 12;
-		pkt_filter->u.pattern.size_bytes = 2;
-		mask_and_pattern[0] = 0xFFFF;
-		mask_and_pattern[1] = 0x0608;
-		break;
-	case BRCMF_BROADCAST_ARP_FILTER_NUM:
-		//filter_pattern = "106 0 0 0
-		//0xFFFFFFFFFFFF0000000000000806
-		//0xFFFFFFFFFFFF0000000000000806";
-		pkt_filter->id = 106;
-		pkt_filter->type = 0;
-		pkt_filter->negate_match = 0;
-		pkt_filter->u.pattern.offset = 0;
-		pkt_filter->u.pattern.size_bytes = 14;
-		mask_and_pattern[0] = 0xFFFF;
-		mask_and_pattern[1] = 0xFFFF;
-		mask_and_pattern[2] = 0xFFFF;
-		mask_and_pattern[3] = 0x0000;
-		mask_and_pattern[4] = 0x0000;
-		mask_and_pattern[5] = 0x0000;
-		mask_and_pattern[6] = 0x0608;
-		mask_and_pattern[7] = 0xFFFF;
-		mask_and_pattern[8] = 0xFFFF;
-		mask_and_pattern[9] = 0xFFFF;
-		mask_and_pattern[10] = 0x0000;
-		mask_and_pattern[11] = 0x0000;
-		mask_and_pattern[12] = 0x0000;
-		mask_and_pattern[13] = 0x0608;
-		break;
-	default:
-		ret = -EINVAL;
-		goto failed;
-	}
-	memcpy(pkt_filter->u.pattern.mask_and_pattern, mask_and_pattern,
-	       pkt_filter->u.pattern.size_bytes * 2);
-	buflen = filter_fixed_len + pattern_fixed_len +
-		  pkt_filter->u.pattern.size_bytes * 2;
-
-	if (add) {
-		/* Add filter */
-		ifp->fwil_fwerr = true;
-		ret = brcmf_fil_iovar_data_set(ifp, "pkt_filter_add",
-					       pkt_filter, buflen);
-		ifp->fwil_fwerr = false;
-		if (ret)
-			goto failed;
-		drvr->pkt_filter[filter_num].id = pkt_filter->id;
-		drvr->pkt_filter[filter_num].enable  = 0;
-
-	} else {
-		/* Delete filter */
-		ifp->fwil_fwerr = true;
-		ret = brcmf_fil_iovar_int_set(ifp, "pkt_filter_delete",
-					      pkt_filter->id);
-		ifp->fwil_fwerr = false;
-		if (ret == -BRCMF_FW_BADARG)
-			ret = 0;
-		if (ret)
-			goto failed;
-
-		drvr->pkt_filter[filter_num].id = 0;
-		drvr->pkt_filter[filter_num].enable  = 0;
-	}
-failed:
-	if (ret)
-		brcmf_err("%s packet filter failed, ret=%d\n",
-			  (add ? "add" : "remove"), ret);
-
-	kfree(pkt_filter);
-	return ret;
-}
-
-int brcmf_pktfilter_enable(struct net_device *ndev, bool enable)
-{
-	struct brcmf_if *ifp =  netdev_priv(ndev);
-	struct brcmf_pub *drvr = ifp->drvr;
-	int ret = 0;
-	int idx = 0;
-
-	for (idx = 0; idx < MAX_PKT_FILTER_COUNT; ++idx) {
-		if (drvr->pkt_filter[idx].id != 0) {
-			drvr->pkt_filter[idx].enable = enable;
-			ret = brcmf_fil_iovar_data_set(ifp, "pkt_filter_enable",
-						       &drvr->pkt_filter[idx],
-				sizeof(struct brcmf_pkt_filter_enable_le));
-			if (ret) {
-				brcmf_err("%s packet filter id(%d) failed, ret=%d\n",
-					  (enable ? "enable" : "disable"),
-					  drvr->pkt_filter[idx].id, ret);
-			}
-		}
-	}
-	return ret;
-}
-
-/** Find STA with MAC address ea in an interface's STA list. */
-struct brcmf_sta *
-brcmf_find_sta(struct brcmf_if *ifp, const u8 *ea)
-{
-	struct brcmf_sta  *sta;
-	unsigned long flags;
-
-	BRCMF_IF_STA_LIST_LOCK(ifp, flags);
-	list_for_each_entry(sta, &ifp->sta_list, list) {
-		if (!memcmp(sta->ea.octet, ea, ETH_ALEN)) {
-			brcmf_dbg(INFO, "Found STA: 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x into sta list\n",
-				  sta->ea.octet[0], sta->ea.octet[1],
-				  sta->ea.octet[2], sta->ea.octet[3],
-				  sta->ea.octet[4], sta->ea.octet[5]);
-			BRCMF_IF_STA_LIST_UNLOCK(ifp, flags);
-			return sta;
-		}
-	}
-	BRCMF_IF_STA_LIST_UNLOCK(ifp, flags);
-
-	return BRCMF_STA_NULL;
-}
-
-/** Add STA into the interface's STA list. */
-struct brcmf_sta *
-brcmf_add_sta(struct brcmf_if *ifp, const u8 *ea)
-{
-	struct brcmf_sta *sta;
-	unsigned long flags;
-
-	sta =  kzalloc(sizeof(*sta), GFP_KERNEL);
-	if (sta == BRCMF_STA_NULL) {
-		brcmf_err("Alloc failed\n");
-		return BRCMF_STA_NULL;
-	}
-	memcpy(sta->ea.octet, ea, ETH_ALEN);
-	brcmf_dbg(INFO, "Add STA: 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x into sta list\n",
-		  sta->ea.octet[0], sta->ea.octet[1],
-		  sta->ea.octet[2], sta->ea.octet[3],
-		  sta->ea.octet[4], sta->ea.octet[5]);
-
-	/* link the sta and the dhd interface */
-	sta->ifp = ifp;
-	INIT_LIST_HEAD(&sta->list);
-
-	BRCMF_IF_STA_LIST_LOCK(ifp, flags);
-
-	list_add_tail(&sta->list, &ifp->sta_list);
-
-	BRCMF_IF_STA_LIST_UNLOCK(ifp, flags);
-	return sta;
-}
-
-/** Delete STA from the interface's STA list. */
-void
-brcmf_del_sta(struct brcmf_if *ifp, const u8 *ea)
-{
-	struct brcmf_sta *sta, *next;
-	unsigned long flags;
-
-	BRCMF_IF_STA_LIST_LOCK(ifp, flags);
-	list_for_each_entry_safe(sta, next, &ifp->sta_list, list) {
-		if (!memcmp(sta->ea.octet, ea, ETH_ALEN)) {
-			brcmf_dbg(INFO, "del STA: 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x from sta list\n",
-				  ea[0], ea[1], ea[2], ea[3],
-				  ea[4], ea[5]);
-			list_del(&sta->list);
-			kfree(sta);
-		}
-	}
-
-	BRCMF_IF_STA_LIST_UNLOCK(ifp, flags);
-}
-
-/** Add STA if it doesn't exist. Not reentrant. */
-struct brcmf_sta*
-brcmf_findadd_sta(struct brcmf_if *ifp, const u8 *ea)
-{
-	struct brcmf_sta *sta = NULL;
-
-	sta = brcmf_find_sta(ifp, ea);
-
-	if (!sta) {
-		/* Add entry */
-		sta = brcmf_add_sta(ifp, ea);
-	}
-	return sta;
-}

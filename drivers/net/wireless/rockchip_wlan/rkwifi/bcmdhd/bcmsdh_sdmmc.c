@@ -1094,7 +1094,8 @@ sdioh_request_byte(sdioh_info_t *sd, uint rw, uint func, uint regaddr, uint8 *by
 	}
 
 	if (err_ret) {
-		if (regaddr == 0x1001F) {
+		if ((regaddr == 0x1001F) && ((err_ret == -ETIMEDOUT) || (err_ret == -EILSEQ)
+			|| (err_ret == -EIO))) {
 			/* XXX: Read/Write to SBSDIO_FUNC1_SLEEPCSR could return -110(timeout)
 			 * 	or -84(CRC) error in case the host tries to wake the device up.
 			 *	Skip error log message if err code is -110 or -84 when accessing

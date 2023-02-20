@@ -1,0 +1,10 @@
+/dts-v1/;
+/plugin/;
+/ {
+	fragment@0 {
+		target = <&gmac1>;
+		__overlay__ {
+			status = "diabled";
+		};
+	};
+};

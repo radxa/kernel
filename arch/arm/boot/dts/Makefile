@@ -128,6 +128,7 @@ dtb-$(CONFIG_ARCH_BCM_5301X) += \
 	bcm47094-luxul-xwr-3150-v1.dtb \
 	bcm47094-netgear-r8500.dtb \
 	bcm47094-phicomm-k3.dtb \
+	bcm53015-meraki-mr26.dtb \
 	bcm53016-meraki-mr32.dtb \
 	bcm94708.dtb \
 	bcm94709.dtb \
@@ -973,23 +974,10 @@ dtb-$(CONFIG_ARCH_RENESAS) += \
 dtb-$(CONFIG_ARCH_ROCKCHIP) += \
 	rv1103g-38x38-ipc-v10.dtb \
 	rv1103g-battery-ipc-v10.dtb \
-	rv1103g-battery-ipc-v11.dtb \
 	rv1103g-evb-v10.dtb \
-	rv1103g-evb-v11.dtb \
-	rv1103g-rmsl311-dloc-sl-v10.dtb \
-	rv1103g-scaner-v10.dtb \
 	rv1106g-38x38-ipc-v10.dtb \
 	rv1106g-38x38-ipc-v10-spi-nand.dtb \
-	rv1106g-evb1-mcu-display-v11.dtb \
-	rv1106g-evb1-rgb-display-v11.dtb \
 	rv1106g-evb1-v10.dtb \
-	rv1106g-evb1-v11.dtb \
-	rv1106g-evb1-v11-cvr.dtb \
-	rv1106g-evb1-v11-spi-nand-cvr.dtb \
-	rv1106g-evb1-v11-sii902x-bt11202hdmi.dtb \
-	rv1106g-evb1-v11-sii902x-rgb2hdmi.dtb \
-	rv1106g-evb1-v10-dual-cam.dtb \
-	rv1106g-evb1-v10-facial-gate.dtb \
 	rv1106g-evb1-v10-spi-nand.dtb \
 	rv1106g-evb1-v10-spi-nor.dtb \
 	rv1106g-evb2-v10.dtb \
@@ -998,11 +986,6 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += \
 	rv1106g-uvc-demo-v10-spi-nor.dtb \
 	rv1108-elgin-r1.dtb \
 	rv1108-evb.dtb \
-	rv1126-evb-ddr3-v10.dtb \
-	rv1126-evb-ddr3-v12.dtb \
-	rv1126-evb-ddr3-v12-spi-nand.dtb \
-	rv1126-evb-ddr3-v12-spi-nor.dtb \
-	rv1126-evb-ddr3-v13.dtb \
 	rk3036-evb.dtb \
 	rk3036-kylin.dtb \
 	rk3066a-bqcurie2.dtb \
@@ -1041,8 +1024,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += \
 	rk3288-vyasa.dtb \
 	rk3308bs-evb-amic-v11-aarch32.dtb \
 	rk3308bs-evb-dmic-pdm-v11-aarch32.dtb \
-	rk3308bs-evb-mipi-display-v11-aarch32.dtb \
-	rk3308hs-voice-module-board-v10-aarch32.dtb
+	rk3308bs-evb-mipi-display-v11-aarch32.dtb
 dtb-$(CONFIG_ARCH_S3C24XX) += \
 	s3c2416-smdk2416.dtb
 dtb-$(CONFIG_ARCH_S3C64XX) += \

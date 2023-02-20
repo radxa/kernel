@@ -109,7 +109,8 @@ void kbase_gpu_interrupt(struct kbase_device *kbdev, u32 val)
 #if !IS_ENABLED(CONFIG_MALI_BIFROST_NO_MALI)
 void kbase_reg_write(struct kbase_device *kbdev, u32 offset, u32 value)
 {
-	WARN_ON(!kbdev->pm.backend.gpu_powered);
+	KBASE_DEBUG_ASSERT(kbdev->pm.backend.gpu_powered);
+	KBASE_DEBUG_ASSERT(kbdev->dev != NULL);
 
 	writel(value, kbdev->reg + offset);
 
@@ -126,7 +127,8 @@ u32 kbase_reg_read(struct kbase_device *kbdev, u32 offset)
 {
 	u32 val;
 
-	WARN_ON(!kbdev->pm.backend.gpu_powered);
+	KBASE_DEBUG_ASSERT(kbdev->pm.backend.gpu_powered);
+	KBASE_DEBUG_ASSERT(kbdev->dev != NULL);
 
 	val = readl(kbdev->reg + offset);
 

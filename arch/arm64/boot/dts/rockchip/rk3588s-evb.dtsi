@@ -1118,10 +1118,6 @@
 	status = "okay";
 };
 
-&vepu {
-	status = "okay";
-};
-
 &vop {
 	status = "okay";
 };

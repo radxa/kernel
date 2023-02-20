@@ -29,7 +29,6 @@
 #include <wldev_common.h>
 #include <dngl_stats.h>
 #include <dhd.h>
-#include <wl_android_ext.h>
 #ifdef WL_EXT_IAPSTA
 #ifdef WL_ESCAN
 #include <wl_escan.h>
@@ -43,6 +42,7 @@
 #endif
 #include <wl_event.h>
 #endif
+#include <wl_android_ext.h>
 
 /* If any feature uses the Generic Netlink Interface, put it here to enable WL_GENL
  * automatically
@@ -87,7 +87,7 @@ typedef struct _compat_android_wifi_priv_cmd {
 #define WL_MSG(name, arg1, args...) \
 	do { \
 		if (android_msg_level & ANDROID_MSG_LEVEL) { \
-			printf("[%s] %s : " arg1, name, __func__, ## args); \
+			printk(KERN_ERR DHD_LOG_PREFIX "[%s] %s : " arg1, name, __func__, ## args); \
 		} \
 	} while (0)
 
@@ -105,7 +105,7 @@ do {	\
 		memcmp(&static_tmp, cmp, size)) { \
 			__err_ts = __cur_ts; \
 			memcpy(static_tmp, cmp, size); \
-			printf("[%s] %s : [%u times] " arg1, \
+			printk(KERN_ERR DHD_LOG_PREFIX "[%s] %s : [%u times] " arg1, \
 				name, __func__, __err_cnt, ## args); \
 			__err_cnt = 0; \
 		} else { \

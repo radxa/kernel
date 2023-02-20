@@ -999,7 +999,7 @@ static int rkvdec_isr(struct mpp_dev *mpp)
 		dev_err(mpp->dev, "no current task\n");
 		goto done;
 	}
-	mpp_time_diff(mpp_task, 0);
+	mpp_time_diff(mpp_task);
 	mpp->cur_task = NULL;
 	task = to_rkvdec_task(mpp_task);
 	task->irq_status = mpp->irq_status;
@@ -1039,7 +1039,7 @@ static int rkvdec_3328_isr(struct mpp_dev *mpp)
 		dev_err(mpp->dev, "no current task\n");
 		goto done;
 	}
-	mpp_time_diff(mpp_task, 0);
+	mpp_time_diff(mpp_task);
 	mpp->cur_task = NULL;
 	task = to_rkvdec_task(mpp_task);
 	task->irq_status = mpp->irq_status;
@@ -1175,10 +1175,6 @@ static int rkvdec_procfs_init(struct mpp_dev *mpp)
 		dec->procfs = NULL;
 		return -EIO;
 	}
-
-	/* for common mpp_dev options */
-	mpp_procfs_create_common(dec->procfs, mpp);
-
 	mpp_procfs_create_u32("aclk", 0644,
 			      dec->procfs, &dec->aclk_info.debug_rate_hz);
 	mpp_procfs_create_u32("clk_core", 0644,

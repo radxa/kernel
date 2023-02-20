@@ -18,7 +18,6 @@
 #include <sound/soc.h>
 
 #include <sound/dmaengine_pcm.h>
-#include "pcm_local.h"
 
 struct dmaengine_pcm_runtime_data {
 	struct dma_chan *dma_chan;
@@ -133,21 +132,14 @@ EXPORT_SYMBOL_GPL(snd_dmaengine_pcm_set_config_from_dai_data);
 
 static void dmaengine_pcm_dma_complete(void *arg)
 {
+	unsigned int new_pos;
 	struct snd_pcm_substream *substream = arg;
-	struct dmaengine_pcm_runtime_data *prtd;
+	struct dmaengine_pcm_runtime_data *prtd = substream_to_prtd(substream);
 
-	snd_pcm_stream_lock_irq(substream);
-	if (PCM_RUNTIME_CHECK(substream)) {
-		snd_pcm_stream_unlock_irq(substream);
-		return;
-	}
-
-	prtd = substream_to_prtd(substream);
-
-	prtd->pos += snd_pcm_lib_period_bytes(substream);
-	if (prtd->pos >= snd_pcm_lib_buffer_bytes(substream))
-		prtd->pos = 0;
-	snd_pcm_stream_unlock_irq(substream);
+	new_pos = prtd->pos + snd_pcm_lib_period_bytes(substream);
+	if (new_pos >= snd_pcm_lib_buffer_bytes(substream))
+		new_pos = 0;
+	prtd->pos = new_pos;
 
 	snd_pcm_period_elapsed(substream);
 }
@@ -254,16 +246,19 @@ snd_pcm_uframes_t snd_dmaengine_pcm_pointer(struct snd_pcm_substream *substream)
 	struct dmaengine_pcm_runtime_data *prtd = substream_to_prtd(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct dma_tx_state state;
+	enum dma_status status;
 	unsigned int buf_size;
 	unsigned int pos = 0;
 
-	dmaengine_tx_status(prtd->dma_chan, prtd->cookie, &state);
-	buf_size = snd_pcm_lib_buffer_bytes(substream);
-	if (state.residue > 0 && state.residue <= buf_size)
-		pos = buf_size - state.residue;
+	status = dmaengine_tx_status(prtd->dma_chan, prtd->cookie, &state);
+	if (status == DMA_IN_PROGRESS || status == DMA_PAUSED) {
+		buf_size = snd_pcm_lib_buffer_bytes(substream);
+		if (state.residue > 0 && state.residue <= buf_size)
+			pos = buf_size - state.residue;
 
-	runtime->delay = bytes_to_frames(runtime,
-					 state.in_flight_bytes);
+		runtime->delay = bytes_to_frames(runtime,
+						 state.in_flight_bytes);
+	}
 
 	return bytes_to_frames(runtime, pos);
 }

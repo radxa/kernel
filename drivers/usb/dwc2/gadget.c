@@ -134,8 +134,8 @@ static u32 dwc2_hsotg_read_frameno(struct dwc2_hsotg *hsotg)
 static inline void dwc2_gadget_incr_frame_num(struct dwc2_hsotg_ep *hs_ep)
 {
 	struct dwc2_hsotg *hsotg = hs_ep->parent;
-	u32 current_frame = dwc2_hsotg_read_frameno(hsotg);
 	u16 limit = DSTS_SOFFN_LIMIT;
+	u32 current_frame = dwc2_hsotg_read_frameno(hsotg);
 
 	if (hsotg->gadget.speed != USB_SPEED_HIGH)
 		limit >>= 3;
@@ -3595,7 +3595,8 @@ void dwc2_hsotg_core_disconnect(struct dwc2_hsotg *hsotg)
 void dwc2_hsotg_core_connect(struct dwc2_hsotg *hsotg)
 {
 	/* remove the soft-disconnect and let's go */
-	dwc2_clear_bit(hsotg, DCTL, DCTL_SFTDISCON);
+	if (!hsotg->role_sw || (dwc2_readl(hsotg, GOTGCTL) & GOTGCTL_BSESVLD))
+		dwc2_clear_bit(hsotg, DCTL, DCTL_SFTDISCON);
 }
 
 /**
@@ -4520,7 +4521,6 @@ static int dwc2_hsotg_udc_start(struct usb_gadget *gadget,
 
 	WARN_ON(hsotg->driver);
 
-	driver->driver.bus = NULL;
 	hsotg->driver = driver;
 	hsotg->gadget.dev.of_node = hsotg->dev->of_node;
 	hsotg->gadget.speed = USB_SPEED_UNKNOWN;

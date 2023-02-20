@@ -56,8 +56,6 @@
 #define SIP_HDCP_CONFIG			0x82000025
 #define SIP_WDT_CFG			0x82000026
 
-#define TRUSTED_OS_HDCPKEY_INIT		0xB7000003
-
 /* Rockchip Sip version */
 #define SIP_IMPLEMENT_V1                (1)
 #define SIP_IMPLEMENT_V2                (2)
@@ -105,7 +103,6 @@
 #define VIRTUAL_POWEROFF		0x07
 #define SUSPEND_WFI_TIME_MS		0x08
 #define LINUX_PM_STATE			0x09
-#define SUSPEND_IO_RET_CONFIG		0x0a
 
 /* SIP_REMOTECTL_CFG call types */
 #define	REMOTECTL_SET_IRQ		0xf0
@@ -236,7 +233,6 @@ int sip_fiq_debugger_is_enabled(void);
 int sip_fiq_debugger_sdei_get_event_id(u32 *fiq, u32 *sw_cpu, u32 *flag);
 int sip_fiq_control(u32 sub_func, u32 irq, unsigned long data);
 int sip_wdt_config(u32 sub_func, u32 arg1, u32 arg2, u32 arg3);
-int sip_hdcpkey_init(u32 hdcp_id);
 #else
 static inline struct arm_smccc_res sip_smc_get_atf_version(void)
 {
@@ -366,11 +362,6 @@ static inline int sip_wdt_config(u32 sub_func,
 				 u32 arg1,
 				 u32 arg2,
 				 u32 arg3)
-{
-	return 0;
-}
-
-static inline int sip_hdcpkey_init(u32 hdcp_id)
 {
 	return 0;
 }

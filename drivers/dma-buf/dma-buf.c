@@ -401,18 +401,29 @@ out:
 
 static long _dma_buf_set_name(struct dma_buf *dmabuf, const char *name)
 {
+	long ret = 0;
+
+	dma_resv_lock(dmabuf->resv, NULL);
+	if (!list_empty(&dmabuf->attachments)) {
+		ret = -EBUSY;
+		goto out_unlock;
+	}
 	spin_lock(&dmabuf->name_lock);
 	kfree(dmabuf->name);
 	dmabuf->name = name;
 	spin_unlock(&dmabuf->name_lock);
 
-	return 0;
+out_unlock:
+	dma_resv_unlock(dmabuf->resv);
+	return ret;
 }
 
 /**
  * dma_buf_set_name - Set a name to a specific dma_buf to track the usage.
- * It could support changing the name of the dma-buf if the same piece of
- * memory is used for multiple purpose between different devices.
+ * The name of the dma-buf buffer can only be set when the dma-buf is not
+ * attached to any devices. It could theoritically support changing the
+ * name of the dma-buf if the same piece of memory is used for multiple
+ * purpose between different devices.
  *
  * @dmabuf: [in]     dmabuf buffer that will be renamed.
  * @buf:    [in]     A piece of userspace memory that contains the name of
@@ -721,6 +732,10 @@ struct dma_buf *dma_buf_export(const struct dma_buf_export_info *exp_info)
 	file->f_mode |= FMODE_LSEEK;
 	dmabuf->file = file;
 
+	ret = dma_buf_stats_setup(dmabuf);
+	if (ret)
+		goto err_sysfs;
+
 	mutex_init(&dmabuf->lock);
 	INIT_LIST_HEAD(&dmabuf->attachments);
 
@@ -731,10 +746,6 @@ struct dma_buf *dma_buf_export(const struct dma_buf_export_info *exp_info)
 	db_peak_size = max(db_total_size, db_peak_size);
 #endif
 	mutex_unlock(&db_list.lock);
-
-	ret = dma_buf_stats_setup(dmabuf);
-	if (ret)
-		goto err_sysfs;
 
 	if (IS_ENABLED(CONFIG_DMABUF_DEBUG))
 		dma_buf_set_default_name(dmabuf);

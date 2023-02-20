@@ -74,7 +74,6 @@ struct rk1608_dphy {
 	/* for virtual sub sensor */
 	u32 sub_sensor_num;
 	struct rk1608_sub_sensor_cfg sub_sensor[4];
-	struct i2c_client *link_sensor_client;
 };
 
 #endif

@@ -69,10 +69,10 @@
 #define ARM64_WORKAROUND_1508412		58
 #define ARM64_HAS_LDAPR				59
 #define ARM64_KVM_PROTECTED_MODE		60
-#define ARM64_WORKAROUND_TSB_FLUSH_FAILURE	61
-#define ARM64_SPECTRE_BHB			62
+#define ARM64_WORKAROUND_2457168		61
 
-/* kabi: reserve 63 - 76 for future cpu capabilities */
+/* kabi: reserve 62 - 76 for future cpu capabilities */
+#define ARM64_WORKAROUND_1742098		62
 #define ARM64_NCAPS				76
 
 #endif /* __ASM_CPUCAPS_H */

@@ -2231,7 +2231,9 @@ static int rk_gmac_powerup(struct rk_priv_data *bsp_priv)
 
 static void rk_gmac_powerdown(struct rk_priv_data *gmac)
 {
-	pm_runtime_put_sync(&gmac->pdev->dev);
+	struct device *dev = &gmac->pdev->dev;
+
+	pm_runtime_get_sync(dev);
 
 	rk_gmac_phy_power_on(gmac, false);
 	gmac_clk_enable(gmac, false);
@@ -2367,7 +2369,7 @@ static int rk_gmac_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	plat_dat = stmmac_probe_config_dt(pdev, &stmmac_res.mac);
+	plat_dat = stmmac_probe_config_dt(pdev, stmmac_res.mac);
 	if (IS_ERR(plat_dat))
 		return PTR_ERR(plat_dat);
 

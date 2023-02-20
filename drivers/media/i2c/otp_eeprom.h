@@ -182,7 +182,6 @@ struct eeprom_device {
 	struct otp_info *otp;
 	struct proc_dir_entry *procfs;
 	char name[128];
-	struct mutex mutex;
 };
 
 #endif /* OTP_EEPROM_HEAD_H */

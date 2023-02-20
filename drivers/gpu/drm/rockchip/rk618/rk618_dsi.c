@@ -11,14 +11,13 @@
 #include <linux/regmap.h>
 #include <linux/mfd/rk618.h>
 
-#include <drm/drm_drv.h>
+#include <drm/drmP.h>
 #include <drm/drm_of.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_panel.h>
-#include <drm/drm_probe_helper.h>
 
 #include <video/of_display_timing.h>
 #include <video/mipi_display.h>
@@ -737,7 +736,7 @@ static int rk618_dsi_connector_get_modes(struct drm_connector *connector)
 {
 	struct rk618_dsi *dsi = connector_to_dsi(connector);
 
-	return drm_panel_get_modes(dsi->panel, connector);
+	return drm_panel_get_modes(dsi->panel);
 }
 
 static const struct drm_connector_helper_funcs
@@ -754,6 +753,9 @@ rk618_dsi_connector_detect(struct drm_connector *connector, bool force)
 
 static void rk618_dsi_connector_destroy(struct drm_connector *connector)
 {
+	struct rk618_dsi *dsi = connector_to_dsi(connector);
+
+	drm_panel_detach(dsi->panel);
 	drm_connector_cleanup(connector);
 }
 
@@ -791,8 +793,8 @@ static void rk618_dsi_bridge_disable(struct drm_bridge *bridge)
 }
 
 static void rk618_dsi_bridge_mode_set(struct drm_bridge *bridge,
-				      const struct drm_display_mode *mode,
-				      const struct drm_display_mode *adj)
+				      struct drm_display_mode *mode,
+				      struct drm_display_mode *adj)
 {
 	struct rk618_dsi *dsi = bridge_to_dsi(bridge);
 
@@ -802,8 +804,7 @@ static void rk618_dsi_bridge_mode_set(struct drm_bridge *bridge,
 		drm_mode_copy(&dsi->mode, adj);
 }
 
-static int rk618_dsi_bridge_attach(struct drm_bridge *bridge,
-				   enum drm_bridge_attach_flags flags)
+static int rk618_dsi_bridge_attach(struct drm_bridge *bridge)
 {
 	struct rk618_dsi *dsi = bridge_to_dsi(bridge);
 	struct drm_connector *connector = &dsi->connector;
@@ -820,6 +821,11 @@ static int rk618_dsi_bridge_attach(struct drm_bridge *bridge,
 	drm_connector_helper_add(connector, &rk618_dsi_connector_helper_funcs);
 	drm_connector_attach_encoder(connector, bridge->encoder);
 
+	ret = drm_panel_attach(dsi->panel, connector);
+	if (ret) {
+		dev_err(dsi->dev, "Failed to attach panel\n");
+		return ret;
+	}
 	dsi->sub_dev.connector = &dsi->connector;
 	dsi->sub_dev.of_node = dsi->dev->of_node;
 	rockchip_drm_register_sub_dev(&dsi->sub_dev);

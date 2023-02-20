@@ -913,7 +913,6 @@ config SND_SOC_MAX98095
 
 config SND_SOC_MAX98357A
 	tristate "Maxim MAX98357A CODEC"
-	depends on GPIOLIB
 
 config SND_SOC_MAX98371
 	tristate
@@ -1179,7 +1178,6 @@ config SND_SOC_RT1015
 
 config SND_SOC_RT1015P
 	tristate
-	depends on GPIOLIB
 
 config SND_SOC_RT1305
 	tristate
@@ -1874,5 +1872,4 @@ config SND_SOC_TPA6130A2
 	depends on I2C
 
 source "sound/soc/codecs/aw87xxx/Kconfig"
-source "sound/soc/codecs/aw883xx/Kconfig"
 endmenu

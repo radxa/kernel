@@ -40,7 +40,7 @@
  */
 
 /* KUTF test application pointer for this test */
-static struct kutf_application *irq_app;
+struct kutf_application *irq_app;
 
 /**
  * struct kutf_irq_fixture_data - test fixture used by the test functions.

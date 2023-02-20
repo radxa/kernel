@@ -74,3 +74,4 @@ void dhd_csi_clean_list(dhd_pub_t *dhd);
 
 int dhd_csi_dump_list(dhd_pub_t *dhd, char *buf);
 #endif /* __DHD_CSI_H__ */
+

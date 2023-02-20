@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: (GPL-2.0+ OR MIT) */
+/* SPDX-License-Identifier: GPL-2.0 */
 
 #ifndef _DT_BINDINGS_CLK_ROCKCHIP_RK1808_H
 #define _DT_BINDINGS_CLK_ROCKCHIP_RK1808_H

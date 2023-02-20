@@ -128,16 +128,6 @@ void noinstr arch_cpu_idle(void)
 	raw_local_irq_enable();
 }
 
-void arch_cpu_idle_enter(void)
-{
-	idle_notifier_call_chain(IDLE_START);
-}
-
-void arch_cpu_idle_exit(void)
-{
-	idle_notifier_call_chain(IDLE_END);
-}
-
 #ifdef CONFIG_HOTPLUG_CPU
 void arch_cpu_idle_dead(void)
 {
@@ -279,10 +269,10 @@ static void show_data(unsigned long addr, int nbytes, const char *name)
 	 * don't attempt to dump non-kernel addresses or
 	 * values that are probably just small negative numbers
 	 */
-	if (addr < PAGE_OFFSET || addr > -4096UL)
+	if (addr < PAGE_OFFSET || addr > -256UL)
 		return;
 
-	printk("\n%s: %#lx:\n", name, addr + nbytes / 2);
+	printk("\n%s: %#lx:\n", name, addr);
 
 	/*
 	 * round address down to a 32 bit boundary
@@ -298,11 +288,7 @@ static void show_data(unsigned long addr, int nbytes, const char *name)
 		 * just display low 16 bits of address to keep
 		 * each line of the dump < 80 characters
 		 */
-		if (i == (nlines / 2))
-			printk("%04lx*", (unsigned long)p & 0xffff);
-		else
-			printk("%04lx ", (unsigned long)p & 0xffff);
-
+		printk("%04lx ", (unsigned long)p & 0xffff);
 		for (j = 0; j < 8; j++) {
 			u32	data;
 
@@ -387,7 +373,7 @@ void show_regs(struct pt_regs * regs)
 	dump_backtrace(regs, NULL, KERN_DEFAULT);
 
 	if (!user_mode(regs))
-		show_extra_register_data(regs, 512);
+		show_extra_register_data(regs, 256);
 }
 EXPORT_SYMBOL_GPL(show_regs);
 
@@ -735,8 +721,8 @@ void arch_setup_new_exec(void)
 
 	current->mm->context.flags = mmflags;
 	ptrauth_thread_init_user();
-	mte_thread_init_user();
 	erratum_1418040_new_exec();
+	mte_thread_init_user();
 
 	if (task_spec_ssb_noexec(current)) {
 		arch_prctl_spec_ctrl_set(current, PR_SPEC_STORE_BYPASS,

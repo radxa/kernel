@@ -277,8 +277,6 @@
 		power-domains = <&power RK3588_PD_VO1>;
 		resets = <&cru SRST_M_I2S6_8CH_TX>;
 		reset-names = "tx-m";
-		rockchip,always-on;
-		rockchip,hdmi-path;
 		rockchip,playback-only;
 		#sound-dai-cells = <0>;
 		status = "disabled";
@@ -417,8 +415,7 @@
 			 <&cru DCLK_VOP1>,
 			 <&cru DCLK_VOP2>,
 			 <&cru DCLK_VOP3>,
-			 <&hclk_vo1>,
-			 <&hdptxphy_hdmi_clk1>;
+			 <&hclk_vo1>;
 		clock-names = "pclk",
 			      "hpd",
 			      "earc",
@@ -428,8 +425,7 @@
 			      "dclk_vp1",
 			      "dclk_vp2",
 			      "dclk_vp3",
-			      "hclk_vo1",
-			      "link_clk";
+			      "hclk_vo1";
 		resets = <&cru SRST_HDMITX1_REF>, <&cru SRST_HDMIHDP1>;
 		reset-names = "ref", "hdp";
 		power-domains = <&power RK3588_PD_VO1>;
@@ -811,7 +807,7 @@
 
 		hdptxphy_hdmi_clk1: clk-port {
 			#clock-cells = <0>;
-			status = "okay";
+			status = "disabled";
 		};
 	};
 

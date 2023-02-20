@@ -26,8 +26,6 @@
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
 #include <drm/drm_of.h>
-#include <drm/drm_panel.h>
-#include <drm/drm_probe_helper.h>
 #include <drm/drm_print.h>
 
 #define HWVER_131			0x31333100	/* IP version 1.31 */
@@ -85,12 +83,8 @@
 #define ENABLE_CMD_MODE			BIT(0)
 
 #define DSI_VID_MODE_CFG		0x38
-#define LP_HFP_EN			BIT(13)
-#define LP_HBP_EN			BIT(12)
-#define LP_VACT_EN			BIT(11)
-#define LP_VFP_EN			BIT(10)
-#define LP_VBP_EN			BIT(9)
-#define LP_VSA_EN			BIT(8)
+#define ENABLE_LOW_POWER		(0x3f << 8)
+#define ENABLE_LOW_POWER_MASK		(0x3f << 8)
 #define VID_MODE_TYPE_NON_BURST_SYNC_PULSES	0x0
 #define VID_MODE_TYPE_NON_BURST_SYNC_EVENTS	0x1
 #define VID_MODE_TYPE_BURST			0x2
@@ -245,11 +239,8 @@ struct debugfs_entries {
 
 struct dw_mipi_dsi {
 	struct drm_bridge bridge;
-	struct drm_connector connector;
-	struct drm_encoder *encoder;
 	struct mipi_dsi_host dsi_host;
-	struct drm_panel *panel;
-	struct drm_bridge *next_bridge;
+	struct drm_bridge *panel_bridge;
 	struct device *dev;
 	void __iomem *base;
 
@@ -259,7 +250,6 @@ struct dw_mipi_dsi {
 	u32 channel;
 	u32 lanes;
 	u32 format;
-	struct drm_display_mode mode;
 	unsigned long mode_flags;
 
 #ifdef CONFIG_DEBUG_FS
@@ -272,7 +262,6 @@ struct dw_mipi_dsi {
 	} vpg_defs;
 #endif /* CONFIG_DEBUG_FS */
 
-	struct dw_mipi_dsi *dsi0;
 	struct dw_mipi_dsi *master; /* dual-dsi master ptr */
 	struct dw_mipi_dsi *slave; /* dual-dsi slave ptr */
 
@@ -310,11 +299,6 @@ static inline struct dw_mipi_dsi *bridge_to_dsi(struct drm_bridge *bridge)
 	return container_of(bridge, struct dw_mipi_dsi, bridge);
 }
 
-static inline struct dw_mipi_dsi *con_to_dsi(struct drm_connector *con)
-{
-	return container_of(con, struct dw_mipi_dsi, connector);
-}
-
 static inline void dsi_write(struct dw_mipi_dsi *dsi, u32 reg, u32 val)
 {
 	writel(val, dsi->base + reg);
@@ -330,6 +314,8 @@ static int dw_mipi_dsi_host_attach(struct mipi_dsi_host *host,
 {
 	struct dw_mipi_dsi *dsi = host_to_dsi(host);
 	const struct dw_mipi_dsi_plat_data *pdata = dsi->plat_data;
+	struct drm_bridge *bridge;
+	struct drm_panel *panel;
 	int max_data_lanes = dsi->plat_data->max_data_lanes;
 	int ret;
 
@@ -338,12 +324,19 @@ static int dw_mipi_dsi_host_attach(struct mipi_dsi_host *host,
 	dsi->format = device->format;
 	dsi->mode_flags = device->mode_flags;
 
-	ret = drm_of_find_panel_or_bridge(host->dev->of_node, 1, -1,
-					  &dsi->panel, &dsi->next_bridge);
-	if (ret) {
-		DRM_DEV_ERROR(dsi->dev, "Failed to find panel or bridge: %d\n", ret);
+	ret = drm_of_find_panel_or_bridge(host->dev->of_node, 1, 0,
+					  &panel, &bridge);
+	if (ret)
 		return ret;
+
+	if (panel) {
+		bridge = drm_panel_bridge_add_typed(panel,
+						    DRM_MODE_CONNECTOR_DSI);
+		if (IS_ERR(bridge))
+			return PTR_ERR(bridge);
 	}
+
+	dsi->panel_bridge = bridge;
 
 	drm_bridge_add(&dsi->bridge);
 
@@ -381,7 +374,6 @@ static void dw_mipi_message_config(struct dw_mipi_dsi *dsi,
 {
 	bool lpm = msg->flags & MIPI_DSI_MSG_USE_LPM;
 	u32 val = 0;
-	u32 ctrl = 0;
 
 	/*
 	 * TODO dw drv improvements
@@ -400,18 +392,11 @@ static void dw_mipi_message_config(struct dw_mipi_dsi *dsi,
 	dsi_write(dsi, DSI_CMD_MODE_CFG, val);
 
 	val = dsi_read(dsi, DSI_VID_MODE_CFG);
-	ctrl = dsi_read(dsi, DSI_LPCLK_CTRL);
-	if (lpm) {
+	if (lpm)
 		val |= ENABLE_LOW_POWER_CMD;
-		ctrl &= ~PHY_TXREQUESTCLKHS;
-	} else {
+	else
 		val &= ~ENABLE_LOW_POWER_CMD;
-		ctrl |= PHY_TXREQUESTCLKHS;
-	}
-
-	ctrl |= PHY_TXREQUESTCLKHS;
 	dsi_write(dsi, DSI_VID_MODE_CFG, val);
-	dsi_write(dsi, DSI_LPCLK_CTRL, ctrl);
 }
 
 static int dw_mipi_dsi_gen_pkt_hdr_write(struct dw_mipi_dsi *dsi, u32 hdr_val)
@@ -557,14 +542,14 @@ static const struct mipi_dsi_host_ops dw_mipi_dsi_host_ops = {
 
 static void dw_mipi_dsi_video_mode_config(struct dw_mipi_dsi *dsi)
 {
-	u32 val = LP_VSA_EN | LP_VBP_EN | LP_VFP_EN |
-		  LP_VACT_EN | LP_HBP_EN | LP_HFP_EN;
+	u32 val;
 
-	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO_HFP)
-		val &= ~LP_HFP_EN;
-
-	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO_HBP)
-		val &= ~LP_HBP_EN;
+	/*
+	 * TODO dw drv improvements
+	 * enabling low power is panel-dependent, we should use the
+	 * panel configuration here...
+	 */
+	val = ENABLE_LOW_POWER;
 
 	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO_BURST)
 		val |= VID_MODE_TYPE_BURST;
@@ -588,7 +573,7 @@ static void dw_mipi_dsi_video_mode_config(struct dw_mipi_dsi *dsi)
 static void dw_mipi_dsi_set_mode(struct dw_mipi_dsi *dsi,
 				 unsigned long mode_flags)
 {
-	u32 val = 0;
+	u32 val;
 
 	dsi_write(dsi, DSI_PWR_UP, RESET);
 
@@ -599,15 +584,7 @@ static void dw_mipi_dsi_set_mode(struct dw_mipi_dsi *dsi,
 		dsi_write(dsi, DSI_MODE_CFG, ENABLE_CMD_MODE);
 	}
 
-	/* The high-speed clock is started before that the
-	 * high-speed data is sent via the data lanes.
-	 */
-	val = dsi_read(dsi, DSI_LPCLK_CTRL);
-	if(((val & PHY_TXREQUESTCLKHS) != PHY_TXREQUESTCLKHS)
-		&& (mode_flags & MIPI_DSI_MODE_VIDEO))
-		val |= PHY_TXREQUESTCLKHS;
-	val |= PHY_TXREQUESTCLKHS;
-
+	val = PHY_TXREQUESTCLKHS;
 	if (dsi->mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS)
 		val |= AUTO_CLKLANE_CTRL;
 	dsi_write(dsi, DSI_LPCLK_CTRL, val);
@@ -625,11 +602,6 @@ static void dw_mipi_dsi_disable(struct dw_mipi_dsi *dsi)
 	dsi_write(dsi, DSI_PWR_UP, RESET);
 	dsi_write(dsi, DSI_PHY_RSTZ, PHY_RSTZ);
 	pm_runtime_put(dsi->dev);
-
-	if (dsi->slave)
-		dw_mipi_dsi_disable(dsi->slave);
-	if (dsi->dsi0)
-		dw_mipi_dsi_disable(dsi->dsi0);
 }
 
 static void dw_mipi_dsi_init(struct dw_mipi_dsi *dsi)
@@ -883,31 +855,31 @@ static void dw_mipi_dsi_clear_err(struct dw_mipi_dsi *dsi)
 	dsi_write(dsi, DSI_INT_MSK1, 0);
 }
 
-static void dw_mipi_dsi_post_disable(struct dw_mipi_dsi *dsi)
-{
-	dw_mipi_dsi_set_mode(dsi, 0);
-	if (dsi->slave)
-		dw_mipi_dsi_set_mode(dsi->slave, 0);
-	if (dsi->dsi0)
-		dw_mipi_dsi_set_mode(dsi->dsi0, 0);
-}
-
 static void dw_mipi_dsi_bridge_post_disable(struct drm_bridge *bridge)
 {
 	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
 
-	if (dsi->panel)
-		drm_panel_disable(dsi->panel);
+	/*
+	 * Switch to command mode before panel-bridge post_disable &
+	 * panel unprepare.
+	 * Note: panel-bridge disable & panel disable has been called
+	 * before by the drm framework.
+	 */
+	dw_mipi_dsi_set_mode(dsi, 0);
+	if (dsi->slave)
+		dw_mipi_dsi_set_mode(dsi->slave, 0);
 
-	dw_mipi_dsi_post_disable(dsi);
-}
+	/*
+	 * TODO Only way found to call panel-bridge post_disable &
+	 * panel unprepare before the dsi "final" disable...
+	 * This needs to be fixed in the drm_bridge framework and the API
+	 * needs to be updated to manage our own call chains...
+	 */
+	if (dsi->panel_bridge->funcs->post_disable)
+		dsi->panel_bridge->funcs->post_disable(dsi->panel_bridge);
 
-static void dw_mipi_dsi_bridge_disable(struct drm_bridge *bridge)
-{
-	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
-
-	if (dsi->panel)
-		drm_panel_unprepare(dsi->panel);
+	if (dsi->slave)
+		dw_mipi_dsi_disable(dsi->slave);
 
 	dw_mipi_dsi_disable(dsi);
 }
@@ -926,30 +898,14 @@ static unsigned int dw_mipi_dsi_get_lanes(struct dw_mipi_dsi *dsi)
 	return dsi->lanes;
 }
 
-static void dw_mipi_dsi_bridge_mode_set(struct drm_bridge *bridge,
-					const struct drm_display_mode *mode,
-					const struct drm_display_mode *adjusted_mode)
-{
-	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
-
-	drm_mode_copy(&dsi->mode, adjusted_mode);
-
-	if (dsi->slave)
-		drm_mode_copy(&dsi->slave->mode, adjusted_mode);
-	if (dsi->dsi0)
-		drm_mode_copy(&dsi->dsi0->mode, adjusted_mode);
-}
-
-static void dw_mipi_dsi_pre_enable(struct dw_mipi_dsi *dsi)
+static void dw_mipi_dsi_mode_set(struct dw_mipi_dsi *dsi,
+				 const struct drm_display_mode *adjusted_mode)
 {
 	const struct dw_mipi_dsi_phy_ops *phy_ops = dsi->plat_data->phy_ops;
 	void *priv_data = dsi->plat_data->priv_data;
-	const struct drm_display_mode *adjusted_mode = &dsi->mode;
 	int ret;
 	u32 lanes = dw_mipi_dsi_get_lanes(dsi);
 
-	if (dsi->dsi0)
-		dw_mipi_dsi_pre_enable(dsi->dsi0);
 	if (dsi->apb_rst) {
 		reset_control_assert(dsi->apb_rst);
 		usleep_range(10, 20);
@@ -990,25 +946,27 @@ static void dw_mipi_dsi_pre_enable(struct dw_mipi_dsi *dsi)
 
 	/* Switch to cmd mode for panel-bridge pre_enable & panel prepare */
 	dw_mipi_dsi_set_mode(dsi, 0);
-
-	if (dsi->slave)
-		dw_mipi_dsi_pre_enable(dsi->slave);
 }
 
-static void dw_mipi_dsi_bridge_pre_enable(struct drm_bridge *bridge)
+static void dw_mipi_dsi_bridge_mode_set(struct drm_bridge *bridge,
+					const struct drm_display_mode *mode,
+					const struct drm_display_mode *adjusted_mode)
 {
 	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
 
-	dw_mipi_dsi_pre_enable(dsi);
+	dw_mipi_dsi_mode_set(dsi, adjusted_mode);
+	if (dsi->slave)
+		dw_mipi_dsi_mode_set(dsi->slave, adjusted_mode);
 
-	if (dsi->panel)
-		drm_panel_prepare(dsi->panel);
+	DRM_DEV_INFO(dsi->dev, "final DSI-Link bandwidth: %u x %d Mbps\n",
+		     dsi->lane_mbps, dsi->slave ? dsi->lanes * 2 : dsi->lanes);
 }
 
-static void dw_mipi_dsi_enable(struct dw_mipi_dsi *dsi)
+static void dw_mipi_dsi_bridge_enable(struct drm_bridge *bridge)
 {
-	if (dsi->dsi0)
-		dw_mipi_dsi_enable(dsi->dsi0);
+	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
+
+	/* Switch to video/cmd mode for panel-bridge enable & panel enable */
 	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO) {
 		dw_mipi_dsi_set_mode(dsi, MIPI_DSI_MODE_VIDEO);
 		if (dsi->slave)
@@ -1018,22 +976,6 @@ static void dw_mipi_dsi_enable(struct dw_mipi_dsi *dsi)
 		if (dsi->slave)
 			dw_mipi_dsi_set_mode(dsi->slave, 0);
 	}
-
-	if (dsi->slave)
-		dw_mipi_dsi_enable(dsi->slave);
-}
-
-static void dw_mipi_dsi_bridge_enable(struct drm_bridge *bridge)
-{
-	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
-
-	dw_mipi_dsi_enable(dsi);
-
-	if (dsi->panel)
-		drm_panel_enable(dsi->panel);
-
-	DRM_DEV_INFO(dsi->dev, "final DSI-Link bandwidth: %u x %d Mbps\n",
-		     dsi->lane_mbps, dsi->slave ? dsi->lanes * 2 : dsi->lanes);
 }
 
 static enum drm_mode_status
@@ -1064,20 +1006,15 @@ static int dw_mipi_dsi_bridge_attach(struct drm_bridge *bridge,
 	/* Set the encoder type as caller does not know it */
 	bridge->encoder->encoder_type = DRM_MODE_ENCODER_DSI;
 
-	/* Attach the next-bridge to the dsi bridge */
-	if (dsi->next_bridge)
-		return drm_bridge_attach(bridge->encoder, dsi->next_bridge,
-					 bridge, flags);
-
-	return 0;
+	/* Attach the panel-bridge to the dsi bridge */
+	return drm_bridge_attach(bridge->encoder, dsi->panel_bridge, bridge,
+				 flags);
 }
 
 static const struct drm_bridge_funcs dw_mipi_dsi_bridge_funcs = {
 	.mode_set     = dw_mipi_dsi_bridge_mode_set,
-	.pre_enable   = dw_mipi_dsi_bridge_pre_enable,
 	.enable	      = dw_mipi_dsi_bridge_enable,
 	.post_disable = dw_mipi_dsi_bridge_post_disable,
-	.disable      = dw_mipi_dsi_bridge_disable,
 	.mode_valid   = dw_mipi_dsi_bridge_mode_valid,
 	.attach	      = dw_mipi_dsi_bridge_attach,
 };
@@ -1256,19 +1193,6 @@ void dw_mipi_dsi_set_slave(struct dw_mipi_dsi *dsi, struct dw_mipi_dsi *slave)
 }
 EXPORT_SYMBOL_GPL(dw_mipi_dsi_set_slave);
 
-void dw_mipi_dsi_set_dsi0(struct dw_mipi_dsi *dsi, struct dw_mipi_dsi *dsi0)
-{
-	/* introduce controllers to each other */
-	dsi->dsi0 = dsi0;
-
-	/* migrate settings for already attached displays */
-	dsi->dsi0->lanes = dsi->lanes;
-	dsi->dsi0->channel = dsi->channel;
-	dsi->dsi0->format = dsi->format;
-	dsi->dsi0->mode_flags = dsi->mode_flags;
-}
-EXPORT_SYMBOL_GPL(dw_mipi_dsi_set_dsi0);
-
 /*
  * Probe/remove API, used from platforms based on the DRM bridge API.
  */
@@ -1286,89 +1210,12 @@ void dw_mipi_dsi_remove(struct dw_mipi_dsi *dsi)
 }
 EXPORT_SYMBOL_GPL(dw_mipi_dsi_remove);
 
-static int dw_mipi_dsi_connector_get_modes(struct drm_connector *connector)
-{
-	struct dw_mipi_dsi *dsi = con_to_dsi(connector);
-
-	if (dsi->next_bridge && (dsi->next_bridge->ops & DRM_BRIDGE_OP_MODES))
-		return drm_bridge_get_modes(dsi->next_bridge, connector);
-
-	if (dsi->panel)
-		return drm_panel_get_modes(dsi->panel, connector);
-
-	return -EINVAL;
-}
-
-static struct drm_connector_helper_funcs dw_mipi_dsi_connector_helper_funcs = {
-	.get_modes = dw_mipi_dsi_connector_get_modes,
-};
-
-static enum drm_connector_status
-dw_mipi_dsi_connector_detect(struct drm_connector *connector, bool force)
-{
-	struct dw_mipi_dsi *dsi = con_to_dsi(connector);
-
-	if (dsi->next_bridge && (dsi->next_bridge->ops & DRM_BRIDGE_OP_DETECT))
-		return drm_bridge_detect(dsi->next_bridge);
-
-	return connector_status_connected;
-}
-
-static void dw_mipi_dsi_drm_connector_destroy(struct drm_connector *connector)
-{
-	drm_connector_unregister(connector);
-	drm_connector_cleanup(connector);
-}
-
-static const struct drm_connector_funcs dw_mipi_dsi_atomic_connector_funcs = {
-	.fill_modes = drm_helper_probe_single_connector_modes,
-	.detect = dw_mipi_dsi_connector_detect,
-	.destroy = dw_mipi_dsi_drm_connector_destroy,
-	.reset = drm_atomic_helper_connector_reset,
-	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
-	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
-};
-
-static int dw_mipi_dsi_connector_init(struct dw_mipi_dsi *dsi)
-{
-	struct drm_encoder *encoder = dsi->encoder;
-	struct drm_connector *connector = &dsi->connector;
-	struct drm_device *drm_dev = dsi->bridge.dev;
-	struct device *dev = dsi->dev;
-	int ret;
-
-	ret = drm_connector_init(drm_dev, connector,
-				 &dw_mipi_dsi_atomic_connector_funcs,
-				 DRM_MODE_CONNECTOR_DSI);
-	if (ret) {
-		DRM_DEV_ERROR(dev, "Failed to initialize connector\n");
-		return ret;
-	}
-
-	drm_connector_helper_add(connector,
-				 &dw_mipi_dsi_connector_helper_funcs);
-	ret = drm_connector_attach_encoder(connector, encoder);
-	if (ret < 0) {
-		DRM_DEV_ERROR(dev, "Failed to attach encoder: %d\n", ret);
-		goto connector_cleanup;
-	}
-
-	return 0;
-
-connector_cleanup:
-	connector->funcs->destroy(connector);
-
-	return ret;
-}
-
 /*
  * Bind/unbind API, used from platforms based on the component framework.
  */
 int dw_mipi_dsi_bind(struct dw_mipi_dsi *dsi, struct drm_encoder *encoder)
 {
 	int ret;
-
-	dsi->encoder = encoder;
 
 	ret = drm_bridge_attach(encoder, &dsi->bridge, NULL, 0);
 	if (ret) {
@@ -1387,33 +1234,7 @@ EXPORT_SYMBOL_GPL(dw_mipi_dsi_unbind);
 
 struct drm_connector *dw_mipi_dsi_get_connector(struct dw_mipi_dsi *dsi)
 {
-	struct drm_connector *connector = NULL;
-	enum drm_bridge_attach_flags flags = 0;
-	int ret;
-
-	if (dsi->next_bridge) {
-		enum drm_bridge_attach_flags flags;
-		struct list_head *connector_list =
-			&dsi->next_bridge->dev->mode_config.connector_list;
-
-		flags = dsi->next_bridge->ops & DRM_BRIDGE_OP_MODES ?
-			DRM_BRIDGE_ATTACH_NO_CONNECTOR : 0;
-		if (!(flags & DRM_BRIDGE_ATTACH_NO_CONNECTOR))
-			list_for_each_entry(connector, connector_list, head)
-				if (drm_connector_has_possible_encoder(connector,
-								       dsi->encoder))
-					break;
-	}
-
-	if (dsi->panel || (dsi->next_bridge && (flags & DRM_BRIDGE_ATTACH_NO_CONNECTOR))) {
-		ret = dw_mipi_dsi_connector_init(dsi);
-		if (ret)
-			return ERR_PTR(ret);
-
-		connector = &dsi->connector;
-	}
-
-	return connector;
+	return drm_panel_bridge_connector(dsi->panel_bridge);
 }
 EXPORT_SYMBOL_GPL(dw_mipi_dsi_get_connector);
 

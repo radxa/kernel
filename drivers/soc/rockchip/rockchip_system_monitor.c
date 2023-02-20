@@ -71,7 +71,6 @@ struct system_monitor {
 
 	struct thermal_zone_device *tz;
 	struct delayed_work thermal_work;
-	int last_temp;
 	int offline_cpus_temp;
 	int temp_hysteresis;
 	unsigned int delay;
@@ -92,7 +91,6 @@ static LIST_HEAD(monitor_dev_list);
 static struct system_monitor *system_monitor;
 static atomic_t monitor_in_suspend;
 
-static BLOCKING_NOTIFIER_HEAD(system_monitor_notifier_list);
 static BLOCKING_NOTIFIER_HEAD(system_status_notifier_list);
 
 int rockchip_register_system_status_notifier(struct notifier_block *nb)
@@ -363,14 +361,6 @@ void rockchip_update_system_status(const char *buf)
 	case 'n':
 		/* clear performance flag */
 		rockchip_clear_system_status(SYS_STATUS_PERFORMANCE);
-		break;
-	case 'S':
-		/* set video svep flag */
-		rockchip_set_system_status(SYS_STATUS_VIDEO_SVEP);
-		break;
-	case 's':
-		/* clear video svep flag */
-		rockchip_clear_system_status(SYS_STATUS_VIDEO_SVEP);
 		break;
 	default:
 		break;
@@ -1450,31 +1440,6 @@ void rockchip_system_monitor_unregister(struct monitor_dev_info *info)
 }
 EXPORT_SYMBOL(rockchip_system_monitor_unregister);
 
-int rockchip_system_monitor_register_notifier(struct notifier_block *nb)
-{
-	return blocking_notifier_chain_register(&system_monitor_notifier_list, nb);
-}
-EXPORT_SYMBOL(rockchip_system_monitor_register_notifier);
-
-void rockchip_system_monitor_unregister_notifier(struct notifier_block *nb)
-{
-	blocking_notifier_chain_unregister(&system_monitor_notifier_list, nb);
-}
-EXPORT_SYMBOL(rockchip_system_monitor_unregister_notifier);
-
-static int rockchip_system_monitor_temp_notify(int temp)
-{
-	struct system_monitor_event_data event_data;
-	int ret;
-
-	event_data.temp = temp;
-	ret = blocking_notifier_call_chain(&system_monitor_notifier_list,
-					   SYSTEM_MONITOR_CHANGE_TEMP,
-					   (void *)&event_data);
-
-	return notifier_to_errno(ret);
-}
-
 static int notify_dummy(struct thermal_zone_device *tz, int trip)
 {
 	return 0;
@@ -1491,7 +1456,7 @@ static int rockchip_system_monitor_parse_dt(struct system_monitor *monitor)
 	const char *tz_name, *buf = NULL;
 
 	if (of_property_read_string(np, "rockchip,video-4k-offline-cpus", &buf))
-		cpumask_clear(&monitor->video_4k_offline_cpus);
+		cpumask_clear(&system_monitor->video_4k_offline_cpus);
 	else
 		cpulist_parse(buf, &monitor->video_4k_offline_cpus);
 
@@ -1591,6 +1556,7 @@ static void rockchip_system_monitor_thermal_update(void)
 {
 	int temp, ret;
 	struct monitor_dev_info *info;
+	static int last_temp = INT_MAX;
 
 	ret = thermal_zone_get_temp(system_monitor->tz, &temp);
 	if (ret || temp == THERMAL_TEMP_INVALID)
@@ -1598,12 +1564,9 @@ static void rockchip_system_monitor_thermal_update(void)
 
 	dev_dbg(system_monitor->dev, "temperature=%d\n", temp);
 
-	if (temp < system_monitor->last_temp &&
-	    system_monitor->last_temp - temp <= 2000)
+	if (temp < last_temp && last_temp - temp <= 2000)
 		goto out;
-	system_monitor->last_temp = temp;
-
-	rockchip_system_monitor_temp_notify(temp);
+	last_temp = temp;
 
 	down_read(&mdev_list_sem);
 	list_for_each_entry(info, &monitor_dev_list, node)
@@ -1729,7 +1692,6 @@ static int monitor_pm_notify(struct notifier_block *nb,
 			rockchip_system_monitor_thermal_update();
 		atomic_set(&monitor_in_suspend, 0);
 		rockchip_system_monitor_set_cpu_uevent_suppress(false);
-		system_monitor->last_temp = INT_MAX;
 		break;
 	default:
 		break;
@@ -1849,7 +1811,6 @@ static int rockchip_system_monitor_probe(struct platform_device *pdev)
 
 	rockchip_system_monitor_parse_dt(system_monitor);
 	if (system_monitor->tz) {
-		system_monitor->last_temp = INT_MAX;
 		INIT_DELAYED_WORK(&system_monitor->thermal_work,
 				  rockchip_system_monitor_thermal_check);
 		mod_delayed_work(system_freezable_wq,

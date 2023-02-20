@@ -118,7 +118,6 @@ struct rockchip_dmcfreq {
 	struct regulator *vdd_center;
 	struct regulator *mem_reg;
 	struct notifier_block status_nb;
-	struct notifier_block panic_nb;
 	struct list_head video_info_list;
 	struct freq_map_table *cpu_bw_tbl;
 	struct work_struct boost_work;
@@ -136,10 +135,8 @@ struct rockchip_dmcfreq {
 	unsigned long video_1080p_rate;
 	unsigned long video_4k_rate;
 	unsigned long video_4k_10b_rate;
-	unsigned long video_svep_rate;
 	unsigned long performance_rate;
 	unsigned long hdmi_rate;
-	unsigned long hdmirx_rate;
 	unsigned long idle_rate;
 	unsigned long suspend_rate;
 	unsigned long reboot_rate;
@@ -2282,17 +2279,11 @@ static int rockchip_get_system_status_rate(struct device_node *np,
 		case SYS_STATUS_VIDEO_4K_10B:
 			dmcfreq->video_4k_10b_rate = freq * 1000;
 			break;
-		case SYS_STATUS_VIDEO_SVEP:
-			dmcfreq->video_svep_rate = freq * 1000;
-			break;
 		case SYS_STATUS_PERFORMANCE:
 			dmcfreq->performance_rate = freq * 1000;
 			break;
 		case SYS_STATUS_HDMI:
 			dmcfreq->hdmi_rate = freq * 1000;
-			break;
-		case SYS_STATUS_HDMIRX:
-			dmcfreq->hdmirx_rate = freq * 1000;
 			break;
 		case SYS_STATUS_IDLE:
 			dmcfreq->idle_rate = freq * 1000;
@@ -2429,11 +2420,6 @@ static int rockchip_get_system_status_level(struct device_node *np,
 			dev_info(dmcfreq->dev, "video_4k_10b_rate = %ld\n",
 				 dmcfreq->video_4k_10b_rate);
 			break;
-		case SYS_STATUS_VIDEO_SVEP:
-			dmcfreq->video_svep_rate = rockchip_freq_level_2_rate(dmcfreq, level);
-			dev_info(dmcfreq->dev, "video_svep_rate = %ld\n",
-				 dmcfreq->video_svep_rate);
-			break;
 		case SYS_STATUS_PERFORMANCE:
 			dmcfreq->performance_rate = rockchip_freq_level_2_rate(dmcfreq, level);
 			dev_info(dmcfreq->dev, "performance_rate = %ld\n",
@@ -2442,10 +2428,6 @@ static int rockchip_get_system_status_level(struct device_node *np,
 		case SYS_STATUS_HDMI:
 			dmcfreq->hdmi_rate = rockchip_freq_level_2_rate(dmcfreq, level);
 			dev_info(dmcfreq->dev, "hdmi_rate = %ld\n", dmcfreq->hdmi_rate);
-			break;
-		case SYS_STATUS_HDMIRX:
-			dmcfreq->hdmirx_rate = rockchip_freq_level_2_rate(dmcfreq, level);
-			dev_info(dmcfreq->dev, "hdmirx_rate = %ld\n", dmcfreq->hdmirx_rate);
 			break;
 		case SYS_STATUS_IDLE:
 			dmcfreq->idle_rate = rockchip_freq_level_2_rate(dmcfreq, level);
@@ -2537,11 +2519,6 @@ static int rockchip_dmcfreq_system_status_notifier(struct notifier_block *nb,
 			target_rate = dmcfreq->hdmi_rate;
 	}
 
-	if (dmcfreq->hdmirx_rate && (status & SYS_STATUS_HDMIRX)) {
-		if (dmcfreq->hdmirx_rate > target_rate)
-			target_rate = dmcfreq->hdmirx_rate;
-	}
-
 	if (dmcfreq->video_4k_rate && (status & SYS_STATUS_VIDEO_4K)) {
 		if (dmcfreq->video_4k_rate > target_rate)
 			target_rate = dmcfreq->video_4k_rate;
@@ -2557,11 +2534,6 @@ static int rockchip_dmcfreq_system_status_notifier(struct notifier_block *nb,
 			target_rate = dmcfreq->video_1080p_rate;
 	}
 
-	if (dmcfreq->video_svep_rate && (status & SYS_STATUS_VIDEO_SVEP)) {
-		if (dmcfreq->video_svep_rate > target_rate)
-			target_rate = dmcfreq->video_svep_rate;
-	}
-
 next:
 
 	dev_dbg(dmcfreq->dev, "status=0x%x\n", (unsigned int)status);
@@ -2575,17 +2547,6 @@ next:
 	rockchip_dmcfreq_update_target(dmcfreq);
 
 	return NOTIFY_OK;
-}
-
-static int rockchip_dmcfreq_panic_notifier(struct notifier_block *nb,
-					   unsigned long v, void *p)
-{
-	struct rockchip_dmcfreq *dmcfreq =
-		container_of(nb, struct rockchip_dmcfreq, panic_nb);
-
-	rockchip_opp_dump_cur_state(dmcfreq->dev);
-
-	return 0;
 }
 
 static ssize_t rockchip_dmcfreq_status_show(struct device *dev,
@@ -3140,12 +3101,6 @@ static void rockchip_dmcfreq_register_notifier(struct rockchip_dmcfreq *dmcfreq)
 	ret = rockchip_register_system_status_notifier(&dmcfreq->status_nb);
 	if (ret)
 		dev_err(dmcfreq->dev, "failed to register system_status nb\n");
-
-	dmcfreq->panic_nb.notifier_call = rockchip_dmcfreq_panic_notifier;
-	ret = atomic_notifier_chain_register(&panic_notifier_list,
-					     &dmcfreq->panic_nb);
-	if (ret)
-		dev_err(dmcfreq->dev, "failed to register panic nb\n");
 
 	dmc_mdevp.data = dmcfreq->info.devfreq;
 	dmcfreq->mdev_info = rockchip_system_monitor_register(dmcfreq->dev,

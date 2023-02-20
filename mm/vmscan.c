@@ -451,6 +451,8 @@ static unsigned long do_shrink_slab(struct shrink_control *shrinkctl,
 					  : SHRINK_BATCH;
 	long scanned = 0, next_deferred;
 
+	trace_android_vh_do_shrink_slab(shrinker, shrinkctl, priority);
+
 	if (!(shrinker->flags & SHRINKER_NUMA_AWARE))
 		nid = 0;
 
@@ -670,7 +672,7 @@ static unsigned long shrink_slab_memcg(gfp_t gfp_mask, int nid,
  *
  * Returns the number of reclaimed slab objects.
  */
-unsigned long shrink_slab(gfp_t gfp_mask, int nid,
+static unsigned long shrink_slab(gfp_t gfp_mask, int nid,
 				 struct mem_cgroup *memcg,
 				 int priority)
 {
@@ -722,7 +724,6 @@ out:
 	cond_resched();
 	return freed;
 }
-EXPORT_SYMBOL_GPL(shrink_slab);
 
 void drop_slab_node(int nid)
 {
@@ -2084,7 +2085,6 @@ static void shrink_active_list(unsigned long nr_to_scan,
 	unsigned nr_rotated = 0;
 	int file = is_file_lru(lru);
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
-	bool bypass = false;
 
 	lru_add_drain();
 
@@ -2119,10 +2119,6 @@ static void shrink_active_list(unsigned long nr_to_scan,
 			}
 		}
 
-		trace_android_vh_page_referenced_check_bypass(page, nr_to_scan, lru, &bypass);
-		if (bypass)
-			goto skip_page_referenced;
-
 		if (page_referenced(page, 0, sc->target_mem_cgroup,
 				    &vm_flags)) {
 			/*
@@ -2140,7 +2136,7 @@ static void shrink_active_list(unsigned long nr_to_scan,
 				continue;
 			}
 		}
-skip_page_referenced:
+
 		ClearPageActive(page);	/* we are de-activating */
 		SetPageWorkingset(page);
 		list_add(&page->lru, &l_inactive);
@@ -2270,16 +2266,11 @@ static bool inactive_is_low(struct lruvec *lruvec, enum lru_list inactive_lru)
 	unsigned long inactive, active;
 	unsigned long inactive_ratio;
 	unsigned long gb;
-	bool skip = false;
 
 	inactive = lruvec_page_state(lruvec, NR_LRU_BASE + inactive_lru);
 	active = lruvec_page_state(lruvec, NR_LRU_BASE + active_lru);
 
 	gb = (inactive + active) >> (30 - PAGE_SHIFT);
-	trace_android_vh_inactive_is_low(gb, &inactive_ratio, inactive_lru, &skip);
-	if (skip)
-		goto out;
-
 	if (gb)
 		inactive_ratio = int_sqrt(10 * gb);
 	else
@@ -2287,7 +2278,6 @@ static bool inactive_is_low(struct lruvec *lruvec, enum lru_list inactive_lru)
 
 	trace_android_vh_tune_inactive_ratio(&inactive_ratio, is_file_lru(inactive_lru));
 
-out:
 	return inactive * inactive_ratio < active;
 }
 
@@ -2402,7 +2392,6 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 	denominator = ap + fp;
 out:
 	trace_android_vh_tune_scan_type((char *)(&scan_balance));
-	trace_android_vh_tune_memcg_scan_type(memcg, (char *)(&scan_balance));
 	for_each_evictable_lru(lru) {
 		int file = is_file_lru(lru);
 		unsigned long lruvec_size;
@@ -2706,7 +2695,6 @@ static void shrink_node_memcgs(pg_data_t *pgdat, struct scan_control *sc)
 		struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
 		unsigned long reclaimed;
 		unsigned long scanned;
-		bool skip = false;
 
 		/*
 		 * This loop can become CPU-bound when target memcgs
@@ -2715,10 +2703,6 @@ static void shrink_node_memcgs(pg_data_t *pgdat, struct scan_control *sc)
 		 * memory is explicitly protected. Avoid soft lockups.
 		 */
 		cond_resched();
-
-		trace_android_vh_shrink_node_memcgs(memcg, &skip);
-		if (skip)
-			continue;
 
 		mem_cgroup_calculate_protection(target_memcg, memcg);
 
@@ -3085,7 +3069,6 @@ static void snapshot_refaults(struct mem_cgroup *target_memcg, pg_data_t *pgdat)
 	target_lruvec->refaults[0] = refaults;
 	refaults = lruvec_page_state(target_lruvec, WORKINGSET_ACTIVATE_FILE);
 	target_lruvec->refaults[1] = refaults;
-	trace_android_vh_snapshot_refaults(target_lruvec);
 }
 
 /*

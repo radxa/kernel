@@ -6,9 +6,7 @@
 #ifndef BRCMFMAC_BUS_H
 #define BRCMFMAC_BUS_H
 
-#include <linux/skbuff.h>
 #include "debug.h"
-#include <linux/version.h>
 
 /* IDs of the 6 default common rings of msgbuf protocol */
 #define BRCMF_H2D_MSGRING_CONTROL_SUBMIT	0
@@ -23,15 +21,6 @@
 #define BRCMF_NROF_D2H_COMMON_MSGRINGS		3
 #define BRCMF_NROF_COMMON_MSGRINGS	(BRCMF_NROF_H2D_COMMON_MSGRINGS + \
 					 BRCMF_NROF_D2H_COMMON_MSGRINGS)
-
-/* The interval to poll console */
-#define BRCMF_CONSOLE	10
-
-/* The maximum console interval value (5 mins) */
-#define MAX_CONSOLE_INTERVAL	(5 * 60)
-
-/* The maximum firmware command timeout count value */
-#define BRCMF_MAX_CMD_TIMEOUT   (2)
 
 /* The level of bus communication with the dongle */
 enum brcmf_bus_state {
@@ -129,19 +118,6 @@ struct brcmf_bus_stats {
 };
 
 /**
- * struct brcmf_bt_dev - bt shared SDIO device.
- *
- * @ bt_data: bt internal structure data
- * @ bt_sdio_int_cb: bt registered interrupt callback function
- * @ bt_use_count: Counter that tracks whether BT is using the bus
- */
-struct brcmf_bt_dev {
-	void	*bt_data;
-	void	(*bt_sdio_int_cb)(void *data);
-	u32	use_count; /* Counter for tracking if BT is using the bus */
-};
-
-/**
  * struct brcmf_bus - interface structure between common and bus layer
  *
  * @bus_priv: pointer to private bus device.
@@ -156,7 +132,6 @@ struct brcmf_bt_dev {
  * @wowl_supported: is wowl supported by bus driver.
  * @chiprev: revision of the dongle chip.
  * @msgbuf: msgbuf protocol parameters provided by bus layer.
- * @bt_dev: bt shared SDIO device
  */
 struct brcmf_bus {
 	union {
@@ -177,12 +152,6 @@ struct brcmf_bus {
 
 	const struct brcmf_bus_ops *ops;
 	struct brcmf_bus_msgbuf *msgbuf;
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
-	bool allow_skborphan;
-#endif
-#ifdef CONFIG_BRCMFMAC_BT_SHARED_SDIO
-	struct brcmf_bt_dev *bt_dev;
-#endif /* CONFIG_BRCMFMAC_BT_SHARED_SDIO */
 };
 
 /*
@@ -287,7 +256,7 @@ void brcmf_rx_event(struct device *dev, struct sk_buff *rxp);
 
 int brcmf_alloc(struct device *dev, struct brcmf_mp_device *settings);
 /* Indication from bus module regarding presence/insertion of dongle. */
-int brcmf_attach(struct device *dev, bool start_bus);
+int brcmf_attach(struct device *dev);
 /* Indication from bus module regarding removal/absence of dongle */
 void brcmf_detach(struct device *dev);
 void brcmf_free(struct device *dev);
@@ -301,20 +270,31 @@ void brcmf_fw_crashed(struct device *dev);
 /* Configure the "global" bus state used by upper layers */
 void brcmf_bus_change_state(struct brcmf_bus *bus, enum brcmf_bus_state state);
 
-/* Handle firmware command timeout */
-void brcmf_bus_handle_cmd_timeout(struct brcmf_bus *bus);
-
 s32 brcmf_iovar_data_set(struct device *dev, char *name, void *data, u32 len);
 void brcmf_bus_add_txhdrlen(struct device *dev, uint len);
-int brcmf_fwlog_attach(struct device *dev);
 
 #ifdef CONFIG_BRCMFMAC_SDIO
 void brcmf_sdio_exit(void);
-void brcmf_sdio_register(void);
+int brcmf_sdio_register(void);
+#else
+static inline void brcmf_sdio_exit(void) { }
+static inline int brcmf_sdio_register(void) { return 0; }
 #endif
+
 #ifdef CONFIG_BRCMFMAC_USB
 void brcmf_usb_exit(void);
-void brcmf_usb_register(void);
+int brcmf_usb_register(void);
+#else
+static inline void brcmf_usb_exit(void) { }
+static inline int brcmf_usb_register(void) { return 0; }
+#endif
+
+#ifdef CONFIG_BRCMFMAC_PCIE
+void brcmf_pcie_exit(void);
+int brcmf_pcie_register(void);
+#else
+static inline void brcmf_pcie_exit(void) { }
+static inline int brcmf_pcie_register(void) { return 0; }
 #endif
 
 #endif /* BRCMFMAC_BUS_H */

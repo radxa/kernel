@@ -41,6 +41,8 @@ struct mcfg_fixup {
 static struct mcfg_fixup mcfg_quirks[] = {
 /*	{ OEM_ID, OEM_TABLE_ID, REV, SEGMENT, BUS_RANGE, ops, cfgres }, */
 
+#ifdef CONFIG_ARM64
+
 #define AL_ECAM(table_id, rev, seg, ops) \
 	{ "AMAZON", table_id, rev, seg, MCFG_BUS_ANY, ops }
 
@@ -64,11 +66,6 @@ static struct mcfg_fixup mcfg_quirks[] = {
 	QCOM_ECAM32(5),
 	QCOM_ECAM32(6),
 	QCOM_ECAM32(7),
-
-#define RKCP_ECAM(seg, table_id, ops) \
-	{ "RKCP  ", table_id, 0x0000, seg, MCFG_BUS_ANY, ops }
-
-	RKCP_ECAM(0, "RK3588  ", &rk_pcie_ecam_ops), /* pcie3x4: Name (_SEG, Zero) */
 
 #define HISI_QUAD_DOM(table_id, seg, ops) \
 	{ "HISI  ", table_id, 0, (seg) + 0, MCFG_BUS_ANY, ops }, \
@@ -167,6 +164,7 @@ static struct mcfg_fixup mcfg_quirks[] = {
 	ALTRA_ECAM_QUIRK(1, 13),
 	ALTRA_ECAM_QUIRK(1, 14),
 	ALTRA_ECAM_QUIRK(1, 15),
+#endif /* ARM64 */
 };
 
 static char mcfg_oem_id[ACPI_OEM_ID_SIZE];

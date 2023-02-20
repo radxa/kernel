@@ -60,6 +60,30 @@ config QCOM_EMAC
 	  low power, Receive-Side Scaling (RSS), and IEEE 1588-2008
 	  Precision Clock Synchronization Protocol.
 
+config SHORTCUT_FE
+	bool "Qualcomm/Atheros shortcut forward engine"
+	select NF_CONNTRACK
+	select NF_CONNTRACK_MARK
+	select NF_CONNTRACK_CHAIN_EVENTS
+	help
+	  This driver provides support for accelerated "shortcut" packet forwarding.
+	  The module will be called sfe.
+
+config SFE_SUPPORT_IPV6
+	bool "Shortcut Forwarding Engine support IPV6"
+	default y
+	depends on SHORTCUT_FE
+
+config SFE_ECM
+	bool "SFE_ECM"
+	default y
+	depends on SHORTCUT_FE
+
+config FAST_CLASSIFIER
+	bool "Fast Classifier"
+	default y
+	depends on SHORTCUT_FE
+
 source "drivers/net/ethernet/qualcomm/rmnet/Kconfig"
 
 endif # NET_VENDOR_QUALCOMM

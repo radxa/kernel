@@ -18,10 +18,18 @@
 #include "rk3588s.dtsi"
 #include "rk3588-rk806-single.dtsi"
 #include "rk3588-linux.dtsi"
+#include "rk3588s-rock-5a-imx415.dtsi"
+#include "rk3588s-rock-5a-radxa-display-10fhd.dtsi"
 
 / {
 	model = "Radxa ROCK 5A";
 	compatible = "radxa,rock-5a", "rockchip,rk3588";
+
+	aliases {
+		mmc0 = &sdmmc;
+		mmc1 = &sdhci;
+		mmc2 = &sdio;
+	};
 
 	/delete-node/ chosen;
 
@@ -128,18 +136,6 @@
 		vin-supply = <&vcc5v0_sys>;
 	};
 
-	vcc5v0_otg: vcc5v0-otg-regulator {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc5v0_otg";
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		enable-active-high;
-		gpio = <&gpio0 RK_PD4 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&vcc5v0_otg_en>;
-		vin-supply = <&vcc5v0_sys>;
-	};
-
 	vcc3v3_pcie: vcc3v3-pcie {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc3v3_pcie";
@@ -147,6 +143,17 @@
 		regulator-max-microvolt = <3300000>;
 		startup-delay-us = <5000>;
 		vin-supply = <&vcc5v0_sys>;
+	};
+
+	usbwifibt_6252b_pwr: usbwifibt-6252b-pwr {
+		compatible = "regulator-fixed";
+		regulator-name = "usbwifibt_6252b_pwr";
+		regulator-always-on;
+		regulator-boot-on;
+		enable-active-low;
+		gpios = <&gpio3 RK_PC0 GPIO_ACTIVE_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&usbwifibt_6252b_drv>;
 	};
 
 	leds {
@@ -257,16 +264,6 @@
 	rknpu-supply = <&vdd_npu_s0>;
 	mem-supply = <&vdd_npu_mem_s0>;
 	status = "okay";
-};
-
-&dfi {
-	status = "okay";
-};
-
-&dmc {
-	status = "okay";
-	center-supply = <&vdd_ddr_s0>;
-	mem-supply = <&vdd_log_s0>;
 };
 
 &rknpu_mmu {
@@ -413,7 +410,7 @@
 /* SD */
 
 &sdmmc {
-	max-frequency = <200000000>;
+	max-frequency = <150000000>;
 	no-sdio;
 	no-mmc;
 	bus-width = <4>;
@@ -438,8 +435,6 @@
 
 &hdmi0 {
 	status = "okay";
-	pinctrl-names = "default";
-	pinctrl-0 = <&hdmim0_tx0_cec &hdmim1_tx0_hpd &hdmim0_tx0_scl &hdmim0_tx0_sda>;
 };
 
 &hdmi0_in_vp0 {
@@ -480,14 +475,6 @@
 	status = "okay";
 };
 
-&vdpu {
-	status = "okay";
-};
-
-&vdpu_mmu {
-	status = "okay";
-};
-
 /* Video Ports */
 
 &vop {
@@ -498,52 +485,36 @@
 	status = "okay";
 };
 
-&vepu {
-	status = "okay";
-};
-
 /* vp0 & vp1 splice for 8K output */
 &vp0 {
 	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER0 | 1 << ROCKCHIP_VOP2_ESMART0)>;
 	rockchip,primary-plane = <ROCKCHIP_VOP2_ESMART0>;
-	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER0>;
 };
 
 &vp1 {
 	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER1 | 1 << ROCKCHIP_VOP2_ESMART1)>;
 	rockchip,primary-plane = <ROCKCHIP_VOP2_ESMART1>;
-	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER1>;
 };
 
 &vp2 {
 	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER2 | 1 << ROCKCHIP_VOP2_ESMART2)>;
 	rockchip,primary-plane = <ROCKCHIP_VOP2_ESMART2>;
-	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER2>;
 };
 
 &vp3 {
 	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER3 | 1 << ROCKCHIP_VOP2_ESMART3)>;
 	rockchip,primary-plane = <ROCKCHIP_VOP2_ESMART3>;
-	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER3>;
-};
-
-&display_subsystem {
-	clocks = <&hdptxphy_hdmi_clk0>;
-	clock-names = "hdmi0_phy_pll";
-};
-
-&hdptxphy_hdmi_clk0 {
-	status = "okay";
 };
 
 /* USB */
 
-&usb_host0_ehci {
+&u2phy0 {
 	status = "okay";
 };
 
-&usb_host0_ohci {
+&u2phy0_otg {
 	status = "okay";
+	vbus-supply = <&vcc5v0_host>;
 };
 
 &u2phy2 {
@@ -555,11 +526,13 @@
 	phy-supply = <&vcc5v0_host>;
 };
 
-&usb_host1_ehci {
+&usb_host0_ehci {
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&wl_reset &wl_dis &wl_wake_host &bt_dis &bt_wake_host>;
 };
 
-&usb_host1_ohci {
+&usb_host0_ohci {
 	status = "okay";
 };
 
@@ -584,13 +557,12 @@
 	status = "okay";
 };
 
-&u2phy0 {
+&usb_host1_ehci {
 	status = "okay";
 };
 
-&u2phy0_otg {
+&usb_host1_ohci {
 	status = "okay";
-	vbus-supply = <&vcc5v0_otg>;
 };
 
 &usbdrd3_0 {
@@ -602,16 +574,16 @@
 	status = "okay";
 };
 
-&usbdp_phy0_u3 {
-	status = "okay";
-};
-
 &usbdp_phy0 {
 	status = "okay";
 	rockchip,dp-lane-mux = < 2 3 >;
 };
 
 &usbdp_phy0_dp {
+	status = "okay";
+};
+
+&usbdp_phy0_u3 {
 	status = "okay";
 };
 
@@ -661,6 +633,23 @@
 
 /* I2C */
 
+&i2c5 {
+	status = "okay";
+
+	hym8563: hym8563@51 {
+		compatible = "haoyu,hym8563";
+		reg = <0x51>;
+		#clock-cells = <0>;
+		clock-frequency = <32768>;
+		clock-output-names = "hym8563";
+		pinctrl-names = "default";
+		pinctrl-0 = <&rtc_int>;
+
+		interrupt-parent = <&gpio0>;
+		interrupts = <RK_PB0 IRQ_TYPE_LEVEL_LOW>;
+	};
+};
+
 &i2c7 {
 	status = "okay";
 
@@ -705,9 +694,9 @@
 			rockchip,pins = <4 RK_PB5 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 
-		vcc5v0_otg_en: vcc5v0-otg-en {
-			rockchip,pins = <0 RK_PD4 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
+		usbwifibt_6252b_drv: fg6252b-pwr-pin {
+			rockchip,pins = <3 RK_PC0 RK_FUNC_GPIO &pcfg_pull_none>;
+	    };
 	};
 
 	wifibt {

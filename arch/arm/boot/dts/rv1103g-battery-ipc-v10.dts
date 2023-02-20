@@ -10,8 +10,8 @@
 #include "rv1106-thunder-boot-spi-nor.dtsi"
 
 / {
-	model = "Rockchip RV1103G Battery IPC V10 Board";
-	compatible = "rockchip,rv1103g-battery-ipc-v10", "rockchip,rv1103";
+	model = "Rockchip RV1103G Anker V10 Board";
+	compatible = "rockchip,rv1103g-anker-v10", "rockchip,rv1103";
 
 	aliases {
 		/delete-property/ csi2dphy1;
@@ -33,6 +33,8 @@
 		/delete-property/ pwm7;
 		/delete-property/ pwm8;
 		/delete-property/ pwm9;
+		/delete-property/ pwm10;
+		/delete-property/ pwm11;
 		/delete-property/ rkcif_mipi_lvds1;
 		/delete-property/ serial0;
 		/delete-property/ serial1;
@@ -44,7 +46,7 @@
 	};
 
 	chosen {
-		bootargs = "loglevel=0 rootfstype=erofs rootflags=dax console=ttyFIQ0 root=/dev/rd0 snd_soc_core.prealloc_buffer_size_kbytes=16 coherent_pool=0 driver_async_probe=dwmmc_rockchip storagemedia=mtd androidboot.storagemedia=mtd androidboot.mode=normal";
+		bootargs = "loglevel=0 console=ttyFIQ0 root=/dev/rd0 snd_soc_core.prealloc_buffer_size_kbytes=16 coherent_pool=0 driver_async_probe=dwmmc_rockchip rk_dma_heap_cma=24M storagemedia=mtd androidboot.storagemedia=mtd androidboot.mode=normal mtdparts=sfc_nor:64K(env),256K@64K(idblock),256K(uboot),64K(vnvm),8M(boot),3M(userdata)";
 	};
 
 	acodec_sound: acodec-sound {
@@ -87,6 +89,8 @@
 /delete-node/ &pwm7;
 /delete-node/ &pwm8;
 /delete-node/ &pwm9;
+/delete-node/ &pwm10;
+/delete-node/ &pwm11;
 /delete-node/ &rkcif_dvp;
 /delete-node/ &rkcif_dvp_sditf;
 /delete-node/ &rkcif_mipi_lvds1;
@@ -149,11 +153,10 @@
 };
 
 &i2c4 {
-	rockchip,amp-shared;
+	status = "okay";
 	clock-frequency = <400000>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c4m2_xfer>;
-	status = "okay";
 
 	sc230ai: sc230ai@30 {
 		compatible = "smartsens,sc230ai";
@@ -179,10 +182,6 @@
 
 &i2s0_8ch {
 	#sound-dai-cells = <0>;
-	status = "okay";
-};
-
-&mailbox {
 	status = "okay";
 };
 
@@ -221,14 +220,6 @@
 	};
 };
 
-&pwm10 {
-	status = "okay";
-};
-
-&pwm11 {
-	status = "okay";
-};
-
 &rkcif {
 	status = "okay";
 };
@@ -236,7 +227,6 @@
 &rkcif_mipi_lvds {
 	status = "okay";
 
-	memory-region-thunderboot = <&rkisp_thunderboot>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&mipi_pins>;
 	port {
@@ -262,6 +252,11 @@
 	status = "okay";
 };
 
+&rkisp_thunderboot {
+	/* 6M for NV12 (w*h*1.5*2) w and h 16 align, 1920/1088 */
+	reg = <0x01e00000 (6 * 0x00100000)>;
+};
+
 &rkisp_vir0 {
 	status = "okay";
 
@@ -278,7 +273,7 @@
 };
 
 &sdio {
-	max-frequency = <30000000>;
+	max-frequency = <50000000>;
 	no-sd;
 	no-mmc;
 	bus-width = <4>;
@@ -288,8 +283,6 @@
 	non-removable;
 	pinctrl-names = "default";
 	pinctrl-0 = <&sdmmc1m1_cmd &sdmmc1m1_clk &sdmmc1m1_bus4>;
-	no-prescan-powerup;
-	post-power-on-delay-ms = <0>;
 	status = "okay";
 };
 
@@ -305,8 +298,4 @@
 		spi-rx-bus-width = <4>;
 		spi-tx-bus-width = <1>;
 	};
-};
-
-&thunder_boot_service {
-	status = "okay";
 };

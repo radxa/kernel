@@ -82,7 +82,14 @@
 
 #if MALI_USE_CSF
 #include "csf/mali_kbase_csf.h"
+#endif
 
+#ifndef u64_to_user_ptr
+/* Introduced in Linux v4.6 */
+#define u64_to_user_ptr(x) ((void __user *)(uintptr_t)x)
+#endif
+
+#if MALI_USE_CSF
 /* Physical memory group ID for CSF user I/O.
  */
 #define KBASE_MEM_GROUP_CSF_IO BASE_MEM_GROUP_DEFAULT
@@ -108,13 +115,6 @@ struct kbase_device *kbase_device_alloc(void);
 
 int kbase_device_misc_init(struct kbase_device *kbdev);
 void kbase_device_misc_term(struct kbase_device *kbdev);
-
-#if !MALI_USE_CSF
-void kbase_enable_quick_reset(struct kbase_device *kbdev);
-void kbase_disable_quick_reset(struct kbase_device *kbdev);
-bool kbase_is_quick_reset_enabled(struct kbase_device *kbdev);
-#endif
-
 void kbase_device_free(struct kbase_device *kbdev);
 int kbase_device_has_feature(struct kbase_device *kbdev, u32 feature);
 
@@ -258,7 +258,7 @@ void kbase_jd_cancel(struct kbase_device *kbdev, struct kbase_jd_atom *katom);
 void kbase_jd_zap_context(struct kbase_context *kctx);
 
 /*
- * kbase_jd_done_nolock - Perform the necessary handling of an atom that has completed
+ * jd_done_nolock - Perform the necessary handling of an atom that has completed
  *                  the execution.
  *
  * @katom: Pointer to the atom that completed the execution
@@ -274,7 +274,7 @@ void kbase_jd_zap_context(struct kbase_context *kctx);
  *
  * The caller must hold the kbase_jd_context.lock.
  */
-bool kbase_jd_done_nolock(struct kbase_jd_atom *katom, bool post_immediately);
+bool jd_done_nolock(struct kbase_jd_atom *katom, bool post_immediately);
 
 void kbase_jd_free_external_resources(struct kbase_jd_atom *katom);
 void kbase_jd_dep_clear_locked(struct kbase_jd_atom *katom);

@@ -49,51 +49,27 @@
 #define GPU_ACTIVE_SCALING_FACTOR ((u64)1E9)
 #endif
 
-/*
- * Possible state transitions
- * ON        -> ON | OFF | STOPPED
- * STOPPED   -> ON | OFF
- * OFF       -> ON
- *
- *
- * ┌─e─┐┌────────────f─────────────┐
- * │   v│                          v
- * └───ON ──a──> STOPPED ──b──> OFF
- *     ^^            │             │
- *     │└──────c─────┘             │
- *     │                           │
- *     └─────────────d─────────────┘
- *
- * Transition effects:
- * a. None
- * b. Timer expires without restart
- * c. Timer is not stopped, timer period is unaffected
- * d. Timer must be restarted
- * e. Callback is executed and the timer is restarted
- * f. Timer is cancelled, or the callback is waited on if currently executing. This is called during
- *    tear-down and should not be subject to a race from an OFF->ON transition
- */
-enum dvfs_metric_timer_state { TIMER_OFF, TIMER_STOPPED, TIMER_ON };
-
 #ifdef CONFIG_MALI_BIFROST_DVFS
 static enum hrtimer_restart dvfs_callback(struct hrtimer *timer)
 {
+	unsigned long flags;
 	struct kbasep_pm_metrics_state *metrics;
 
-	if (WARN_ON(!timer))
-		return HRTIMER_NORESTART;
+	KBASE_DEBUG_ASSERT(timer != NULL);
 
 	metrics = container_of(timer, struct kbasep_pm_metrics_state, timer);
-
-	/* Transition (b) to fully off if timer was stopped, don't restart the timer in this case */
-	if (atomic_cmpxchg(&metrics->timer_state, TIMER_STOPPED, TIMER_OFF) != TIMER_ON)
-		return HRTIMER_NORESTART;
-
 	kbase_pm_get_dvfs_action(metrics->kbdev);
 
-	/* Set the new expiration time and restart (transition e) */
-	hrtimer_forward_now(timer, HR_TIMER_DELAY_MSEC(metrics->kbdev->pm.dvfs_period));
-	return HRTIMER_RESTART;
+	spin_lock_irqsave(&metrics->lock, flags);
+
+	if (metrics->timer_active)
+		hrtimer_start(timer,
+			HR_TIMER_DELAY_MSEC(metrics->kbdev->pm.dvfs_period),
+			HRTIMER_MODE_REL);
+
+	spin_unlock_irqrestore(&metrics->lock, flags);
+
+	return HRTIMER_NORESTART;
 }
 #endif /* CONFIG_MALI_BIFROST_DVFS */
 
@@ -159,7 +135,6 @@ int kbasep_pm_metrics_init(struct kbase_device *kbdev)
 							HRTIMER_MODE_REL);
 	kbdev->pm.backend.metrics.timer.function = dvfs_callback;
 	kbdev->pm.backend.metrics.initialized = true;
-	atomic_set(&kbdev->pm.backend.metrics.timer_state, TIMER_OFF);
 	kbase_pm_metrics_start(kbdev);
 #endif /* CONFIG_MALI_BIFROST_DVFS */
 
@@ -178,12 +153,16 @@ KBASE_EXPORT_TEST_API(kbasep_pm_metrics_init);
 void kbasep_pm_metrics_term(struct kbase_device *kbdev)
 {
 #ifdef CONFIG_MALI_BIFROST_DVFS
+	unsigned long flags;
+
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 
-	/* Cancel the timer, and block if the callback is currently executing (transition f) */
-	kbdev->pm.backend.metrics.initialized = false;
-	atomic_set(&kbdev->pm.backend.metrics.timer_state, TIMER_OFF);
+	spin_lock_irqsave(&kbdev->pm.backend.metrics.lock, flags);
+	kbdev->pm.backend.metrics.timer_active = false;
+	spin_unlock_irqrestore(&kbdev->pm.backend.metrics.lock, flags);
+
 	hrtimer_cancel(&kbdev->pm.backend.metrics.timer);
+	kbdev->pm.backend.metrics.initialized = false;
 #endif /* CONFIG_MALI_BIFROST_DVFS */
 
 #if MALI_USE_CSF
@@ -420,33 +399,57 @@ void kbase_pm_get_dvfs_action(struct kbase_device *kbdev)
 
 bool kbase_pm_metrics_is_active(struct kbase_device *kbdev)
 {
+	bool isactive;
+	unsigned long flags;
+
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 
-	return atomic_read(&kbdev->pm.backend.metrics.timer_state) == TIMER_ON;
+	spin_lock_irqsave(&kbdev->pm.backend.metrics.lock, flags);
+	isactive = kbdev->pm.backend.metrics.timer_active;
+	spin_unlock_irqrestore(&kbdev->pm.backend.metrics.lock, flags);
+
+	return isactive;
 }
 KBASE_EXPORT_TEST_API(kbase_pm_metrics_is_active);
 
 void kbase_pm_metrics_start(struct kbase_device *kbdev)
 {
-	struct kbasep_pm_metrics_state *metrics = &kbdev->pm.backend.metrics;
+	unsigned long flags;
+	bool update = true;
 
-	if (unlikely(!metrics->initialized))
+	if (unlikely(!kbdev->pm.backend.metrics.initialized))
 		return;
 
-	/* Transition to ON, from a stopped state (transition c) */
-	if (atomic_xchg(&metrics->timer_state, TIMER_ON) == TIMER_OFF)
-		/* Start the timer only if it's been fully stopped (transition d)*/
-		hrtimer_start(&metrics->timer, HR_TIMER_DELAY_MSEC(kbdev->pm.dvfs_period),
-			      HRTIMER_MODE_REL);
+	spin_lock_irqsave(&kbdev->pm.backend.metrics.lock, flags);
+	if (!kbdev->pm.backend.metrics.timer_active)
+		kbdev->pm.backend.metrics.timer_active = true;
+	else
+		update = false;
+	spin_unlock_irqrestore(&kbdev->pm.backend.metrics.lock, flags);
+
+	if (update)
+		hrtimer_start(&kbdev->pm.backend.metrics.timer,
+			HR_TIMER_DELAY_MSEC(kbdev->pm.dvfs_period),
+			HRTIMER_MODE_REL);
 }
 
 void kbase_pm_metrics_stop(struct kbase_device *kbdev)
 {
+	unsigned long flags;
+	bool update = true;
+
 	if (unlikely(!kbdev->pm.backend.metrics.initialized))
 		return;
 
-	/* Timer is Stopped if its currently on (transition a) */
-	atomic_cmpxchg(&kbdev->pm.backend.metrics.timer_state, TIMER_ON, TIMER_STOPPED);
+	spin_lock_irqsave(&kbdev->pm.backend.metrics.lock, flags);
+	if (kbdev->pm.backend.metrics.timer_active)
+		kbdev->pm.backend.metrics.timer_active = false;
+	else
+		update = false;
+	spin_unlock_irqrestore(&kbdev->pm.backend.metrics.lock, flags);
+
+	if (update)
+		hrtimer_cancel(&kbdev->pm.backend.metrics.timer);
 }
 
 

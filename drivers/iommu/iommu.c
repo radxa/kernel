@@ -268,13 +268,11 @@ int iommu_probe_device(struct device *dev)
 	 * support default domains, so the return value is not yet
 	 * checked.
 	 */
-	mutex_lock(&group->mutex);
 	iommu_alloc_default_domain(group, dev);
 
 	if (group->default_domain) {
 		ret = __iommu_attach_device(group->default_domain, dev);
 		if (ret) {
-			mutex_unlock(&group->mutex);
 			iommu_group_put(group);
 			goto err_release;
 		}
@@ -282,7 +280,6 @@ int iommu_probe_device(struct device *dev)
 
 	iommu_create_device_direct_mappings(group, dev);
 
-	mutex_unlock(&group->mutex);
 	iommu_group_put(group);
 
 	if (ops->probe_finalize)
@@ -1962,9 +1959,7 @@ int iommu_attach_device(struct iommu_domain *domain, struct device *dev)
 	 */
 	mutex_lock(&group->mutex);
 	ret = -EINVAL;
-
-	/* don't break attach if iommu shared by more than one master */
-	if (iommu_group_device_count(group) < 1)
+	if (iommu_group_device_count(group) != 1)
 		goto out_unlock;
 
 	ret = __iommu_attach_group(domain, group);

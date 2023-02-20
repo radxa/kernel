@@ -37,33 +37,11 @@ static const struct mfd_cell max96755f_devs[] = {
 	},
 };
 
-static bool max96755f_volatile_reg(struct device *dev, unsigned int reg)
-{
-	switch (reg) {
-	case 0x0002:
-	case 0x0010:
-	case 0x0013:
-	case 0x0053:
-	case 0x0057:
-	case 0x02be ... 0x02fc:
-	case 0x0311:
-	case 0x032a:
-	case 0x0330 ... 0x0331:
-	case 0x0385 ... 0x0387:
-	case 0x03a4 ... 0x03ae:
-		return false;
-	default:
-		return true;
-	}
-}
-
 static const struct regmap_config max96755f_regmap_config = {
 	.name = "max96755f",
 	.reg_bits = 16,
 	.val_bits = 8,
 	.max_register = 0x1b17,
-	.volatile_reg = max96755f_volatile_reg,
-	.cache_type = REGCACHE_RBTREE,
 };
 
 static int max96755f_select(struct i2c_mux_core *muxc, u32 chan)
@@ -160,77 +138,12 @@ static int max96755f_power_on(struct max96755f *max96755f)
 	return 0;
 }
 
-static ssize_t line_fault_monitor_show(struct device *device,
-				       struct device_attribute *attr,
-				       char *buf)
-{
-	struct max96755f *max96755f = dev_get_drvdata(device);
-	u32 pu_lf, lf, status;
-
-	regmap_read(max96755f->regmap, 0x0005, &pu_lf);
-
-	/*
-	 * Line-fault status of wire connected to LMN0/1 pin
-	 *
-	 * 0b000: Short to battery
-	 * 0b001: Short to GND
-	 * 0b010: Normal operation
-	 * 0b011: Line open
-	 * 0b1XX: Line-to-line short
-	 */
-	regmap_read(max96755f->regmap, 0x0026, &lf);
-
-	if (FIELD_GET(PU_LF0, pu_lf)) {
-		status = (lf & LF_0);
-		return sprintf(buf, "%d\n", status);
-	}
-
-	if (FIELD_GET(PU_LF1, pu_lf)) {
-		status = (lf & LF_1) >> 4;
-		return sprintf(buf, "%d\n", status);
-	}
-
-	return sprintf(buf, "%d\n", -EINVAL);
-}
-
-static DEVICE_ATTR_RO(line_fault_monitor);
-
-static struct attribute *max96755f_attrs[] = {
-	&dev_attr_line_fault_monitor.attr,
-	NULL
-};
-
-static const struct attribute_group max96755f_attr_group = {
-	.attrs = max96755f_attrs,
-};
-
-static int max96755f_sysfs_add(struct max96755f *max96755f)
-{
-	struct device *dev = max96755f->dev;
-	int ret;
-	u32 ch;
-
-	ret = of_property_read_u32(dev->of_node, "line-fault-monitor", &ch);
-	if (!ret)
-		regmap_update_bits(max96755f->regmap, 0x0005,
-				   PU_LF0 << ch, PU_LF0 << ch);
-
-	ret = devm_device_add_group(dev, &max96755f_attr_group);
-	if (ret) {
-		dev_err(dev, "failed to register sysfs. err: %d\n", ret);
-		return ret;
-	};
-
-	return 0;
-}
-
 static int max96755f_i2c_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
 	struct device_node *child;
 	struct max96755f *max96755f;
 	unsigned int nr = 0;
-	bool idle_disc;
 	int ret;
 
 	for_each_available_child_of_node(dev->of_node, child) {
@@ -244,11 +157,9 @@ static int max96755f_i2c_probe(struct i2c_client *client)
 	if (!max96755f)
 		return -ENOMEM;
 
-	idle_disc = device_property_read_bool(dev, "i2c-mux-idle-disconnect");
-
 	max96755f->muxc = i2c_mux_alloc(client->adapter, dev, nr, 0,
-					I2C_MUX_LOCKED, max96755f_select,
-					idle_disc ? max96755f_deselect : NULL);
+				       I2C_MUX_LOCKED, max96755f_select,
+				       max96755f_deselect);
 	if (!max96755f->muxc)
 		return -ENOMEM;
 
@@ -308,10 +219,6 @@ static int max96755f_i2c_probe(struct i2c_client *client)
 		}
 	}
 
-	ret = max96755f_sysfs_add(max96755f);
-	if (ret)
-		return dev_err_probe(dev, ret, "failed to registers sysfs\n");
-
 	return 0;
 }
 
@@ -331,28 +238,6 @@ static void max96755f_i2c_shutdown(struct i2c_client *client)
 	max96755f_power_off(max96755f);
 }
 
-static int __maybe_unused max96755f_suspend(struct device *dev)
-{
-	struct max96755f *max96755f = dev_get_drvdata(dev);
-
-	regcache_mark_dirty(max96755f->regmap);
-	regcache_cache_only(max96755f->regmap, true);
-
-	return 0;
-}
-
-static int __maybe_unused max96755f_resume(struct device *dev)
-{
-	struct max96755f *max96755f = dev_get_drvdata(dev);
-
-	regcache_cache_only(max96755f->regmap, false);
-	regcache_sync(max96755f->regmap);
-
-	return 0;
-}
-
-static SIMPLE_DEV_PM_OPS(max96755f_pm_ops, max96755f_suspend, max96755f_resume);
-
 static const struct of_device_id max96755f_of_match[] = {
 	{ .compatible = "maxim,max96755f", },
 	{}
@@ -363,7 +248,6 @@ static struct i2c_driver max96755f_i2c_driver = {
 	.driver = {
 		.name = "max96755f",
 		.of_match_table = max96755f_of_match,
-		.pm = &max96755f_pm_ops,
 	},
 	.probe_new = max96755f_i2c_probe,
 	.remove = max96755f_i2c_remove,

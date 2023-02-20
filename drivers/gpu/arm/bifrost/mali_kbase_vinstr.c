@@ -38,7 +38,6 @@
 #include <linux/mutex.h>
 #include <linux/poll.h>
 #include <linux/slab.h>
-#include <linux/version_compat_defs.h>
 #include <linux/workqueue.h>
 
 /* Hwcnt reader API version */
@@ -114,7 +113,9 @@ struct kbase_vinstr_client {
 	wait_queue_head_t waitq;
 };
 
-static __poll_t kbasep_vinstr_hwcnt_reader_poll(struct file *filp, poll_table *wait);
+static unsigned int kbasep_vinstr_hwcnt_reader_poll(
+	struct file *filp,
+	poll_table *wait);
 
 static long kbasep_vinstr_hwcnt_reader_ioctl(
 	struct file *filp,
@@ -1037,16 +1038,18 @@ static long kbasep_vinstr_hwcnt_reader_ioctl(
  * Return: POLLIN if data can be read without blocking, 0 if data can not be
  *         read without blocking, else error code.
  */
-static __poll_t kbasep_vinstr_hwcnt_reader_poll(struct file *filp, poll_table *wait)
+static unsigned int kbasep_vinstr_hwcnt_reader_poll(
+	struct file *filp,
+	poll_table *wait)
 {
 	struct kbase_vinstr_client *cli;
 
 	if (!filp || !wait)
-		return (__poll_t)-EINVAL;
+		return -EINVAL;
 
 	cli = filp->private_data;
 	if (!cli)
-		return (__poll_t)-EINVAL;
+		return -EINVAL;
 
 	poll_wait(filp, &cli->waitq, wait);
 	if (kbasep_vinstr_hwcnt_reader_buffer_ready(cli))

@@ -264,7 +264,6 @@ static int vepu_run(struct mpp_dev *mpp,
 	u32 i;
 	u32 reg_en;
 	struct vepu_task *task = to_vepu_task(mpp_task);
-	u32 timing_en = mpp->srv->timing_en;
 
 	mpp_debug_enter();
 
@@ -285,15 +284,10 @@ static int vepu_run(struct mpp_dev *mpp,
 	}
 	/* init current task */
 	mpp->cur_task = mpp_task;
-
-	mpp_task_run_begin(mpp_task, timing_en, MPP_WORK_TIMEOUT_DELAY);
-
 	/* Last, flush start registers */
 	wmb();
 	mpp_write(mpp, VEPU1_REG_ENC_EN,
 		  task->reg[reg_en] | VEPU1_ENC_START);
-
-	mpp_task_run_end(mpp_task, timing_en);
 
 	mpp_debug_leave();
 
@@ -322,7 +316,7 @@ static int vepu_isr(struct mpp_dev *mpp)
 		dev_err(mpp->dev, "no current task\n");
 		return IRQ_HANDLED;
 	}
-	mpp_time_diff(mpp_task, 0);
+	mpp_time_diff(mpp_task);
 	mpp->cur_task = NULL;
 	task = to_vepu_task(mpp_task);
 	task->irq_status = mpp->irq_status;
@@ -505,7 +499,7 @@ static int vepu_dump_session(struct mpp_session *session, struct seq_file *seq)
 	}
 	seq_puts(seq, "\n");
 	/* item data*/
-	seq_printf(seq, "|%8d|", session->index);
+	seq_printf(seq, "|%8p|", session);
 	seq_printf(seq, "%8s|", mpp_device_name[session->device_type]);
 	for (i = ENC_INFO_BASE; i < ENC_INFO_BUTT; i++) {
 		u32 flag = priv->codec_info[i].flag;
@@ -538,7 +532,7 @@ static int vepu_show_session_info(struct seq_file *seq, void *offset)
 	mutex_lock(&mpp->srv->session_lock);
 	list_for_each_entry_safe(session, n,
 				 &mpp->srv->session_list,
-				 service_link) {
+				 session_link) {
 		if (session->device_type != MPP_DEVICE_VEPU1)
 			continue;
 		if (!session->priv)
@@ -561,10 +555,6 @@ static int vepu_procfs_init(struct mpp_dev *mpp)
 		enc->procfs = NULL;
 		return -EIO;
 	}
-
-	/* for common mpp_dev options */
-	mpp_procfs_create_common(enc->procfs, mpp);
-
 	mpp_procfs_create_u32("aclk", 0644,
 			      enc->procfs, &enc->aclk_info.debug_rate_hz);
 	mpp_procfs_create_u32("session_buffers", 0644,

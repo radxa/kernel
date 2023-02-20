@@ -57,9 +57,9 @@ static void isp3_stats_write(struct rkisp_isp_stats_vdev *stats_vdev,
 			     u32 addr, u32 value, u32 id)
 {
 	if (id == ISP3_LEFT)
-		rkisp_write(stats_vdev->dev, addr, value, false);
+		rkisp_write(stats_vdev->dev, addr, value, true);
 	else
-		rkisp_next_write(stats_vdev->dev, addr, value, false);
+		rkisp_next_write(stats_vdev->dev, addr, value, true);
 }
 
 static int

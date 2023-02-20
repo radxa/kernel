@@ -1062,7 +1062,7 @@ static int gsl_ts_suspend(struct device *dev)
 	ts_irq_disable(ts);
 	cancel_work_sync(&ts->work);
 
-	gsl3673_shutdown_low();
+	/*gsl3673_shutdown_low();*/
 #ifdef SLEEP_CLEAR_POINT
 	msleep(10);
 	#ifdef REPORT_DATA_ANDROID_4_0
@@ -1095,8 +1095,8 @@ static int gsl_ts_resume(struct device *dev)
 	if (ts->flag_activated)
 		return 0;
 
-	gsl3673_shutdown_high();
-	mdelay(5);
+	/*gsl3673_shutdown_high();
+	mdelay(5);*/
 	reset_chip(ts->client);
 	startup_chip(ts->client);
 	rc = check_mem_data(ts->client);

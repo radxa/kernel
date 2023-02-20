@@ -155,15 +155,10 @@ int rkisp1_update_sensor_info(struct rkisp1_device *dev)
 		return -ENODEV;
 
 	sensor = sd_to_sensor(dev, sensor_sd);
-	if (!sensor)
-		return -ENODEV;
-
-	ret = v4l2_subdev_call(sensor->sd, pad, get_mbus_config,
-			       0, &sensor->mbus);
+	ret = v4l2_subdev_call(sensor->sd, video, g_mbus_config,
+			       &sensor->mbus);
 	if (ret && ret != -ENOIOCTLCMD)
 		return ret;
-
-	sensor->fmt.pad = 0;
 	sensor->fmt.which = V4L2_SUBDEV_FORMAT_ACTIVE;
 	ret = v4l2_subdev_call(sensor->sd, pad, get_fmt,
 			       &sensor->cfg, &sensor->fmt);
@@ -332,8 +327,7 @@ static int rkisp1_config_isp(struct rkisp1_device *dev)
 			acq_prop = CIF_ISP_ACQ_PROP_DMA_RGB;
 	} else if (in_fmt->fmt_type == FMT_YUV) {
 		acq_mult = 2;
-		if (sensor && (sensor->mbus.type == V4L2_MBUS_CSI2_DPHY ||
-			       sensor->mbus.type == V4L2_MBUS_CCP2)) {
+		if (sensor && sensor->mbus.type == V4L2_MBUS_CSI2) {
 			isp_ctrl = CIF_ISP_CTRL_ISP_MODE_ITU601;
 		} else {
 			if (sensor && sensor->mbus.type == V4L2_MBUS_BT656)
@@ -601,7 +595,7 @@ static int rkisp1_config_path(struct rkisp1_device *dev)
 		ret = rkisp1_config_dvp(dev);
 		dpcl |= CIF_VI_DPCL_IF_SEL_PARALLEL;
 		dev->isp_inp = INP_DVP;
-	} else if (sensor && sensor->mbus.type == V4L2_MBUS_CSI2_DPHY) {
+	} else if (sensor && sensor->mbus.type == V4L2_MBUS_CSI2) {
 		ret = rkisp1_config_mipi(dev);
 		dpcl |= CIF_VI_DPCL_IF_SEL_MIPI;
 		dev->isp_inp = INP_CSI;
@@ -828,7 +822,7 @@ static int rkisp1_isp_start(struct rkisp1_device *dev)
 		 dev->stream[RKISP1_STREAM_MP].streaming);
 
 	/* Activate MIPI */
-	if (sensor && sensor->mbus.type == V4L2_MBUS_CSI2_DPHY) {
+	if (sensor && sensor->mbus.type == V4L2_MBUS_CSI2) {
 #if RKISP1_RK3326_USE_OLDMIPI
 		if (dev->isp_ver == ISP_V13) {
 #else
@@ -1769,7 +1763,7 @@ void rkisp1_isp_isr(unsigned int isp_mis, struct rkisp1_device *dev)
 	if (isp_mis & CIF_ISP_V_START) {
 		if (dev->stream[RKISP1_STREAM_SP].interlaced) {
 			/* 0 = ODD 1 = EVEN */
-			if (dev->active_sensor->mbus.type == V4L2_MBUS_CSI2_DPHY) {
+			if (dev->active_sensor->mbus.type == V4L2_MBUS_CSI2) {
 				void __iomem *addr = NULL;
 
 				if (dev->isp_ver == ISP_V10 ||

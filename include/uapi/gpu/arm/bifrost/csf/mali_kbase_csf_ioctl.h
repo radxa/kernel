@@ -58,12 +58,10 @@
  * - First release of new HW performance counters interface.
  * 1.11:
  * - Dummy model (no mali) backend will now clear HWC values after each sample
- * 1.12:
- * - Added support for incremental rendering flag in CSG create call
  */
 
 #define BASE_UK_VERSION_MAJOR 1
-#define BASE_UK_VERSION_MINOR 12
+#define BASE_UK_VERSION_MINOR 11
 
 /**
  * struct kbase_ioctl_version_check - Check version compatibility between
@@ -249,9 +247,6 @@ union kbase_ioctl_cs_queue_group_create_1_6 {
  *                    allowed to use.
  * @in.compute_max:   Maximum number of compute endpoints the group is allowed
  *                    to use.
- * @in.csi_handlers:  Flags to signal that the application intends to use CSI
- *                    exception handlers in some linear buffers to deal with
- *                    the given exception types.
  * @in.padding:       Currently unused, must be zero
  * @out:              Output parameters
  * @out.group_handle: Handle of a newly created queue group.
@@ -268,8 +263,7 @@ union kbase_ioctl_cs_queue_group_create {
 		__u8 tiler_max;
 		__u8 fragment_max;
 		__u8 compute_max;
-		__u8 csi_handlers;
-		__u8 padding[2];
+		__u8 padding[3];
 		/**
 		 * @in.reserved: Reserved
 		 */

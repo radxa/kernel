@@ -3,9 +3,6 @@
  * cn3927v vcm driver
  *
  * Copyright (C) 2022 Rockchip Electronics Co., Ltd.
- *
- * V0.0X01.0X01 reduce vcm collision noise.
- * V0.0X01.0X02 check dev connection before register.
  */
 
 //#define DEBUG
@@ -23,7 +20,7 @@
 
 #define OF_CAMERA_VCMDRV_EDLC_ENABLE	"rockchip,vcm-edlc-enable"
 
-#define DRIVER_VERSION			KERNEL_VERSION(0, 0x01, 0x2)
+#define DRIVER_VERSION			KERNEL_VERSION(0, 0x01, 0x0)
 #define CN3927V_NAME			"cn3927v"
 
 #define CN3927V_MAX_CURRENT		120U
@@ -66,7 +63,6 @@
 /* cn3927v device structure */
 struct cn3927v_device {
 	struct v4l2_ctrl_handler ctrls_vcm;
-	struct v4l2_ctrl *focus;
 	struct v4l2_subdev sd;
 	struct v4l2_device vdev;
 	u16 current_val;
@@ -82,7 +78,6 @@ struct cn3927v_device {
 	unsigned int dlc_enable;
 	unsigned int t_src;
 	unsigned int mclk;
-	unsigned int max_logicalpos;
 
 	/* advanced mode*/
 	unsigned char adcanced_mode;
@@ -531,11 +526,11 @@ static int cn3927v_get_pos(struct cn3927v_device *dev_vcm,
 	ret = cn3927v_get_dac(dev_vcm, &dac);
 	if (!ret) {
 		if (dac <= dev_vcm->start_current) {
-			position = dev_vcm->max_logicalpos;
+			position = VCMDRV_MAX_LOG;
 		} else if ((dac > dev_vcm->start_current) &&
 			 (dac <= dev_vcm->rated_current)) {
-			position = (dac - dev_vcm->start_current) * dev_vcm->max_logicalpos / range;
-			position = dev_vcm->max_logicalpos - position;
+			position = (dac - dev_vcm->start_current) * VCMDRV_MAX_LOG / range;
+			position = VCMDRV_MAX_LOG - position;
 		} else {
 			position = 0;
 		}
@@ -560,11 +555,11 @@ static int cn3927v_set_pos(struct cn3927v_device *dev_vcm,
 	int ret;
 
 	range = dev_vcm->rated_current - dev_vcm->start_current;
-	if (dest_pos >= dev_vcm->max_logicalpos)
+	if (dest_pos >= VCMDRV_MAX_LOG)
 		position = dev_vcm->start_current;
 	else
 		position = dev_vcm->start_current +
-			   (range * (dev_vcm->max_logicalpos - dest_pos) / dev_vcm->max_logicalpos);
+			   (range * (VCMDRV_MAX_LOG - dest_pos) / VCMDRV_MAX_LOG);
 
 	if (position > CN3927V_MAX_REG)
 		position = CN3927V_MAX_REG;
@@ -598,10 +593,10 @@ static int cn3927v_set_ctrl(struct v4l2_ctrl *ctrl)
 	int ret = 0;
 
 	if (ctrl->id == V4L2_CID_FOCUS_ABSOLUTE) {
-		if (dest_pos > dev_vcm->max_logicalpos) {
+		if (dest_pos > VCMDRV_MAX_LOG) {
 			dev_err(&client->dev,
 				"%s dest_pos is error. %d > %d\n",
-				__func__, dest_pos, dev_vcm->max_logicalpos);
+				__func__, dest_pos, VCMDRV_MAX_LOG);
 			return -EINVAL;
 		}
 		/* calculate move time */
@@ -614,8 +609,7 @@ static int cn3927v_set_ctrl(struct v4l2_ctrl *ctrl)
 			dev_vcm->move_ms = dev_vcm->vcm_movefull_t;
 		else
 			dev_vcm->move_ms =
-				((dev_vcm->vcm_movefull_t * (uint32_t)move_pos) /
-				dev_vcm->max_logicalpos);
+				((dev_vcm->vcm_movefull_t * (uint32_t)move_pos) / VCMDRV_MAX_LOG);
 
 		dev_dbg(&client->dev,
 			"dest_pos %d, dac %d, move_ms %ld\n",
@@ -697,7 +691,6 @@ static long cn3927v_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	struct rk_cam_vcm_tim *vcm_tim;
 	struct rk_cam_vcm_cfg *vcm_cfg;
-	unsigned int max_logicalpos;
 	int ret = 0;
 
 	if (cmd == RK_VIDIOC_VCM_TIMEINFO) {
@@ -723,36 +716,10 @@ static long cn3927v_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 	} else if (cmd == RK_VIDIOC_SET_VCM_CFG) {
 		vcm_cfg = (struct rk_cam_vcm_cfg *)arg;
 
-		if (vcm_cfg->start_ma == 0 && vcm_cfg->rated_ma == 0) {
-			dev_err(&client->dev,
-				"vcm_cfg err, start_ma %d, rated_ma %d\n",
-				vcm_cfg->start_ma, vcm_cfg->rated_ma);
-			return -EINVAL;
-		}
-
-		if (vcm_cfg->rated_ma > CN3927V_MAX_CURRENT) {
-			dev_warn(&client->dev,
-				 "vcm_cfg use dac value, do convert!\n");
-			vcm_cfg->rated_ma = vcm_cfg->rated_ma *
-					    dev_vcm->max_current / CN3927V_MAX_REG;
-			vcm_cfg->start_ma = vcm_cfg->start_ma *
-					    dev_vcm->max_current / CN3927V_MAX_REG;
-		}
-
 		dev_vcm->vcm_cfg.start_ma = vcm_cfg->start_ma;
 		dev_vcm->vcm_cfg.rated_ma = vcm_cfg->rated_ma;
 		dev_vcm->vcm_cfg.step_mode = vcm_cfg->step_mode;
 		cn3927v_update_vcm_cfg(dev_vcm);
-	} else if (cmd == RK_VIDIOC_SET_VCM_MAX_LOGICALPOS) {
-		max_logicalpos = *(unsigned int *)arg;
-
-		if (max_logicalpos > 0) {
-			dev_vcm->max_logicalpos = max_logicalpos;
-			__v4l2_ctrl_modify_range(dev_vcm->focus,
-				0, dev_vcm->max_logicalpos, 1, dev_vcm->max_logicalpos);
-		}
-		dev_dbg(&client->dev,
-			"max_logicalpos %d\n", max_logicalpos);
 	} else {
 		dev_err(&client->dev,
 			"cmd 0x%x not supported\n", cmd);
@@ -771,7 +738,6 @@ static long cn3927v_compat_ioctl32(struct v4l2_subdev *sd,
 	struct rk_cam_compat_vcm_tim compat_vcm_tim;
 	struct rk_cam_vcm_tim vcm_tim;
 	struct rk_cam_vcm_cfg vcm_cfg;
-	unsigned int max_logicalpos;
 	long ret;
 
 	if (cmd == RK_VIDIOC_COMPAT_VCM_TIMEINFO) {
@@ -802,12 +768,6 @@ static long cn3927v_compat_ioctl32(struct v4l2_subdev *sd,
 		ret = copy_from_user(&vcm_cfg, up, sizeof(vcm_cfg));
 		if (!ret)
 			ret = cn3927v_ioctl(sd, cmd, &vcm_cfg);
-		else
-			ret = -EFAULT;
-	} else if (cmd == RK_VIDIOC_SET_VCM_MAX_LOGICALPOS) {
-		ret = copy_from_user(&max_logicalpos, up, sizeof(max_logicalpos));
-		if (!ret)
-			ret = cn3927v_ioctl(sd, cmd, &max_logicalpos);
 		else
 			ret = -EFAULT;
 	} else {
@@ -846,8 +806,8 @@ static int cn3927v_init_controls(struct cn3927v_device *dev_vcm)
 
 	v4l2_ctrl_handler_init(hdl, 1);
 
-	dev_vcm->focus = v4l2_ctrl_new_std(hdl, ops, V4L2_CID_FOCUS_ABSOLUTE,
-				0, dev_vcm->max_logicalpos, 1, dev_vcm->max_logicalpos);
+	v4l2_ctrl_new_std(hdl, ops, V4L2_CID_FOCUS_ABSOLUTE,
+			  0, VCMDRV_MAX_LOG, 1, VCMDRV_MAX_LOG);
 
 	if (hdl->error)
 		dev_err(dev_vcm->sd.dev, "%s fail error: 0x%x\n",
@@ -952,23 +912,6 @@ static int __cn3927v_set_power(struct cn3927v_device *cn3927v, bool on)
 	}
 
 unlock_and_return:
-	return ret;
-}
-
-static int cn3927v_check_i2c(struct cn3927v_device *cn3927v,
-				  struct i2c_client *client)
-{
-	struct device *dev = &client->dev;
-	int ret;
-
-	// need to wait 1ms after poweron
-	usleep_range(1000, 1200);
-	// Advanced Mode TEST set
-	ret = cn3927v_write_msg(client, 0xED, 0xAB);
-	if (!ret)
-		dev_info(dev, "Check cn3927v connection OK!\n");
-	else
-		dev_info(dev, "cn3927v not connect!\n");
 	return ret;
 }
 
@@ -1158,8 +1101,8 @@ static int cn3927v_parse_dt_property(struct i2c_client *client,
 
 	dev_dbg(&client->dev, "current: %d, %d, %d, dlc_en: %d, t_src: %d, mclk: %d",
 		dev_vcm->max_current,
-		dev_vcm->vcm_cfg.start_ma,
-		dev_vcm->vcm_cfg.rated_ma,
+		dev_vcm->start_current,
+		dev_vcm->rated_current,
 		dev_vcm->dlc_enable,
 		dev_vcm->t_src,
 		dev_vcm->mclk);
@@ -1182,18 +1125,13 @@ static int cn3927v_parse_dt_property(struct i2c_client *client,
 static int cn3927v_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
 {
-	struct device *dev = &client->dev;
 	struct cn3927v_device *cn3927v_dev;
 	struct v4l2_subdev *sd;
 	char facing[2];
 	int ret;
 
-	dev_info(dev, "driver version: %02x.%02x.%02x, probing...",
-		DRIVER_VERSION >> 16,
-		(DRIVER_VERSION & 0xff00) >> 8,
-		DRIVER_VERSION & 0x00ff);
-
-	cn3927v_dev = devm_kzalloc(dev, sizeof(*cn3927v_dev),
+	dev_info(&client->dev, "probing...\n");
+	cn3927v_dev = devm_kzalloc(&client->dev, sizeof(*cn3927v_dev),
 				  GFP_KERNEL);
 	if (cn3927v_dev == NULL)
 		return -ENOMEM;
@@ -1205,7 +1143,6 @@ static int cn3927v_probe(struct i2c_client *client,
 	cn3927v_dev->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
 	cn3927v_dev->sd.internal_ops = &cn3927v_int_ops;
 
-	cn3927v_dev->max_logicalpos = VCMDRV_MAX_LOG;
 	ret = cn3927v_init_controls(cn3927v_dev);
 	if (ret)
 		goto err_cleanup;
@@ -1213,14 +1150,6 @@ static int cn3927v_probe(struct i2c_client *client,
 	ret = media_entity_pads_init(&cn3927v_dev->sd.entity, 0, NULL);
 	if (ret < 0)
 		goto err_cleanup;
-
-	ret = __cn3927v_set_power(cn3927v_dev, true);
-	if (ret)
-		goto err_cleanup;
-
-	ret = cn3927v_check_i2c(cn3927v_dev, client);
-	if (ret)
-		goto err_power_off;
 
 	sd = &cn3927v_dev->sd;
 	sd->entity.function = MEDIA_ENT_F_LENS;
@@ -1240,21 +1169,18 @@ static int cn3927v_probe(struct i2c_client *client,
 
 	cn3927v_update_vcm_cfg(cn3927v_dev);
 	cn3927v_dev->move_ms       = 0;
-	cn3927v_dev->current_related_pos = cn3927v_dev->max_logicalpos;
+	cn3927v_dev->current_related_pos = VCMDRV_MAX_LOG;
 	cn3927v_dev->current_lens_pos = cn3927v_dev->start_current;
 	cn3927v_dev->start_move_tv = ns_to_kernel_old_timeval(ktime_get_ns());
 	cn3927v_dev->end_move_tv = ns_to_kernel_old_timeval(ktime_get_ns());
 	cn3927v_dev->vcm_movefull_t =
 		cn3927v_move_time(cn3927v_dev, CN3927V_MAX_REG);
+	pm_runtime_enable(&client->dev);
 
-	pm_runtime_enable(dev);
-
-	add_sysfs_interfaces(dev);
-	dev_info(dev, "probing successful\n");
+	add_sysfs_interfaces(&client->dev);
+	dev_info(&client->dev, "probing successful\n");
 
 	return 0;
-err_power_off:
-	__cn3927v_set_power(cn3927v_dev, false);
 
 err_cleanup:
 	cn3927v_subdev_cleanup(cn3927v_dev);
@@ -1298,8 +1224,14 @@ static int cn3927v_init(struct i2c_client *client)
 			goto err;
 		// delay 1ms
 		usleep_range(1000, 1200);
-
-
+		// SAC mode & nrc_time & nrc_infl
+		data = CN3927V_ADVMODE_RING_EN << 7 |
+		       (cn3927v_dev->nrc_infl & 0x3) << 5 |
+		       (cn3927v_dev->nrc_time & 0x1) << 4 |
+		       (cn3927v_dev->sac_mode & 0xF);
+		ret = cn3927v_write_msg(client, CN3927V_ADVMODE_SAC_CFG, data);
+		if (ret)
+			goto err;
 		// Set Tvib (PRESC[1:0] )
 		ret = cn3927v_write_msg(client, CN3927V_ADVMODE_PRESC, cn3927v_dev->sac_prescl);
 		if (ret)
@@ -1318,16 +1250,6 @@ static int cn3927v_init(struct i2c_client *client)
 		ret = cn3927v_write_msg(client, CN3927V_ADVMODE_NRC, data);
 		if (ret)
 			goto err;
-
-		// SAC mode & nrc_time & nrc_infl
-		data = CN3927V_ADVMODE_RING_EN << 7 |
-			   (cn3927v_dev->nrc_infl & 0x3) << 5 |
-			   (cn3927v_dev->nrc_time & 0x1) << 4 |
-			   (cn3927v_dev->sac_mode & 0xF);
-		ret = cn3927v_write_msg(client, CN3927V_ADVMODE_SAC_CFG, data);
-		if (ret)
-			goto err;
-
 	} else {
 		// need to wait 1ms after poweron
 		usleep_range(1000, 1200);
@@ -1375,7 +1297,7 @@ static int __maybe_unused cn3927v_vcm_suspend(struct device *dev)
 	dev_dbg(&client->dev, "%s: current_lens_pos %d, current_related_pos %d\n",
 		__func__, dev_vcm->current_lens_pos, dev_vcm->current_related_pos);
 	move_time = 1000 * cn3927v_move_time(dev_vcm, CN3927V_GRADUAL_MOVELENS_STEPS);
-	while (dac >= CN3927V_GRADUAL_MOVELENS_STEPS) {
+	while (dac >= dev_vcm->start_current) {
 		cn3927v_set_dac(dev_vcm, dac);
 		usleep_range(move_time, move_time + 1000);
 		dac -= CN3927V_GRADUAL_MOVELENS_STEPS;
@@ -1383,8 +1305,8 @@ static int __maybe_unused cn3927v_vcm_suspend(struct device *dev)
 			break;
 	}
 
-	if (dac < CN3927V_GRADUAL_MOVELENS_STEPS) {
-		dac = CN3927V_GRADUAL_MOVELENS_STEPS;
+	if (dac < dev_vcm->start_current) {
+		dac = dev_vcm->start_current;
 		cn3927v_set_dac(dev_vcm, dac);
 	}
 	/* set to power down mode */
@@ -1405,13 +1327,12 @@ static int __maybe_unused cn3927v_vcm_resume(struct device *dev)
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct cn3927v_device *dev_vcm = sd_to_cn3927v_vcm(sd);
 	unsigned int move_time;
-	int dac = dev_vcm->start_current;
+	int dac = 0;
 
 
 	__cn3927v_set_power(dev_vcm, true);
 	cn3927v_init(client);
 
-	usleep_range(1000, 1200);
 	dev_dbg(&client->dev, "%s: current_lens_pos %d, current_related_pos %d\n",
 		__func__, dev_vcm->current_lens_pos, dev_vcm->current_related_pos);
 	move_time = 1000 * cn3927v_move_time(dev_vcm, CN3927V_GRADUAL_MOVELENS_STEPS);

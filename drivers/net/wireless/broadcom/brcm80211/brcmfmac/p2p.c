@@ -63,7 +63,6 @@
 #define P2P_AF_TX_MAX_RETRY		5
 #define P2P_AF_MAX_WAIT_TIME		msecs_to_jiffies(2000)
 #define P2P_INVALID_CHANNEL		-1
-#define P2P_INVALID_CHANSPEC		0
 #define P2P_CHANNEL_SYNC_RETRY		5
 #define P2P_AF_FRM_SCAN_MAX_WAIT	msecs_to_jiffies(450)
 #define P2P_DEFAULT_SLEEP_TIME_VSDB	200
@@ -232,38 +231,8 @@ static bool brcmf_p2p_is_pub_action(void *frame, u32 frame_len)
 	if (pact_frm->category == P2P_PUB_AF_CATEGORY &&
 	    pact_frm->action == P2P_PUB_AF_ACTION &&
 	    pact_frm->oui_type == P2P_VER &&
-	    memcmp(pact_frm->oui, WFA_OUI, P2P_OUI_LEN) == 0)
+	    memcmp(pact_frm->oui, P2P_OUI, P2P_OUI_LEN) == 0)
 		return true;
-
-	return false;
-}
-
-/**
- * brcmf_p2p_is_dpp_pub_action() - true if dpp public type frame.
- *
- * @frame: action frame data.
- * @frame_len: length of action frame data.
- *
- * Determine if action frame is dpp public action type
- */
-static bool brcmf_p2p_is_dpp_pub_action(void *frame, u32 frame_len)
-{
-	struct brcmf_p2p_pub_act_frame *pact_frm;
-
-	if (!frame)
-		return false;
-
-	pact_frm = (struct brcmf_p2p_pub_act_frame *)frame;
-	if (frame_len < sizeof(struct brcmf_p2p_pub_act_frame) - 1)
-		return false;
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 13, 0))
-	if (pact_frm->category == WLAN_CATEGORY_PUBLIC &&
-	    pact_frm->action == WLAN_PUB_ACTION_VENDOR_SPECIFIC &&
-	    pact_frm->oui_type == DPP_VER &&
-	    memcmp(pact_frm->oui, WFA_OUI, TLV_OUI_LEN) == 0)
-		return true;
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 13, 0)) */
 
 	return false;
 }
@@ -925,8 +894,7 @@ int brcmf_p2p_scan_prep(struct wiphy *wiphy,
 {
 	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
 	struct brcmf_p2p_info *p2p = &cfg->p2p;
-	int err = 0;
-	struct brcmu_chan ch;
+	int err;
 
 	if (brcmf_p2p_scan_is_p2p_request(request)) {
 		/* find my listen channel */
@@ -935,12 +903,7 @@ int brcmf_p2p_scan_prep(struct wiphy *wiphy,
 		if (err < 0)
 			return err;
 
-		ch.band = BRCMU_CHAN_BAND_2G;
-		ch.bw = BRCMU_CHAN_BW_20;
-		ch.sb = BRCMU_CHAN_SB_NONE;
-		ch.chnum = err;
-		p2p->cfg->d11inf.encchspec(&ch);
-		p2p->afx_hdl.my_listen_chan = ch.chspec;
+		p2p->afx_hdl.my_listen_chan = err;
 
 		clear_bit(BRCMF_P2P_STATUS_GO_NEG_PHASE, &p2p->status);
 		brcmf_dbg(INFO, "P2P: GO_NEG_PHASE status cleared\n");
@@ -949,14 +912,10 @@ int brcmf_p2p_scan_prep(struct wiphy *wiphy,
 		if (err)
 			return err;
 
-		vif = p2p->bss_idx[P2PAPI_BSSCFG_DEVICE].vif;
-
 		/* override .run_escan() callback. */
 		cfg->escan_info.run = brcmf_p2p_run_escan;
 	}
-	err = brcmf_vif_set_mgmt_ie(vif, BRCMF_VNDR_IE_PRBREQ_FLAG,
-				    request->ie, request->ie_len);
-	return err;
+	return 0;
 }
 
 
@@ -964,15 +923,16 @@ int brcmf_p2p_scan_prep(struct wiphy *wiphy,
  * brcmf_p2p_discover_listen() - set firmware to discover listen state.
  *
  * @p2p: p2p device.
- * @chspec: chspec for discover listen.
+ * @channel: channel nr for discover listen.
  * @duration: time in ms to stay on channel.
  *
  */
 static s32
-brcmf_p2p_discover_listen(struct brcmf_p2p_info *p2p, u16 chspec, u32 duration)
+brcmf_p2p_discover_listen(struct brcmf_p2p_info *p2p, u16 channel, u32 duration)
 {
 	struct brcmf_pub *drvr = p2p->cfg->pub;
 	struct brcmf_cfg80211_vif *vif;
+	struct brcmu_chan ch;
 	s32 err = 0;
 
 	vif = p2p->bss_idx[P2PAPI_BSSCFG_DEVICE].vif;
@@ -988,8 +948,11 @@ brcmf_p2p_discover_listen(struct brcmf_p2p_info *p2p, u16 chspec, u32 duration)
 		goto exit;
 	}
 
+	ch.chnum = channel;
+	ch.bw = BRCMU_CHAN_BW_20;
+	p2p->cfg->d11inf.encchspec(&ch);
 	err = brcmf_p2p_set_discover_state(vif->ifp, WL_P2P_DISC_ST_LISTEN,
-					   chspec, (u16)duration);
+					   ch.chspec, (u16)duration);
 	if (!err) {
 		set_bit(BRCMF_P2P_STATUS_DISCOVER_LISTEN, &p2p->status);
 		p2p->remain_on_channel_cookie++;
@@ -1015,16 +978,18 @@ int brcmf_p2p_remain_on_channel(struct wiphy *wiphy, struct wireless_dev *wdev,
 	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
 	struct brcmf_p2p_info *p2p = &cfg->p2p;
 	s32 err;
+	u16 channel_nr;
+
+	channel_nr = ieee80211_frequency_to_channel(channel->center_freq);
+	brcmf_dbg(TRACE, "Enter, channel: %d, duration ms (%d)\n", channel_nr,
+		  duration);
 
 	err = brcmf_p2p_enable_discovery(p2p);
 	if (err)
 		goto exit;
-	err = brcmf_p2p_discover_listen(p2p,
-			channel_to_chanspec(&cfg->d11inf, channel), duration);
+	err = brcmf_p2p_discover_listen(p2p, channel_nr, duration);
 	if (err)
 		goto exit;
-
-	p2p->remin_on_channel_wdev = wdev;
 
 	memcpy(&p2p->remain_on_channel, channel, sizeof(*channel));
 	*cookie = p2p->remain_on_channel_cookie;
@@ -1049,7 +1014,6 @@ int brcmf_p2p_notify_listen_complete(struct brcmf_if *ifp,
 {
 	struct brcmf_cfg80211_info *cfg = ifp->drvr->config;
 	struct brcmf_p2p_info *p2p = &cfg->p2p;
-	struct wireless_dev *wdev = p2p->remin_on_channel_wdev;
 
 	brcmf_dbg(TRACE, "Enter\n");
 	if (test_and_clear_bit(BRCMF_P2P_STATUS_DISCOVER_LISTEN,
@@ -1062,16 +1026,10 @@ int brcmf_p2p_notify_listen_complete(struct brcmf_if *ifp,
 			complete(&p2p->wait_next_af);
 		}
 
-		wdev = p2p->remin_on_channel_wdev ?
-			p2p->remin_on_channel_wdev :
-			&ifp->vif->wdev;
-
-		cfg80211_remain_on_channel_expired(wdev,
+		cfg80211_remain_on_channel_expired(&ifp->vif->wdev,
 						   p2p->remain_on_channel_cookie,
 						   &p2p->remain_on_channel,
 						   GFP_KERNEL);
-		p2p->remin_on_channel_wdev = NULL;
-
 	}
 	return 0;
 }
@@ -1096,12 +1054,12 @@ void brcmf_p2p_cancel_remain_on_channel(struct brcmf_if *ifp)
  * brcmf_p2p_act_frm_search() - search function for action frame.
  *
  * @p2p: p2p device.
- * @chspec: chspec on which action frame is to be trasmitted.
+ * @channel: channel on which action frame is to be trasmitted.
  *
  * search function to reach at common channel to send action frame. When
  * channel is 0 then all social channels will be used to send af
  */
-static s32 brcmf_p2p_act_frm_search(struct brcmf_p2p_info *p2p, u16 chspec)
+static s32 brcmf_p2p_act_frm_search(struct brcmf_p2p_info *p2p, u16 channel)
 {
 	struct brcmf_pub *drvr = p2p->cfg->pub;
 	s32 err;
@@ -1112,7 +1070,7 @@ static s32 brcmf_p2p_act_frm_search(struct brcmf_p2p_info *p2p, u16 chspec)
 
 	brcmf_dbg(TRACE, "Enter\n");
 
-	if (chspec)
+	if (channel)
 		channel_cnt = AF_PEER_SEARCH_CNT;
 	else
 		channel_cnt = SOCIAL_CHAN_CNT;
@@ -1123,13 +1081,14 @@ static s32 brcmf_p2p_act_frm_search(struct brcmf_p2p_info *p2p, u16 chspec)
 		err = -ENOMEM;
 		goto exit;
 	}
-
-	if (chspec) {
+	ch.bw = BRCMU_CHAN_BW_20;
+	if (channel) {
+		ch.chnum = channel;
+		p2p->cfg->d11inf.encchspec(&ch);
+		/* insert same channel to the chan_list */
 		for (i = 0; i < channel_cnt; i++)
-			default_chan_list[i] = chspec;
+			default_chan_list[i] = ch.chspec;
 	} else {
-		ch.band = BRCMU_CHAN_BAND_2G;
-		ch.bw = BRCMU_CHAN_BW_20;
 		ch.chnum = SOCIAL_CHAN_1;
 		p2p->cfg->d11inf.encchspec(&ch);
 		default_chan_list[0] = ch.chspec;
@@ -1188,7 +1147,7 @@ static void brcmf_p2p_afx_handler(struct work_struct *work)
  * @p2p: p2p device info struct.
  *
  */
-static u16 brcmf_p2p_af_searching_channel(struct brcmf_p2p_info *p2p)
+static s32 brcmf_p2p_af_searching_channel(struct brcmf_p2p_info *p2p)
 {
 	struct afx_hdl *afx_hdl = &p2p->afx_hdl;
 	struct brcmf_cfg80211_vif *pri_vif;
@@ -1201,14 +1160,14 @@ static u16 brcmf_p2p_af_searching_channel(struct brcmf_p2p_info *p2p)
 	reinit_completion(&afx_hdl->act_frm_scan);
 	set_bit(BRCMF_P2P_STATUS_FINDING_COMMON_CHANNEL, &p2p->status);
 	afx_hdl->is_active = true;
-	afx_hdl->peer_chan = P2P_INVALID_CHANSPEC;
+	afx_hdl->peer_chan = P2P_INVALID_CHANNEL;
 
 	/* Loop to wait until we find a peer's channel or the
 	 * pending action frame tx is cancelled.
 	 */
 	retry = 0;
 	while ((retry < P2P_CHANNEL_SYNC_RETRY) &&
-	       (afx_hdl->peer_chan == P2P_INVALID_CHANSPEC)) {
+	       (afx_hdl->peer_chan == P2P_INVALID_CHANNEL)) {
 		afx_hdl->is_listen = false;
 		brcmf_dbg(TRACE, "Scheduling action frame for sending.. (%d)\n",
 			  retry);
@@ -1216,13 +1175,13 @@ static u16 brcmf_p2p_af_searching_channel(struct brcmf_p2p_info *p2p)
 		schedule_work(&afx_hdl->afx_work);
 		wait_for_completion_timeout(&afx_hdl->act_frm_scan,
 					    P2P_AF_FRM_SCAN_MAX_WAIT);
-		if ((afx_hdl->peer_chan != P2P_INVALID_CHANSPEC) ||
+		if ((afx_hdl->peer_chan != P2P_INVALID_CHANNEL) ||
 		    (!test_bit(BRCMF_P2P_STATUS_FINDING_COMMON_CHANNEL,
 			       &p2p->status)))
 			break;
 
 		if (afx_hdl->my_listen_chan) {
-			brcmf_dbg(TRACE, "Scheduling listen peer, chanspec=0x%04x\n",
+			brcmf_dbg(TRACE, "Scheduling listen peer, channel=%d\n",
 				  afx_hdl->my_listen_chan);
 			/* listen on my listen channel */
 			afx_hdl->is_listen = true;
@@ -1230,7 +1189,7 @@ static u16 brcmf_p2p_af_searching_channel(struct brcmf_p2p_info *p2p)
 			wait_for_completion_timeout(&afx_hdl->act_frm_scan,
 						    P2P_AF_FRM_SCAN_MAX_WAIT);
 		}
-		if ((afx_hdl->peer_chan != P2P_INVALID_CHANSPEC) ||
+		if ((afx_hdl->peer_chan != P2P_INVALID_CHANNEL) ||
 		    (!test_bit(BRCMF_P2P_STATUS_FINDING_COMMON_CHANNEL,
 			       &p2p->status)))
 			break;
@@ -1244,7 +1203,7 @@ static u16 brcmf_p2p_af_searching_channel(struct brcmf_p2p_info *p2p)
 			msleep(P2P_DEFAULT_SLEEP_TIME_VSDB);
 	}
 
-	brcmf_dbg(TRACE, "Completed search/listen peer_chan=0x%4x\n",
+	brcmf_dbg(TRACE, "Completed search/listen peer_chan=%d\n",
 		  afx_hdl->peer_chan);
 	afx_hdl->is_active = false;
 
@@ -1267,6 +1226,7 @@ bool brcmf_p2p_scan_finding_common_channel(struct brcmf_cfg80211_info *cfg,
 {
 	struct brcmf_p2p_info *p2p = &cfg->p2p;
 	struct afx_hdl *afx_hdl = &p2p->afx_hdl;
+	struct brcmu_chan ch;
 	u8 *ie;
 	s32 err;
 	u8 p2p_dev_addr[ETH_ALEN];
@@ -1276,7 +1236,7 @@ bool brcmf_p2p_scan_finding_common_channel(struct brcmf_cfg80211_info *cfg,
 
 	if (bi == NULL) {
 		brcmf_dbg(TRACE, "ACTION FRAME SCAN Done\n");
-		if (afx_hdl->peer_chan == P2P_INVALID_CHANSPEC)
+		if (afx_hdl->peer_chan == P2P_INVALID_CHANNEL)
 			complete(&afx_hdl->act_frm_scan);
 		return true;
 	}
@@ -1292,8 +1252,13 @@ bool brcmf_p2p_scan_finding_common_channel(struct brcmf_cfg80211_info *cfg,
 					    p2p_dev_addr, sizeof(p2p_dev_addr));
 	if ((err >= 0) &&
 	    (ether_addr_equal(p2p_dev_addr, afx_hdl->tx_dst_addr))) {
-		afx_hdl->peer_chan = le16_to_cpu(bi->chanspec);
-		brcmf_dbg(TRACE, "ACTION FRAME SCAN : Peer %pM found, chanspec : 0x%04x\n",
+		if (!bi->ctl_ch) {
+			ch.chspec = le16_to_cpu(bi->chanspec);
+			cfg->d11inf.decchspec(&ch);
+			bi->ctl_ch = ch.control_ch_num;
+		}
+		afx_hdl->peer_chan = bi->ctl_ch;
+		brcmf_dbg(TRACE, "ACTION FRAME SCAN : Peer %pM found, channel : %d\n",
 			  afx_hdl->tx_dst_addr, afx_hdl->peer_chan);
 		complete(&afx_hdl->act_frm_scan);
 	}
@@ -1316,10 +1281,6 @@ static s32 brcmf_p2p_abort_action_frame(struct brcmf_cfg80211_info *cfg)
 	brcmf_dbg(TRACE, "Enter\n");
 
 	vif = p2p->bss_idx[P2PAPI_BSSCFG_DEVICE].vif;
-
-	if (!vif)
-		vif = p2p->bss_idx[P2PAPI_BSSCFG_PRIMARY].vif;
-
 	err = brcmf_fil_bsscfg_data_set(vif->ifp, "actframe_abort", &int_val,
 					sizeof(s32));
 	if (err)
@@ -1465,8 +1426,8 @@ int brcmf_p2p_notify_action_frame_rx(struct brcmf_if *ifp,
 			if (test_bit(BRCMF_P2P_STATUS_FINDING_COMMON_CHANNEL,
 				     &p2p->status) &&
 			    (ether_addr_equal(afx_hdl->tx_dst_addr, e->addr))) {
-				afx_hdl->peer_chan = be16_to_cpu(rxframe->chanspec);
-				brcmf_dbg(INFO, "GON request: Peer found, chanspec=0x%04x\n",
+				afx_hdl->peer_chan = ch.control_ch_num;
+				brcmf_dbg(INFO, "GON request: Peer found, channel=%d\n",
 					  afx_hdl->peer_chan);
 				complete(&afx_hdl->act_frm_scan);
 			}
@@ -1509,7 +1470,9 @@ int brcmf_p2p_notify_action_frame_rx(struct brcmf_if *ifp,
 	mgmt_frame_len += offsetof(struct ieee80211_mgmt, u);
 
 	freq = ieee80211_channel_to_frequency(ch.control_ch_num,
-					BRCMU_CHAN_BAND_TO_NL80211(ch.band));
+					      ch.band == BRCMU_CHAN_BAND_2G ?
+					      NL80211_BAND_2GHZ :
+					      NL80211_BAND_5GHZ);
 
 	wdev = &ifp->vif->wdev;
 	cfg80211_rx_mgmt(wdev, freq, 0, (u8 *)mgmt_frame, mgmt_frame_len, 0);
@@ -1568,7 +1531,6 @@ int brcmf_p2p_notify_action_tx_complete(struct brcmf_if *ifp,
  *
  * @p2p: p2p info struct for vif.
  * @af_params: action frame data/info.
- * @vif: vif to send
  *
  * Send an action frame immediately without doing channel synchronization.
  *
@@ -1577,23 +1539,25 @@ int brcmf_p2p_notify_action_tx_complete(struct brcmf_if *ifp,
  * frame is transmitted.
  */
 static s32 brcmf_p2p_tx_action_frame(struct brcmf_p2p_info *p2p,
-				     struct brcmf_fil_af_params_le *af_params,
-				     struct brcmf_cfg80211_vif *vif
-				     )
+				     struct brcmf_fil_af_params_le *af_params)
 {
 	struct brcmf_pub *drvr = p2p->cfg->pub;
+	struct brcmf_cfg80211_vif *vif;
+	struct brcmf_p2p_action_frame *p2p_af;
 	s32 err = 0;
-	struct brcmf_fil_action_frame_le *action_frame;
-	u16 action_frame_len;
-
-	action_frame = &af_params->action_frame;
-	action_frame_len = le16_to_cpu(action_frame->len);
 
 	brcmf_dbg(TRACE, "Enter\n");
 
 	reinit_completion(&p2p->send_af_done);
 	clear_bit(BRCMF_P2P_STATUS_ACTION_TX_COMPLETED, &p2p->status);
 	clear_bit(BRCMF_P2P_STATUS_ACTION_TX_NOACK, &p2p->status);
+
+	/* check if it is a p2p_presence response */
+	p2p_af = (struct brcmf_p2p_action_frame *)af_params->action_frame.data;
+	if (p2p_af->subtype == P2P_AF_PRESENCE_RSP)
+		vif = p2p->bss_idx[P2PAPI_BSSCFG_CONNECTION].vif;
+	else
+		vif = p2p->bss_idx[P2PAPI_BSSCFG_DEVICE].vif;
 
 	err = brcmf_fil_bsscfg_data_set(vif->ifp, "actframe", af_params,
 					sizeof(*af_params));
@@ -1750,14 +1714,10 @@ static bool brcmf_p2p_check_dwell_overflow(u32 requested_dwell,
  * @cfg: driver private data for cfg80211 interface.
  * @ndev: net device to transmit on.
  * @af_params: configuration data for action frame.
- * @vif: virtual interface to send
  */
 bool brcmf_p2p_send_action_frame(struct brcmf_cfg80211_info *cfg,
 				 struct net_device *ndev,
-				 struct brcmf_fil_af_params_le *af_params,
-				 struct brcmf_cfg80211_vif *vif,
-				 struct ieee80211_channel *peer_listen_chan
-				 )
+				 struct brcmf_fil_af_params_le *af_params)
 {
 	struct brcmf_p2p_info *p2p = &cfg->p2p;
 	struct brcmf_if *ifp = netdev_priv(ndev);
@@ -1765,7 +1725,6 @@ bool brcmf_p2p_send_action_frame(struct brcmf_cfg80211_info *cfg,
 	struct brcmf_config_af_params config_af_params;
 	struct afx_hdl *afx_hdl = &p2p->afx_hdl;
 	struct brcmf_pub *drvr = cfg->pub;
-	struct brcmu_chan ch;
 	u16 action_frame_len;
 	bool ack = false;
 	u8 category;
@@ -1830,9 +1789,7 @@ bool brcmf_p2p_send_action_frame(struct brcmf_cfg80211_info *cfg,
 			goto exit;
 		}
 	} else if (brcmf_p2p_is_p2p_action(action_frame->data,
-					   action_frame_len) ||
-		   brcmf_p2p_is_dpp_pub_action(action_frame->data,
-					       action_frame_len)) {
+					   action_frame_len)) {
 		/* do not configure anything. it will be */
 		/* sent with a default configuration     */
 	} else {
@@ -1869,13 +1826,12 @@ bool brcmf_p2p_send_action_frame(struct brcmf_cfg80211_info *cfg,
 	/* validate channel and p2p ies */
 	if (config_af_params.search_channel &&
 	    IS_P2P_SOCIAL_CHANNEL(le32_to_cpu(af_params->channel)) &&
-	    p2p->bss_idx[P2PAPI_BSSCFG_DEVICE].vif &&
 	    p2p->bss_idx[P2PAPI_BSSCFG_DEVICE].vif->saved_ie.probe_req_ie_len) {
 		afx_hdl = &p2p->afx_hdl;
-		afx_hdl->peer_listen_chan = channel_to_chanspec(&cfg->d11inf, peer_listen_chan);
+		afx_hdl->peer_listen_chan = le32_to_cpu(af_params->channel);
 
 		if (brcmf_p2p_af_searching_channel(p2p) ==
-							P2P_INVALID_CHANSPEC) {
+							P2P_INVALID_CHANNEL) {
 			bphy_err(drvr, "Couldn't find peer's channel.\n");
 			goto exit;
 		}
@@ -1888,9 +1844,7 @@ bool brcmf_p2p_send_action_frame(struct brcmf_cfg80211_info *cfg,
 		brcmf_notify_escan_complete(cfg, ifp, true, true);
 
 		/* update channel */
-		ch.chspec = afx_hdl->peer_chan;
-		cfg->d11inf.decchspec(&ch);
-		af_params->channel = cpu_to_le32(ch.control_ch_num);
+		af_params->channel = cpu_to_le32(afx_hdl->peer_chan);
 	}
 	dwell_jiffies = jiffies;
 	dwell_overflow = brcmf_p2p_check_dwell_overflow(requested_dwell,
@@ -1903,7 +1857,7 @@ bool brcmf_p2p_send_action_frame(struct brcmf_cfg80211_info *cfg,
 		if (af_params->channel)
 			msleep(P2P_AF_RETRY_DELAY_TIME);
 
-		ack = !brcmf_p2p_tx_action_frame(p2p, af_params, vif);
+		ack = !brcmf_p2p_tx_action_frame(p2p, af_params);
 		tx_retry++;
 		dwell_overflow = brcmf_p2p_check_dwell_overflow(requested_dwell,
 								dwell_jiffies);
@@ -1922,11 +1876,9 @@ exit:
 	 * not keep the dwell time, go to listen state again to get next action
 	 * response frame.
 	 */
-	ch.chspec = afx_hdl->my_listen_chan;
-	cfg->d11inf.decchspec(&ch);
 	if (ack && config_af_params.extra_listen && !p2p->block_gon_req_tx &&
 	    test_bit(BRCMF_P2P_STATUS_WAITING_NEXT_ACT_FRAME, &p2p->status) &&
-	    p2p->af_sent_channel == ch.control_ch_num) {
+	    p2p->af_sent_channel == afx_hdl->my_listen_chan) {
 		delta_ms = jiffies_to_msecs(jiffies - p2p->af_tx_sent_jiffies);
 		if (le32_to_cpu(af_params->dwell_time) > delta_ms)
 			extra_listen_time = le32_to_cpu(af_params->dwell_time) -
@@ -1941,7 +1893,7 @@ exit:
 				  extra_listen_time);
 			extra_listen_time += 100;
 			if (!brcmf_p2p_discover_listen(p2p,
-						       afx_hdl->my_listen_chan,
+						       p2p->af_sent_channel,
 						       extra_listen_time)) {
 				unsigned long duration;
 
@@ -2006,8 +1958,8 @@ s32 brcmf_p2p_notify_rx_mgmt_p2p_probereq(struct brcmf_if *ifp,
 
 	if (test_bit(BRCMF_P2P_STATUS_FINDING_COMMON_CHANNEL, &p2p->status) &&
 	    (ether_addr_equal(afx_hdl->tx_dst_addr, e->addr))) {
-		afx_hdl->peer_chan = be16_to_cpu(rxframe->chanspec);
-		brcmf_dbg(INFO, "PROBE REQUEST: Peer found, chanspec=0x%04x\n",
+		afx_hdl->peer_chan = ch.control_ch_num;
+		brcmf_dbg(INFO, "PROBE REQUEST: Peer found, channel=%d\n",
 			  afx_hdl->peer_chan);
 		complete(&afx_hdl->act_frm_scan);
 	}
@@ -2032,7 +1984,9 @@ s32 brcmf_p2p_notify_rx_mgmt_p2p_probereq(struct brcmf_if *ifp,
 	mgmt_frame = (u8 *)(rxframe + 1);
 	mgmt_frame_len = e->datalen - sizeof(*rxframe);
 	freq = ieee80211_channel_to_frequency(ch.control_ch_num,
-						BRCMU_CHAN_BAND_TO_NL80211(ch.band));
+					      ch.band == BRCMU_CHAN_BAND_2G ?
+					      NL80211_BAND_2GHZ :
+					      NL80211_BAND_5GHZ);
 
 	cfg80211_rx_mgmt(&vif->wdev, freq, 0, mgmt_frame, mgmt_frame_len, 0);
 
@@ -2076,7 +2030,6 @@ static void brcmf_p2p_get_current_chanspec(struct brcmf_p2p_info *p2p,
 		}
 	}
 	/* Use default channel for P2P */
-	ch.band = BRCMU_CHAN_BAND_2G;
 	ch.chnum = BRCMF_P2P_TEMP_CHAN;
 	ch.bw = BRCMU_CHAN_BW_20;
 	p2p->cfg->d11inf.encchspec(&ch);
@@ -2382,9 +2335,7 @@ struct wireless_dev *brcmf_p2p_add_vif(struct wiphy *wiphy, const char *name,
 	}
 
 	strncpy(ifp->ndev->name, name, sizeof(ifp->ndev->name) - 1);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 0))
 	ifp->ndev->name_assign_type = name_assign_type;
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 0)) */
 	err = brcmf_net_attach(ifp, true);
 	if (err) {
 		bphy_err(drvr, "Registering netdevice failed\n");
@@ -2473,12 +2424,8 @@ int brcmf_p2p_del_vif(struct wiphy *wiphy, struct wireless_dev *wdev)
 	brcmf_remove_interface(vif->ifp, true);
 
 	brcmf_cfg80211_arm_vif_event(cfg, NULL);
-	if (iftype != NL80211_IFTYPE_P2P_DEVICE) {
-		if (vif == p2p->bss_idx[P2PAPI_BSSCFG_CONNECTION].vif)
-			p2p->bss_idx[P2PAPI_BSSCFG_CONNECTION].vif = NULL;
-		if (vif == p2p->bss_idx[P2PAPI_BSSCFG_CONNECTION2].vif)
-			p2p->bss_idx[P2PAPI_BSSCFG_CONNECTION2].vif = NULL;
-	}
+	if (iftype != NL80211_IFTYPE_P2P_DEVICE)
+		p2p->bss_idx[P2PAPI_BSSCFG_CONNECTION].vif = NULL;
 
 	return err;
 }
@@ -2557,7 +2504,6 @@ s32 brcmf_p2p_attach(struct brcmf_cfg80211_info *cfg, bool p2pdev_forced)
 
 	pri_ifp = brcmf_get_ifp(cfg->pub, 0);
 	p2p->bss_idx[P2PAPI_BSSCFG_PRIMARY].vif = pri_ifp->vif;
-	init_completion(&p2p->send_af_done);
 
 	if (p2pdev_forced) {
 		err_ptr = brcmf_p2p_create_p2pdev(p2p, NULL, NULL);

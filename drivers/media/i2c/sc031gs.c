@@ -50,8 +50,8 @@
 
 #define SC031GS_REG_COARSE_AGAIN		0x3e08
 #define SC031GS_REG_FINE_AGAIN          0x3e09
-#define	ANALOG_GAIN_MIN			0x10
-#define	ANALOG_GAIN_MAX			0x7c0   // 124x
+#define	ANALOG_GAIN_MIN			0x01
+#define	ANALOG_GAIN_MAX			0xF8
 #define	ANALOG_GAIN_STEP		1
 #define	ANALOG_GAIN_DEFAULT		0x1f
 
@@ -117,8 +117,6 @@ struct sc031gs {
 	struct v4l2_ctrl	*vblank;
 	struct v4l2_ctrl	*test_pattern;
 	struct mutex		mutex;
-	struct v4l2_fract	cur_fps;
-	u32			cur_vts;
 	bool			streaming;
 	bool			power_on;
 	const struct sc031gs_mode *cur_mode;
@@ -298,7 +296,7 @@ static const struct regval sc031gs_global_regs[] = {
 	{0x3d08, 0x01},
 	{0x3e01, 0x14},
 	{0x3e02, 0x80},
-	{0x3e06, 0x00},
+	{0x3e06, 0x0c},
 	{0x4500, 0x59},
 	{0x4501, 0xc4},
 	{0x4603, 0x00},
@@ -479,8 +477,6 @@ static int sc031gs_set_fmt(struct v4l2_subdev *sd,
 		__v4l2_ctrl_modify_range(sc031gs->vblank, vblank_def,
 					 SC031GS_VTS_MAX - mode->height,
 					 1, vblank_def);
-		sc031gs->cur_fps = mode->max_fps;
-		sc031gs->cur_vts = mode->vts_def;
 	}
 
 	mutex_unlock(&sc031gs->mutex);
@@ -615,10 +611,7 @@ static long sc031gs_compat_ioctl32(struct v4l2_subdev *sd,
 
 		ret = sc031gs_ioctl(sd, cmd, inf);
 		if (!ret)
-			if (copy_to_user(up, inf, sizeof(*inf))) {
-				kfree(inf);
-				return -EFAULT;
-			}
+			ret = copy_to_user(up, inf, sizeof(*inf));
 		kfree(inf);
 		break;
 	case RKMODULE_AWB_CFG:
@@ -627,17 +620,16 @@ static long sc031gs_compat_ioctl32(struct v4l2_subdev *sd,
 			ret = -ENOMEM;
 			return ret;
 		}
-		if (copy_from_user(cfg, up, sizeof(*cfg))) {
-			kfree(cfg);
-			return -EFAULT;
-		}
-		ret = sc031gs_ioctl(sd, cmd, cfg);
+
+		ret = copy_from_user(cfg, up, sizeof(*cfg));
+		if (!ret)
+			ret = sc031gs_ioctl(sd, cmd, cfg);
 		kfree(cfg);
 		break;
 	case RKMODULE_SET_QUICK_STREAM:
-		if (copy_from_user(&stream, up, sizeof(u32)))
-			return -EFAULT;
-		ret = sc031gs_ioctl(sd, cmd, &stream);
+		ret = copy_from_user(&stream, up, sizeof(u32));
+		if (!ret)
+			ret = sc031gs_ioctl(sd, cmd, &stream);
 		break;
 	default:
 		ret = -ENOIOCTLCMD;
@@ -651,7 +643,7 @@ static long sc031gs_compat_ioctl32(struct v4l2_subdev *sd,
 static int sc031gs_set_ctrl_gain(struct sc031gs *sc031gs, u32 a_gain)
 {
 	int ret = 0;
-	u32 coarse_again, fine_again, fine_again_reg, coarse_again_reg, digital_gain_reg;
+	u32 coarse_again, fine_again, fine_again_reg, coarse_again_reg;
 
 		if (a_gain < 0x20) { /*1x ~ 2x*/
 			fine_again = a_gain - 16;
@@ -659,40 +651,24 @@ static int sc031gs_set_ctrl_gain(struct sc031gs *sc031gs, u32 a_gain)
 			fine_again_reg = ((0x01 << 4) & 0x10) |
 				(fine_again & 0x0f);
 			coarse_again_reg = coarse_again  & 0x1F;
-			digital_gain_reg = 0x80;
 		} else if (a_gain < 0x40) { /*2x ~ 4x*/
 			fine_again = (a_gain >> 1) - 16;
 			coarse_again = 0x7;
 			fine_again_reg = ((0x01 << 4) & 0x10) |
 				(fine_again & 0x0f);
 			coarse_again_reg = coarse_again  & 0x1F;
-			digital_gain_reg = 0x80;
 		} else if (a_gain < 0x80) { /*4x ~ 8x*/
 			fine_again = (a_gain >> 2) - 16;
 			coarse_again = 0xf;
 			fine_again_reg = ((0x01 << 4) & 0x10) |
 				(fine_again & 0x0f);
 			coarse_again_reg = coarse_again  & 0x1F;
-			digital_gain_reg = 0x80;
-		} else if (a_gain < 0x100) { /*8x ~ 16x*/
+		} else { /*8x ~ 16x*/
 			fine_again = (a_gain >> 3) - 16;
 			coarse_again = 0x1f;
 			fine_again_reg = ((0x01 << 4) & 0x10) |
 				(fine_again & 0x0f);
 			coarse_again_reg = coarse_again  & 0x1F;
-			digital_gain_reg = 0x80;
-		} else if (a_gain < 0x200) { /*16x ~ 32x*/
-			fine_again_reg = 0x1f;
-			coarse_again_reg = 0x1f;
-			digital_gain_reg = (a_gain * 0x80 / 0x100) & 0xf8;
-		} else if (a_gain < 0x400) { /*32x ~ 64x*/
-			fine_again_reg = 0x1f;
-			coarse_again_reg = 0x1f;
-			digital_gain_reg = (a_gain * 0x80 / 0x200) & 0x1f8;
-		} else { /*64x ~ 124*/
-			fine_again_reg = 0x1f;
-			coarse_again_reg = 0x1f;
-			digital_gain_reg = (a_gain * 0x80 / 0x400) & 0x3f8;
 		}
 
 		if (a_gain < 0x20) {
@@ -714,9 +690,6 @@ static int sc031gs_set_ctrl_gain(struct sc031gs *sc031gs, u32 a_gain)
 			SC031GS_REG_FINE_AGAIN,
 			SC031GS_REG_VALUE_08BIT,
 			fine_again_reg);
-
-		ret |= sc031gs_write_reg(sc031gs->client, 0x3e06,
-						SC031GS_REG_VALUE_16BIT, digital_gain_reg);
 
 	return ret;
 }
@@ -792,10 +765,9 @@ static int sc031gs_g_frame_interval(struct v4l2_subdev *sd,
 	struct sc031gs *sc031gs = to_sc031gs(sd);
 	const struct sc031gs_mode *mode = sc031gs->cur_mode;
 
-	if (sc031gs->streaming)
-		fi->interval = sc031gs->cur_fps;
-	else
-		fi->interval = mode->max_fps;
+	mutex_lock(&sc031gs->mutex);
+	fi->interval = mode->max_fps;
+	mutex_unlock(&sc031gs->mutex);
 
 	return 0;
 }
@@ -995,14 +967,6 @@ static const struct v4l2_subdev_ops sc031gs_subdev_ops = {
 	.pad	= &sc031gs_pad_ops,
 };
 
-static void sc031gs_modify_fps_info(struct sc031gs *sc031gs)
-{
-	const struct sc031gs_mode *mode = sc031gs->cur_mode;
-
-	sc031gs->cur_fps.denominator = mode->max_fps.denominator * mode->vts_def /
-				       sc031gs->cur_vts;
-}
-
 static int sc031gs_set_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct sc031gs *sc031gs = container_of(ctrl->handler,
@@ -1039,10 +1003,6 @@ static int sc031gs_set_ctrl(struct v4l2_ctrl *ctrl)
 		ret = sc031gs_write_reg(sc031gs->client, SC031GS_REG_VTS,
 				       SC031GS_REG_VALUE_16BIT,
 				       ctrl->val + sc031gs->cur_mode->height);
-		if (!ret)
-			sc031gs->cur_vts = ctrl->val + sc031gs->cur_mode->height;
-		if (sc031gs->cur_vts != sc031gs->cur_mode->vts_def)
-			sc031gs_modify_fps_info(sc031gs);
 		break;
 	case V4L2_CID_TEST_PATTERN:
 		ret = sc031gs_enable_test_pattern(sc031gs, ctrl->val);
@@ -1093,7 +1053,6 @@ static int sc031gs_initialize_controls(struct sc031gs *sc031gs)
 		sc031gs->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	vblank_def = mode->vts_def - mode->height;
-	sc031gs->cur_vts = mode->vts_def;
 	sc031gs->vblank = v4l2_ctrl_new_std(handler, &sc031gs_ctrl_ops,
 				V4L2_CID_VBLANK, vblank_def,
 				SC031GS_VTS_MAX - mode->height,
@@ -1123,7 +1082,6 @@ static int sc031gs_initialize_controls(struct sc031gs *sc031gs)
 	}
 
 	sc031gs->subdev.ctrl_handler = handler;
-	sc031gs->cur_fps = mode->max_fps;
 
 	return 0;
 

@@ -268,8 +268,6 @@ struct rkisp_stream {
 	struct rkisp_buffer *next_buf;
 	struct rkisp_dummy_buffer dummy_buf;
 	struct mutex apilock;
-	struct tasklet_struct buf_done_tasklet;
-	struct list_head buf_done_list;
 	bool streaming;
 	bool stopping;
 	bool frame_end;
@@ -279,8 +277,8 @@ struct rkisp_stream {
 	bool is_flip;
 	bool is_pause;
 	bool is_crop_upd;
+	bool is_pre_on;
 	bool is_using_resmem;
-	bool is_tb_s_info;
 	wait_queue_head_t done;
 	unsigned int burst;
 	atomic_t sequence;
@@ -321,8 +319,6 @@ extern struct stream_config rkisp_mp_stream_config;
 extern struct stream_config rkisp_sp_stream_config;
 extern struct rockit_isp_ops rockit_isp_ops;
 
-void rkisp_stream_buf_done(struct rkisp_stream *stream,
-			   struct rkisp_buffer *buf);
 void rkisp_unregister_stream_vdev(struct rkisp_stream *stream);
 int rkisp_register_stream_vdev(struct rkisp_stream *stream);
 void rkisp_unregister_stream_vdevs(struct rkisp_device *dev);
@@ -335,8 +331,4 @@ int rkisp_fcc_xysubs(u32 fcc, u32 *xsubs, u32 *ysubs);
 int rkisp_mbus_code_xysubs(u32 code, u32 *xsubs, u32 *ysubs);
 int rkisp_fh_open(struct file *filp);
 int rkisp_fop_release(struct file *file);
-
-int rkisp_get_tb_stream_info(struct rkisp_stream *stream,
-			     struct rkisp_tb_stream_info *info);
-int rkisp_free_tb_stream_buf(struct rkisp_stream *stream);
 #endif /* _RKISP_PATH_VIDEO_H */
