@@ -3538,6 +3538,11 @@ static int rockchip_usb2phy_pm_suspend(struct device *dev)
 		    rport->bvalid_irq > 0)
 			enable_irq_wake(rport->bvalid_irq);
 
+		if (rport->port_id == USB2PHY_PORT_OTG) {
+			rockchip_usb2phy_enable_vbus_irq(rphy, rport, false);
+			dev_err(rphy->dev, "disable usb vbus irq\n");
+		}
+
 		/* activate the linestate to detect the next interrupt. */
 		mutex_lock(&rport->mutex);
 		ret = rockchip_usb2phy_enable_line_irq(rphy, rport, true);
@@ -3676,6 +3681,11 @@ static int rockchip_usb2phy_pm_resume(struct device *dev)
 		if (rport->port_id == USB2PHY_PORT_OTG && wakeup_enable &&
 		    rport->bvalid_irq > 0)
 			disable_irq_wake(rport->bvalid_irq);
+
+		if (rport->port_id == USB2PHY_PORT_OTG) {
+			rockchip_usb2phy_enable_vbus_irq(rphy, rport, true);
+			dev_err(rphy->dev, "enable usb vbus irq\n");
+		}
 
 		if (wakeup_enable && rport->ls_irq > 0)
 			disable_irq_wake(rport->ls_irq);
