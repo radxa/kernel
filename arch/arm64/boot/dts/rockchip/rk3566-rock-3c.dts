@@ -220,6 +220,13 @@
 			default-state = "on";
 			pinctrl-0 = <&led_ctl>;
 		};
+
+		power-led {
+			gpios = <&gpio0 5 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "default-on";
+			default-state = "on";
+			pinctrl-0 = <&led_power>;
+		};
 	};
 };
 
@@ -1101,6 +1108,10 @@
 	leds {
 		led_ctl: led-ctl {
 			rockchip,pins = <0 RK_PA0 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		led_power: led-power {
+			rockchip,pins = <0 RK_PA5 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
 
