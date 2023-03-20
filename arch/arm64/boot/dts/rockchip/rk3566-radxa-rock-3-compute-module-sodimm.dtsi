@@ -13,6 +13,7 @@
 #include <dt-bindings/input/rk-input.h>
 #include <dt-bindings/display/drm_mipi_dsi.h>
 #include <dt-bindings/sensor-dev.h>
+#include <dt-bindings/leds/common.h>
 #include "rk3566.dtsi"
 
 / {
@@ -111,11 +112,10 @@
 		compatible = "gpio-leds";
 		status = "okay";
 
-		user-led {
-			gpios = <&gpio0 6 GPIO_ACTIVE_HIGH>;
-			linux,default-trigger = "timer";
-			default-state = "on";
-			pinctrl-0 = <&user_led_set>;
+		sodimm-led {
+			gpios = <&gpio0 RK_PA6 GPIO_ACTIVE_HIGH>;
+			pinctrl-0 = <&sodimm_led>;
+			linux,default-trigger = "heartbeat";
 		};
 	};
 };
@@ -701,7 +701,7 @@
 	};
 
 	leds {
-		user_led_set: user-led {
+		sodimm_led: sodimm-led {
 			rockchip,pins = <0 RK_PA6 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};

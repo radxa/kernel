@@ -28,18 +28,6 @@
 		};
 	};
 
-	leds {
-		compatible = "gpio-leds";
-		pinctrl-names = "default";
-		pinctrl-0 = <&led_on_off>;
-
-		led-0 {
-			gpios = <&gpio4 RK_PC6 GPIO_ACTIVE_HIGH>;
-			label = "green:heartbeat";
-			linux,default-trigger = "heartbeat";
-		};
-	};
-
 	vcc5v0_usb20: vcc5v0-usb20-regulator {
 		compatible = "regulator-fixed";
 		enable-active-low;
@@ -61,6 +49,21 @@
 		regulator-max-microvolt = <3300000>;
 		startup-delay-us = <100000>;
 		vin-supply = <&vcc3v3_sys>;
+	};
+};
+
+&gpio_leds {
+	board-led {
+		gpios = <&gpio4 RK_PC6 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&board_led>;
+		linux,default-trigger = "heartbeat";
+	};
+
+	sata2-led {
+		gpios = <&gpio0 RK_PC2 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&sata2_led>;
+		linux,default-trigger = "disk-activity";
+		trigger-sources = <&sata2>;
 	};
 };
 
@@ -270,9 +273,10 @@
 	};
 
 	leds {
-		led_on_off: led-on-off {
+		board_led: board-led {
 			rockchip,pins = <4 RK_PC6 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
+
 		sata2_led: sata2-led{
 			rockchip,pins = <0 RK_PC2 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
