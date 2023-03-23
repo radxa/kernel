@@ -99,11 +99,21 @@ static int recv_cmds(struct i2c_client *client, char *buf, int size)
 static int init_cmd_check(struct rockpi_mcu_data *mcu_data)
 {
 	int ret;
+	int i=0;
 	char recv_buf[1] = {0};
 
-	ret = send_cmds(mcu_data->client, "80");
-	if (ret < 0)
+	for (i = 0; i < 3; i++) {
+		ret = send_cmds(mcu_data->client, "80");
+		if (ret < 0){
+			LOG_ERR("send commands %d times failed, %d\n", i+1, ret);
+		}else{
+			break;
+		}
+	}
+
+	if (i == 3){
 		goto error;
+	}
 
 	recv_cmds(mcu_data->client, recv_buf, 1);
 	if (ret < 0)
