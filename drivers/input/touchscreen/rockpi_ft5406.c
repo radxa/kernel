@@ -224,7 +224,7 @@ static int rockpi_ft5406_probe(struct i2c_client *client,
 {
 	struct rockpi_ft5406_data *ts_data;
 	struct input_dev *input_dev;
-	int ret = 0, timeout = 10;
+	int ret = 0;
 
 	LOG_INFO("address = 0x%x\n", client->addr);
 
@@ -237,15 +237,8 @@ static int rockpi_ft5406_probe(struct i2c_client *client,
 	ts_data->client = client;
 	i2c_set_clientdata(client, ts_data);
 
-	while(!rockpi_mcu_is_connected() && timeout > 0) {
-		msleep(50);
-		timeout--;
-	}
-
-	if (timeout == 0) {
-		LOG_ERR("wait connected timeout\n");
-		ret = -ENODEV;
-		goto timeout_failed;
+	if (!rockpi_mcu_is_connected()) {
+		return -EPROBE_DEFER;
 	}
 
 	input_dev = input_allocate_device();
@@ -285,7 +278,6 @@ static int rockpi_ft5406_probe(struct i2c_client *client,
 input_register_failed:
 	input_free_device(input_dev);
 input_allocate_failed:
-timeout_failed:
 	kfree(ts_data);
 	return ret;
 }
