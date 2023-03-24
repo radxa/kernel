@@ -20,6 +20,7 @@
 #include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/i2c.h>
+#include <linux/errno.h>
 #include <linux/module.h>
 #include <linux/workqueue.h>
 #include "rockpi_mcu.h"
@@ -202,8 +203,10 @@ static int rockpi_mcu_probe(struct i2c_client *client,
 	g_mcu_data = mcu_data;
 
 	ret = init_cmd_check(mcu_data);
-	if (ret < 0) {
+	if (ret == -ENXIO) {
 		LOG_ERR("init_cmd_check failed, %d\n", ret);
+		return -EPROBE_DEFER;
+	} else if (ret < 0 && ret != -ENXIO) {
 		goto error;
 	}
 	connected = 1;
