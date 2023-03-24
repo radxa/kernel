@@ -34,6 +34,7 @@
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_panel.h>
 
+#include <linux/errno.h>
 #include <video/display_timing.h>
 #include <video/of_display_timing.h>
 #include <video/videomode.h>
@@ -516,6 +517,7 @@ static const struct of_device_id dsi_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, dsi_of_match);
 
+extern int rockpi_mcu_is_connected(void);
 static int raspits_tc358762_dsi_probe(struct mipi_dsi_device *dsi)
 {
 	const struct bridge_desc *desc;
@@ -527,6 +529,9 @@ static int raspits_tc358762_dsi_probe(struct mipi_dsi_device *dsi)
 	id = of_match_node(dsi_of_match, dsi->dev.of_node);
 	if (!id)
 		return -ENODEV;
+
+	if (!rockpi_mcu_is_connected())
+		return -EPROBE_DEFER;
 
 	desc = id->data;
 
