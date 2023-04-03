@@ -3025,7 +3025,8 @@ static int rockchip_usb2phy_pm_suspend(struct device *dev)
 
 		/* activate the linestate to detect the next interrupt. */
 		mutex_lock(&rport->mutex);
-		ret = rockchip_usb2phy_enable_line_irq(rphy, rport, true);
+		if (rport->port_id == USB2PHY_PORT_OTG)
+			ret = rockchip_usb2phy_enable_line_irq(rphy, rport, true);
 		mutex_unlock(&rport->mutex);
 		if (ret) {
 			dev_err(rphy->dev, "failed to enable linestate irq\n");
