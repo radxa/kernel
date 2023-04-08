@@ -18,12 +18,6 @@
 	model = "Radxa ROCK 4C+";
 	compatible = "radxa,rock-4c-plus", "rockchip,rk3399";
 
-	aliases {
-		mmc0 = &sdmmc;
-		mmc1 = &sdhci;
-		mmc2 = &sdio0;
-	};
-
 	fiq_debugger: fiq-debugger {
 		status = "okay";
 		compatible = "rockchip,fiq-debugger";

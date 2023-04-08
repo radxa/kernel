@@ -12,12 +12,6 @@
 #include "rk3399-opp.dtsi"
 
 / {
-	aliases {
-		mmc0 = &sdmmc;
-		mmc1 = &sdhci;
-		mmc2 = &sdio0;
-	};
-
 	clkin_gmac: external-gmac-clock {
 		compatible = "fixed-clock";
 		clock-frequency = <125000000>;
