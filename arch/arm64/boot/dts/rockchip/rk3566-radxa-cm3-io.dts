@@ -255,18 +255,6 @@
 		};
 	};
 
-	ch482d {
-		//usb3.0 --> sata1
-		ch482d_en1: ch482d-en1 {
-			rockchip,pins = <3 RK_PC7 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-
-		//pcie2.0 --> sata2
-		ch482d_en2: ch482d-en2 {
-			rockchip,pins = <3 RK_PC6 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-	};
-
 	gmac1 {
 		gmac1m0_miim: gmac1m0-miim {
 			rockchip,pins =
