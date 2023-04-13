@@ -13,7 +13,7 @@
 
 / {
 	model = "Radxa ROCK 3 Model B";
-    compatible = "radxa,rock-3-b", "rockchip,rk3568";
+	compatible = "radxa,rock-3b", "rockchip,rk3568";
 
 	fiq_debugger: fiq-debugger {
 		compatible = "rockchip,fiq-debugger";
