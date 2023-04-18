@@ -1081,7 +1081,7 @@
 		};
 
 		bt_wake_l: bt-wake-l {
-			rockchip,pins = <4 RK_PB4 RK_FUNC_GPIO &pcfg_pull_up>;
+			rockchip,pins = <4 RK_PB4 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
 
