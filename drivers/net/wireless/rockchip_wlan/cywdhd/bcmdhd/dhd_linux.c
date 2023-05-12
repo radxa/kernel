@@ -7787,8 +7787,8 @@ unsigned short cis_device = 0;
 char fw_path[1024] = {0};
 char nv_path[1024] = {0};
 
-#define DEFAULT_BCMDHD_FW_PATH "/vendor/etc/firmware/"
-#define DEFAULT_BCMDHD_NVRAM_PATH "/vendor/etc/firmware/"
+#define DEFAULT_BCMDHD_FW_PATH "/lib/firmware/brcm/"
+#define DEFAULT_BCMDHD_NVRAM_PATH "/lib/firmware/brcm/"
 
 #define FW_CYW43364 "fw_cyw43364.bin"
 #define FW_CYW43438 "fw_cyw43438.bin"

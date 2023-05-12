@@ -7,14 +7,14 @@ config BCMDHD_INDEP_POWER
 config BCMDHD_FW_PATH
 	depends on BCMDHD
 	string "Firmware path"
-	default "/vendor/etc/firmware/fw_bcmdhd.bin"
+	default "/lib/firmware/brcm/fw_bcmdhd.bin"
 	help
 	  Path to the firmware file.
 
 config BCMDHD_NVRAM_PATH
 	depends on BCMDHD
 	string "NVRAM path"
-	default "/vendor/etc/firmware/nvram.txt"
+	default "/lib/firmware/brcm/nvram.txt"
 	help
 	  Path to the calibration file.
 
