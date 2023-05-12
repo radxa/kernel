@@ -775,7 +775,6 @@
 		reg = <0x22>;
 		interrupt-parent = <&gpio3>;
 		interrupts = <RK_PB4 IRQ_TYPE_LEVEL_LOW>;
-		int-n-gpios = <&gpio3 RK_PB4 GPIO_ACTIVE_LOW>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&usbc0_int>;
 		vbus-supply = <&vcc12v_dcin>;
@@ -802,7 +801,7 @@
 			op-sink-microwatt = <1000000>;
 			sink-pdos =
 				<PDO_FIXED(5000, 3000, PDO_FIXED_USB_COMM)
-				 PDO_VAR(5000, 20000, 5000)>;
+				 PDO_VAR(5000, 12000, 5000)>;
 
 			altmodes {
 				#address-cells = <1>;
