@@ -148,6 +148,10 @@
 	status = "okay";
 };
 
+&sdhci {
+	status = "okay";
+};
+
 &hdmi0 {
 	status = "okay";
 };

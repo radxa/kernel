@@ -248,6 +248,13 @@
 	status = "okay";
 };
 
+&sdhci {
+	bus-width = <8>;
+	non-removable;
+	max-frequency = <150000000>;
+	mmc-hs200-1_8v;
+};
+
 &mdio1 {
 	rgmii_phy1: phy@1 {
 		compatible = "ethernet-phy-ieee802.3-c22";
