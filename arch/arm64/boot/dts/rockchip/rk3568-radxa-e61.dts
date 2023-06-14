@@ -152,22 +152,22 @@
 };
 
 &u2phy0_host {
-	phy-supply = <&vcc5v0_otg>;
+	phy-supply = <&vcc5v0_usb>;
 	status = "okay";
 };
 
 &u2phy0_otg {
-	vbus-supply = <&vcc5v0_otg>;
+	vbus-supply = <&vcc5v0_usb>;
 	status = "okay";
 };
 
 &u2phy1_host {
-	phy-supply = <&vcc5v0_otg>;
+	phy-supply = <&vcc5v0_usb>;
 	status = "okay";
 };
 
 &u2phy1_otg {
-	phy-supply = <&vcc5v0_otg>;
+	phy-supply = <&vcc5v0_usb>;
 	status = "okay";
 };
 
