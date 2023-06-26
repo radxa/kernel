@@ -402,7 +402,7 @@ static void dw_mipi_message_config(struct dw_mipi_dsi *dsi,
 	ctrl = dsi_read(dsi, DSI_LPCLK_CTRL);
 	if (lpm) {
 		val |= ENABLE_LOW_POWER_CMD;
-		ctrl &= ~PHY_TXREQUESTCLKHS;
+		ctrl |= PHY_TXREQUESTCLKHS;
 	} else {
 		val &= ~ENABLE_LOW_POWER_CMD;
 		ctrl |= PHY_TXREQUESTCLKHS;
