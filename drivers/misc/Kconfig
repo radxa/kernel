@@ -514,6 +514,13 @@ config VCPU_STALL_DETECTOR
 
 	  If you do not intend to run this kernel as a guest, say N.
 
+config ROCKPI_MCU
+	tristate "rockpi mcu"
+	default n
+	depends on I2C
+	help
+	  Control the power of touch screen for rockpi board.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
