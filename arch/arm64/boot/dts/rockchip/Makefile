@@ -126,6 +126,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3566-rk817-tablet-rkg11.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3566-rk817-tablet-v10.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-evb1-ddr4-v10.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3566-rock-3c.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3566-radxa-cm3s-io.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-evb1-ddr4-v10-dual-camera.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-evb1-ddr4-v10-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-evb1-ddr4-v10-linux-spi-nor.dtb
