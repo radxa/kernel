@@ -957,21 +957,6 @@ static const struct v4l2_subdev_core_ops ov5647_subdev_core_ops = {
 	.ioctl	= ov5647_ioctl,
 };
 
-static const struct v4l2_rect *
-__ov5647_get_pad_crop(struct ov5647 *ov5647,
-		      struct v4l2_subdev_pad_config *sd_state,
-		      unsigned int pad, enum v4l2_subdev_format_whence which)
-{
-	switch (which) {
-	case V4L2_SUBDEV_FORMAT_TRY:
-		return v4l2_subdev_get_try_crop(&ov5647->sd, sd_state, pad);
-	case V4L2_SUBDEV_FORMAT_ACTIVE:
-		return &ov5647->mode->crop;
-	}
-
-	return NULL;
-}
-
 static int ov5647_s_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
@@ -1212,50 +1197,12 @@ static int ov5647_set_pad_fmt(struct v4l2_subdev *sd,
 	return 0;
 }
 
-static int ov5647_get_selection(struct v4l2_subdev *sd,
-				struct v4l2_subdev_pad_config *sd_state,
-				struct v4l2_subdev_selection *sel)
-{
-	switch (sel->target) {
-	case V4L2_SEL_TGT_CROP: {
-		struct ov5647 *sensor = to_sensor(sd);
-
-		mutex_lock(&sensor->lock);
-		sel->r = *__ov5647_get_pad_crop(sensor, sd_state, sel->pad,
-						sel->which);
-		mutex_unlock(&sensor->lock);
-
-		return 0;
-	}
-
-	case V4L2_SEL_TGT_NATIVE_SIZE:
-		sel->r.top = 0;
-		sel->r.left = 0;
-		sel->r.width = OV5647_NATIVE_WIDTH;
-		sel->r.height = OV5647_NATIVE_HEIGHT;
-
-		return 0;
-
-	case V4L2_SEL_TGT_CROP_DEFAULT:
-	case V4L2_SEL_TGT_CROP_BOUNDS:
-		sel->r.top = OV5647_PIXEL_ARRAY_TOP;
-		sel->r.left = OV5647_PIXEL_ARRAY_LEFT;
-		sel->r.width = OV5647_PIXEL_ARRAY_WIDTH;
-		sel->r.height = OV5647_PIXEL_ARRAY_HEIGHT;
-
-		return 0;
-	}
-
-	return -EINVAL;
-}
-
 static const struct v4l2_subdev_pad_ops ov5647_subdev_pad_ops = {
 	.enum_mbus_code		= ov5647_enum_mbus_code,
 	.enum_frame_interval	= ov5647_enum_frame_interval,
 	.enum_frame_size	= ov5647_enum_frame_size,
 	.set_fmt		= ov5647_set_pad_fmt,
 	.get_fmt		= ov5647_get_pad_fmt,
-	.get_selection		= ov5647_get_selection,
 	.get_mbus_config	= ov5647_g_mbus_config,
 };
 
