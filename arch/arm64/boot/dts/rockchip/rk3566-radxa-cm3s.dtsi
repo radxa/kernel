@@ -17,7 +17,7 @@
 #include "rk3566.dtsi"
 
 / {
-	compatible = "radxa,rock-3-compute-module-sodimm", "rockchip,rk3566";
+	compatible = "radxa,cm3s", "rockchip,rk3566";
 
 	fiq_debugger: fiq-debugger {
 		compatible = "rockchip,fiq-debugger";
