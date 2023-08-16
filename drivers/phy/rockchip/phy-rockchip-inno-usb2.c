@@ -165,6 +165,7 @@ struct rockchip_chg_det_reg {
  */
 struct rockchip_usb2phy_port_cfg {
 	struct usb2phy_reg	phy_sus;
+	struct usb2phy_reg	phy_sus_host_port;
 	struct usb2phy_reg	pipe_phystatus;
 	struct usb2phy_reg	bvalid_det_en;
 	struct usb2phy_reg	bvalid_det_st;
@@ -3491,6 +3492,7 @@ static int rockchip_usb2phy_pm_suspend(struct device *dev)
 	unsigned int index;
 	int ret = 0;
 	bool wakeup_enable = false;
+	struct regmap *base = get_reg_base(rphy);
 
 	if (device_may_wakeup(rphy->dev))
 		wakeup_enable = true;
@@ -3543,8 +3545,16 @@ static int rockchip_usb2phy_pm_suspend(struct device *dev)
 			dev_err(rphy->dev, "disable usb vbus irq\n");
 		}
 
-		/* activate the linestate to detect the next interrupt. */
 		mutex_lock(&rport->mutex);
+		/* because if suspend host-post can prevent suspend, so may changed phy_sus in suspend. */
+		if (rphy->phy_cfg->reg == 0xfe8a0000 && rport->port_id == USB2PHY_PORT_HOST) {
+			ret = property_enable(base, &rport->port_cfg->phy_sus_host_port, true);
+			if (ret) {
+				dev_err(rphy->dev, "failed to enable suspend host port\n");
+				return ret;
+			}
+		}
+		/* activate the linestate to detect the next interrupt. */
 		ret = rockchip_usb2phy_enable_line_irq(rphy, rport, true);
 		mutex_unlock(&rport->mutex);
 		if (ret) {
@@ -4527,6 +4537,7 @@ static const struct rockchip_usb2phy_cfg rk3568_phy_cfgs[] = {
 			[USB2PHY_PORT_HOST] = {
 				/* Select suspend control from controller */
 				.phy_sus	= { 0x0004, 8, 0, 0x1d2, 0x1d2 },
+				.phy_sus_host_port	= { 0x0004, 8, 0, 0x1d2, 0x1d1 },
 				.ls_det_en	= { 0x0080, 1, 1, 0, 1 },
 				.ls_det_st	= { 0x0084, 1, 1, 0, 1 },
 				.ls_det_clr	= { 0x0088, 1, 1, 0, 1 },
