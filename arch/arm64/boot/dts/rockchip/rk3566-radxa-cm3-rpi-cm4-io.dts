@@ -97,6 +97,7 @@
 	cap-sd-highspeed;
 	disable-wp;
 	broken-cd;
+	non-removable;
 	sd-uhs-sdr104;
 	vmmc-supply = <&vcc_sd>;
 	vqmmc-supply = <&vccio_sd>;
