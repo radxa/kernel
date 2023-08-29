@@ -39,6 +39,7 @@
 #include <video/videomode.h>
 #include <linux/delay.h>
 int trigger_bridge_raspits_tc358762 = 1;
+static int timeout = 5;
 
 struct panel_desc {
 	const struct drm_display_mode *modes;
@@ -527,8 +528,11 @@ static int raspits_tc358762_dsi_probe(struct mipi_dsi_device *dsi)
 	if (!id)
 		return -ENODEV;
 
-	if (!rockpi_mcu_is_connected())
+	if (!rockpi_mcu_is_connected() && timeout > 0){
+		msleep(100);
+		timeout--;
 		return -EPROBE_DEFER;
+	}
 
 	desc = id->data;
 
