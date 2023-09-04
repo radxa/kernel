@@ -477,15 +477,15 @@ struct bridge_desc {
 };
 
 static const struct drm_display_mode raspits_tc358762_mode = {
-	.clock = 25979400 / 1000,
+	.clock = 26000000 / 1000,
 	.hdisplay = 800,
-	.hsync_start = 800 + 1,
-	.hsync_end = 800 + 1 + 2,
-	.htotal = 800 + 1 + 2 + 48,
+	.hsync_start = 800 + 48,
+	.hsync_end = 800 + 48 + 88,
+	.htotal = 800 + 48 + 88 + 40,
 	.vdisplay = 480,
-	.vsync_start = 480 + 7,
-	.vsync_end = 480 + 7 + 2,
-	.vtotal = 480 + 7 + 2 + 21,
+	.vsync_start = 480 + 5,
+	.vsync_end = 480 + 5 + 1,
+	.vtotal = 480 + 5 + 1 + 21,
 	.flags = DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_NHSYNC,
 };
 
