@@ -15,7 +15,7 @@
 #include <dt-bindings/sensor-dev.h>
 #include "rk3568.dtsi"
 // #include "rk3568-rock-3a-display.dtsi"
-// #include "rk3568-rock-3a-st7701s.dtsi"
+#include "rk3568-rock-3a-st7701s.dtsi"
 
 / {
 	model = "Radxa ROCK3 Model A";
