@@ -11,8 +11,11 @@
 #include <dt-bindings/pinctrl/rockchip.h>
 #include <dt-bindings/input/rk-input.h>
 #include <dt-bindings/display/drm_mipi_dsi.h>
+#include <dt-bindings/display/rockchip_vop.h>
 #include <dt-bindings/sensor-dev.h>
 #include "rk3568.dtsi"
+// #include "rk3568-rock-3a-display.dtsi"
+// #include "rk3568-rock-3a-st7701s.dtsi"
 
 / {
 	model = "Radxa ROCK3 Model A";
@@ -62,6 +65,22 @@
 		poll-interval = <100>;
 	};
 
+	audiopwmout_diff: audiopwmout-diff {
+		status = "disabled";
+		compatible = "simple-audio-card";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,name = "rockchip,audiopwmout-diff";
+		simple-audio-card,mclk-fs = <256>;
+		simple-audio-card,bitclock-master = <&master>;
+		simple-audio-card,frame-master = <&master>;
+		simple-audio-card,cpu {
+			sound-dai = <&i2s3_2ch>;
+		};
+		master: simple-audio-card,codec {
+			sound-dai = <&dig_acodec>;
+		};
+	};
+
 	hdmi_sound: hdmi-sound {
 		compatible = "simple-audio-card";
 		simple-audio-card,format = "i2s";
@@ -74,6 +93,20 @@
 		};
 		simple-audio-card,codec {
 			sound-dai = <&hdmi>;
+		};
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		rknpu_reserved: rknpu {
+			compatible = "shared-dma-pool";
+			inactive;
+			reusable;
+			size = <0x0 0x20000000>;
+			alignment = <0x0 0x1000>;
 		};
 	};
 
@@ -221,6 +254,23 @@
 			pinctrl-0 = <&io_led>;
 		};
 	};
+
+	vcc_mipi: vcc-mipi {
+		status = "okay";
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_mipi";
+		regulator-boot-on;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		enable-active-high;
+		regulator-always-on;
+		gpio = <&gpio3 RK_PC0 GPIO_ACTIVE_HIGH>;
+		vin-supply = <&vcc3v3_sys>;
+
+		regulator-state-mem {
+			regulator-off-in-suspend;
+		};
+	};
 };
 
 &cpu0 {
@@ -236,11 +286,17 @@
 	status = "okay";
 };
 
+&video_phy0 {
+	status = "disabled";
+};
+
 &display_subsystem {
-    status = "okay";
+	status = "okay";
 };
 
 &gpu {
+	clock-names = "gpu", "bus";
+	interrupt-names = "gpu", "mmu", "job";
 	mali-supply = <&vdd_gpu>;
 	status = "okay";
 };
@@ -251,6 +307,10 @@
 };
 
 &hdmi_in_vp0 {
+	status = "okay";
+};
+
+&hdmi_sound {
 	status = "okay";
 };
 
@@ -635,8 +695,18 @@
 	status = "okay";
 };
 
+&bus_npu {
+	bus-supply = <&vdd_logic>;
+	pvtm-supply = <&vdd_cpu>;
+	status = "okay";
+};
+
 &rknpu {
 	rknpu-supply = <&vdd_npu>;
+};
+
+&rknpu_mmu {
+	status = "okay";
 };
 
 &saradc {
@@ -1033,4 +1103,9 @@
 			rockchip,pins = <0 RK_PB7 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
+};
+
+&vp0 {
+	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER0 | 1 << ROCKCHIP_VOP2_ESMART0)>;
+	rockchip,primary-plane = <ROCKCHIP_VOP2_ESMART0>;
 };
