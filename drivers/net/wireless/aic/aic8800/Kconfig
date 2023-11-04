@@ -1,0 +1,17 @@
+config AIC_WLAN_AIC8800
+	bool "AIC wireless Support"
+	default n
+	help
+	  This is support for aic wireless chip.
+
+config AIC_FW_PATH
+	depends on AIC_WLAN_AIC8800
+	string "Firmware & config file path"
+	default "/lib/firmware/aic"
+	help
+	  Path to the firmware & config file.
+
+if AIC_WLAN_AIC8800
+source "drivers/net/wireless/aic/aic8800/aic8800_fdrv/Kconfig"
+source "drivers/net/wireless/aic/aic8800/aic8800_btlpm/Kconfig"
+endif

@@ -1,0 +1,73 @@
+diff --git a/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/rwnx_rx.c b/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/rwnx_rx.c
+index 5e97ba9..9098d0b 100644
+--- a/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/rwnx_rx.c
++++ b/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/rwnx_rx.c
+@@ -377,6 +377,21 @@ static void rwnx_rx_data_skb_forward(struct rwnx_hw *rwnx_hw, struct rwnx_vif *r
+ 
+ 	rx_skb->protocol = eth_type_trans(rx_skb, rwnx_vif->ndev);
+ 	memset(rx_skb->cb, 0, sizeof(rx_skb->cb));
++
++	do {
++	size_t offset = (size_t)rx_skb->data&3;
++	if(offset == 0)
++		break;
++	
++	if(skb_headroom(rx_skb) < offset)
++		printk("NOT alligned:%zu\n", offset);
++		break;
++	
++	u8_l *newhead = skb_push(rx_skb, offset);
++	memmove(newhead, newhead + offset, rx_skb->len - offset);
++	skb_trim(rx_skb, rx_skb->len - offset);
++	} while(0);
++
+ 	#if 0 //modify by aic
+ 	netif_receive_skb(rx_skb);
+ 	#else
+@@ -514,6 +529,21 @@ static bool rwnx_rx_data_skb(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
+ 				arpoffload_proc(rx_skb, rwnx_vif);
+ #endif
+ 			memset(rx_skb->cb, 0, sizeof(rx_skb->cb));
++
++       		do {
++			size_t offset = (size_t)rx_skb->data&3;
++			if(offset == 0)
++				break;
++
++			if(skb_headroom(rx_skb) < offset)
++				printk("NOT alligned:%zu\n", offset);
++				break;
++
++			u8_l *newhead = skb_push(rx_skb, offset);
++			memmove(newhead, newhead + offset, rx_skb->len - offset);
++			skb_trim(rx_skb, rx_skb->len - offset);
++			} while(0);
++
+ 			#if 0 //modify by aic
+ 			netif_receive_skb(rx_skb);
+ 			#else
+@@ -1319,6 +1349,24 @@ int reord_single_frame_ind(struct aicwf_rx_priv *rx_priv, struct recv_msdu *prfr
+ 	}
+ #endif
+ 	memset(skb->cb, 0, sizeof(skb->cb));
++
++	do {
++		//u8_l offset = (u8_l)(4 - (unsigned long)skb->data%4);
++		size_t offset = (size_t)skb->data & 3;
++		if(offset == 0)
++			break;
++	
++		if(skb_headroom(skb) < offset) {
++			printk("NOT alligned:%zu\n", offset);
++			break;
++		}
++	
++		u8_l *newhead = skb_push(skb, offset);
++		memmove(newhead, newhead + offset, skb->len - offset);
++		skb_trim(skb, skb->len - offset);
++	} while(0);
++
++
+ 	if (in_interrupt()) {
+ 		netif_rx(skb);
+ 	} else {
