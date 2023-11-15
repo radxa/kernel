@@ -85,19 +85,17 @@ static int aicbsp_dummy_probe(struct sdio_func *func, const struct sdio_device_i
 {
 	if (func && (func->num != 2))
 		return 0;
-
 	if(func->vendor != SDIO_VENDOR_ID_AIC8801 &&
 		func->device != SDIO_DEVICE_ID_AIC8801 &&
-		func->device != SDIO_DEVICE_ID_AIC8801_FUNC2 &&
-		func->vendor != SDIO_VENDOR_ID_AIC8800DC &&
-		func->device != SDIO_DEVICE_ID_AIC8800DC &&
-		func->vendor != SDIO_VENDOR_ID_AIC8800D80 &&
-		func->device != SDIO_DEVICE_ID_AIC8800D80 &&
-		func->device != SDIO_DEVICE_ID_AIC8800D80_FUNC2){
-			printk("VID:%x DID:%X \r\n", func->vendor, func->device);
-			aicbsp_load_fw_in_fdrv = true;
-    }
-
+            func->device != SDIO_DEVICE_ID_AIC8801_FUNC2 &&
+            func->vendor != SDIO_VENDOR_ID_AIC8800DC &&
+            func->device != SDIO_DEVICE_ID_AIC8800DC &&
+            func->vendor != SDIO_VENDOR_ID_AIC8800D80 &&
+            func->device != SDIO_DEVICE_ID_AIC8800D80 &&
+			func->device != SDIO_DEVICE_ID_AIC8800D80_FUNC2){
+				printk("VID:%x DID:%X \r\n", func->vendor, func->device);
+				aicbsp_load_fw_in_fdrv = true;
+			}
 	if (aicbsp_notify_semaphore)
 		up(aicbsp_notify_semaphore);
 	return 0;
@@ -173,12 +171,15 @@ int aicbsp_set_subsys(int subsys, int state)
 	if (cur_power_state != pre_power_state) {
 		sdio_dbg("%s, power state change to %d dure to %s\n", __func__, cur_power_state, aicbsp_subsys_name(subsys));
 		if (cur_power_state) {
-			if (aicbsp_platform_power_on() < 0)
+			if (aicbsp_platform_power_on() < 0) {
 				goto err0;
-			if (aicbsp_sdio_init())
+			}
+			if (aicbsp_sdio_init()) {
 				goto err1;
-			if (aicbsp_driver_fw_init(aicbsp_sdiodev))
+			}
+			if (aicbsp_driver_fw_init(aicbsp_sdiodev)) {
 				goto err2;
+			}
 #ifndef CONFIG_FDRV_NO_REG_SDIO
 			aicbsp_sdio_release(aicbsp_sdiodev);
 #endif
@@ -279,10 +280,11 @@ static int aicbsp_sdio_probe(struct sdio_func *func,
 		func->device != SDIO_DEVICE_ID_AIC8801 &&
 		func->device != SDIO_DEVICE_ID_AIC8801_FUNC2 &&
 		func->vendor != SDIO_VENDOR_ID_AIC8800DC &&
-		func->device != SDIO_DEVICE_ID_AIC8800DC &&
-		func->vendor != SDIO_VENDOR_ID_AIC8800D80 &&
-		func->device != SDIO_DEVICE_ID_AIC8800D80 &&
-		func->device != SDIO_DEVICE_ID_AIC8800D80_FUNC2){
+               func->device != SDIO_DEVICE_ID_AIC8800DC &&
+               func->vendor != SDIO_VENDOR_ID_AIC8800D80 &&
+               func->device != SDIO_DEVICE_ID_AIC8800D80 &&
+               func->device != SDIO_DEVICE_ID_AIC8800D80_FUNC2){
+
 		aicbsp_load_fw_in_fdrv = true;
 		return err;
 	}
@@ -301,14 +303,13 @@ static int aicbsp_sdio_probe(struct sdio_func *func,
 		return -ENOMEM;
 	}
 
-
 	sdiodev = kzalloc(sizeof(struct aic_sdio_dev), GFP_KERNEL);
 	if (!sdiodev) {
 		sdio_err("alloc sdiodev fail\n");
 		kfree(bus_if);
 		return -ENOMEM;
 	}
-    aicbsp_sdiodev = sdiodev;
+	aicbsp_sdiodev = sdiodev;
 
 	err = aicwf_sdio_chipmatch(sdiodev, func->vendor, func->device);
 
@@ -341,7 +342,6 @@ static int aicbsp_sdio_probe(struct sdio_func *func,
 	}
 	host->caps |= MMC_CAP_NONREMOVABLE;
 	aicbsp_platform_init(sdiodev);
-
 	return 0;
 fail:
 	aicwf_sdio_func_deinit(sdiodev);
@@ -480,7 +480,6 @@ static int aicbsp_platform_power_on(void)
 	int ret = 0;
 	struct semaphore aic_chipup_sem;
 	sdio_dbg("%s\n", __func__);
-
 #ifdef CONFIG_PLATFORM_ALLWINNER
 	if (aicbsp_bus_index < 0)
 		 aicbsp_bus_index = sunxi_wlan_get_bus_index();
@@ -496,22 +495,20 @@ static int aicbsp_platform_power_on(void)
 		sdio_reinit();
 		set_power_control_lock(1);
 #endif
-
 #ifdef CONFIG_PLATFORM_ROCKCHIP2
-            rockchip_wifi_power(0);
-            mdelay(50);
-            rockchip_wifi_power(1);
-            mdelay(50);
-            rockchip_wifi_set_carddetect(1);
-#endif /*CONFIG_PLATFORM_ROCKCHIP2*/
+		// rockchip_wifi_power(0);
+		// mdelay(500);
+		// rockchip_wifi_power(1);
+		// mdelay(500);
+		// rockchip_wifi_set_carddetect(1);
 
+#endif /*CONFIG_PLATFORM_ROCKCHIP2*/
 	sema_init(&aic_chipup_sem, 0);
 	ret = aicbsp_reg_sdio_notify(&aic_chipup_sem);
 	if (ret) {
 		sdio_dbg("%s aicbsp_reg_sdio_notify fail(%d)\n", __func__, ret);
 			return ret;
 	}
-
 #ifdef CONFIG_PLATFORM_ALLWINNER
 	sunxi_wlan_set_power(0);
 	mdelay(50);
@@ -519,7 +516,6 @@ static int aicbsp_platform_power_on(void)
 	mdelay(50);
 	sunxi_mmc_rescan_card(aicbsp_bus_index);
 #endif //CONFIG_PLATFORM_ALLWINNER
-
 	if (down_timeout(&aic_chipup_sem, msecs_to_jiffies(2000)) == 0) {
 		aicbsp_unreg_sdio_notify();
 		if(aicbsp_load_fw_in_fdrv){
@@ -528,7 +524,6 @@ static int aicbsp_platform_power_on(void)
 		}
 		return 0;
 	}
-
 	aicbsp_unreg_sdio_notify();
 #ifdef CONFIG_PLATFORM_ALLWINNER
 	sunxi_wlan_set_power(0);
@@ -540,7 +535,7 @@ static int aicbsp_platform_power_on(void)
 
 
 #ifdef CONFIG_PLATFORM_ROCKCHIP2
-	rockchip_wifi_power(0);
+//	rockchip_wifi_power(0);
 #endif /*CONFIG_PLATFORM_ROCKCHIP2*/
 
 	return -1;
@@ -1684,7 +1679,7 @@ int aicwf_sdio_func_init(struct aic_sdio_dev *sdiodev)
 	host = sdiodev->func->card->host;
 
 	sdio_claim_host(sdiodev->func);
-#if 0//SDIO PHASE SETTING
+#if 1//SDIO PHASE SETTING
 	sdiodev->func->card->quirks |= MMC_QUIRK_LENIENT_FN0;
 	sdio_f0_writeb(sdiodev->func, feature.sdio_phase, 0x13, &ret);
 	if (ret < 0) {
@@ -1979,4 +1974,3 @@ EXPORT_SYMBOL(get_fw_path);
 EXPORT_SYMBOL(get_testmode);
 EXPORT_SYMBOL(get_sdio_func);
 EXPORT_SYMBOL(set_irq_handler);
-

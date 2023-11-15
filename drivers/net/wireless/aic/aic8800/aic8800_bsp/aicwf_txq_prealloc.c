@@ -9,7 +9,7 @@ struct prealloc_txq{
 };
 
 struct prealloc_txq prealloc_txq;
-#define MAX_TXQ_SIZE 30 * 1024
+#define MAX_TXQ_SIZE 60 * 1024
 
 void *aicwf_prealloc_txq_alloc(size_t size)
 {

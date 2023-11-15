@@ -3,7 +3,7 @@ RWNX_VERS_NUM := 6.4.3.0
 CONFIG_COUNTRY_CODE = "00"
 
 MODULE_NAME = aic8800_fdrv
-CONFIG_AIC8800_WLAN_SUPPORT = m
+CONFIG_AIC8800_FDRV_SUPPORT = m
 
 # Support of bootrom start
 CONFIG_START_FROM_BOOTROM = y
@@ -119,7 +119,7 @@ CONFIG_RWNX_SW_PROFILING ?= n
 CONFIG_RWNX_DBG ?= y
 CONFIG_DEBUG_FS ?= n
 
-obj-$(CONFIG_AIC8800_WLAN_SUPPORT) := $(MODULE_NAME).o
+obj-$(CONFIG_AIC8800_FDRV_SUPPORT) := $(MODULE_NAME).o
 $(MODULE_NAME)-y := \
 	rwnx_msg_tx.o          \
 	rwnx_msg_rx.o          \
@@ -281,96 +281,31 @@ ccflags-$(CONFIG_DOWNLOAD_FW)  += -DCONFIG_DOWNLOAD_FW
 ccflags-$(CONFIG_RX_NETIF_RECV_SKB) += -DCONFIG_RX_NETIF_RECV_SKB
 
 # Platform support list
-CONFIG_PLATFORM_ROCKCHIP ?= n
-CONFIG_PLATFORM_ROCKCHIP2 ?= n
-CONFIG_PLATFORM_ALLWINNER ?= n
-CONFIG_PLATFORM_INGENIC_T20 ?= n
-CONFIG_PLATFORM_AMLOGIC ?= n
-CONFIG_PLATFORM_UBUNTU ?= y
+CONFIG_PLATFORM_ROCKCHIP = n
+CONFIG_PLATFORM_ROCKCHIP2 = y
+CONFIG_PLATFORM_ALLWINNER = n
+CONFIG_PLATFORM_INGENIC_T20 = n
+CONFIG_PLATFORM_AMLOGIC = n
+CONFIG_PLATFORM_UBUNTU = n
 
 ccflags-y += -DAIC_TRACE_INCLUDE_PATH=$(src)
 
 ifeq ($(CONFIG_PLATFORM_ROCKCHIP), y)
-#KDIR ?= /home/yaya/E/Rockchip/3229/Android7/RK3229_ANDROID7.1_v1.01_20170914/rk3229_Android7.1_v1.01_xml0914/kernel
-#ARCH ?= arm
-#CROSS_COMPILE ?= /home/yaya/E/Rockchip/3229/Android7/RK3229_ANDROID7.1_v1.01_20170914/rk3229_Android7.1_v1.01_xml0914/prebuilts/gcc/linux-x86/arm/arm-eabi-4.6/bin/arm-eabi-
-#KDIR  ?= /home/yaya/E/Rockchip/3399/rk3399-android-10/kernel
-#ARCH ?= arm64
-#CROSS_COMPILE ?= /home/yaya/E/Rockchip/3399/rk3399-android-10/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-
-#KDIR  ?= /home/yaya/E/Rockchip/3288/Android10/kernel/kernel/
-#ARCH ?= arm
-#CROSS_COMPILE ?= /home/yaya/E/Rockchip/3288/Android10/tool/gcc-linaro-6.3.1-2017.05-x86_64_arm-linux-gnueabihf/bin/arm-linux-gnueabihf-
-#KDIR  ?= /home/yaya/E/Rockchip/3229/Android9/rk3229_android9.0_box/kernel
-#ARCH ?= arm
-#CROSS_COMPILE ?= /home/yaya/E/Rockchip/3229/Android9/rk3229_android9.0_box/prebuilts/gcc/linux-x86/arm/gcc-linaro-6.3.1-2017.05-x86_64_arm-linux-gnueabihf/bin/arm-linux-gnueabihf-
-#KDIR ?= /home/yaya/E/Rockchip/3566/Android/kernel
-#ARCH ?= arm64
-#CROSS_COMPILE ?= /home/yaya/E/Rockchip/3566/Android/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-
-#KDIR ?= /home/yaya/E/Rockchip/3328/Android9/SDK/kernel/
-#ARCH ?= arm64
-#CROSS_COMPILE ?= /home/yaya/E/Rockchip/3328/Android9/SDK/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-
-#KDIR ?= /home/yaya/E/Rockchip/3566/oudu/kernel
-KDIR ?= ~/E/Rockchip/3566/Android11/rk3566_rk3568_android11_oranth/kernel
-#KDIR ?= /home/yaya/E/Rockchip/3566/shengteng/kernel
-ARCH ?= arm64
-CROSS_COMPILE ?= ~/E/Rockchip/3566/Android11/rk3566_rk3568_android11_oranth/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-
 ccflags-$(CONFIG_PLATFORM_ROCKCHIP) += -DCONFIG_PLATFORM_ROCKCHIP
 ccflags-y += -DANDROID_PLATFORM
 endif
 
 ifeq ($(CONFIG_PLATFORM_ROCKCHIP2), y)
-ARCH := arm64
-KDIR ?= /home/yaya/E/Rockchip/3566/firefly/Android11.0/Firefly-RK356X_Android11.0_git_20210824/RK356X_Android11.0/kernel
-CROSS_COMPILE := /home/yaya/E/Rockchip/3566/firefly/Android11.0/Firefly-RK356X_Android11.0_git_20210824/RK356X_Android11.0/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-
-
 ccflags-$(CONFIG_PLATFORM_ROCKCHIP2) += -DCONFIG_PLATFORM_ROCKCHIP2
 ccflags-y += -DANDROID_PLATFORM
 endif
 
-
 ifeq ($(CONFIG_PLATFORM_ALLWINNER), y)
 ccflags-$(CONFIG_PLATFORM_ALLWINNER) += -DCONFIG_PLATFORM_ALLWINNER
 ccflags-y += -DANDROID_PLATFORM
-KDIR  ?= /home/yaya/E/Allwinner/r818/Android10/lichee/kernel/linux-4.9/
-ARCH ?= arm64
-CROSS_COMPILE ?= /home/yaya/E/Allwinner/r818/Android10/android/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-
-endif
-
-ifeq ($(CONFIG_PLATFORM_INGENIC_T20), y)
-KDIR ?= /home/yaya/E/T40/kernel
-ARCH ?= mips
-CROSS_COMPILE ?= /home/yaya/E/T40/mips-linux-gnu-ingenic-gcc7.2.0-glibc2.29-fp64/bin/mips-linux-gnu-
 endif
 
 ifeq ($(CONFIG_PLATFORM_AMLOGIC), y)
 ccflags-$(CONFIG_PLATFORM_AMLOGIC) += -DCONFIG_PLATFORM_AMLOGIC
 ccflags-y += -DANDROID_PLATFORM
 endif
-
-ifeq ($(CONFIG_PLATFORM_UBUNTU), y)
-KDIR  ?= /lib/modules/$(shell uname -r)/build
-PWD   ?= $(shell pwd)
-KVER ?= $(shell uname -r)
-MODDESTDIR ?= /lib/modules/$(KVER)/kernel/drivers/net/wireless/
-ARCH ?= x86_64
-CROSS_COMPILE ?=
-endif
-
-
-all: modules
-modules:
-	make -C $(KDIR) M=$(PWD) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) modules
-
-install:
-	mkdir -p $(MODDESTDIR)
-	install -p -m 644 $(MODULE_NAME).ko  $(MODDESTDIR)
-	/sbin/depmod -a ${KVER}
-
-uninstall:
-	rm -rfv $(MODDESTDIR)/$(MODULE_NAME).ko
-	/sbin/depmod -a ${KVER}
-
-clean:
-	rm -rf *.o *.ko *.o.* *.mod.* modules.* Module.* .a* .o* .*.o.* *.mod .tmp* .cache.mk
-
-

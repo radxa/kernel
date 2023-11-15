@@ -169,7 +169,7 @@ struct rwnx_cmd *rwnx_cmd_malloc(void){
 
 	for(cmd_array_index = 0; cmd_array_index < RWNX_CMD_ARRAY_SIZE; cmd_array_index++){
 		if(cmd_array[cmd_array_index].used == 0){
-			AICWFDBG(LOGTRACE, "%s get cmd_array[%d]:%p \r\n", __func__, cmd_array_index,&cmd_array[cmd_array_index]);
+			//AICWFDBG(LOGTRACE, "%s get cmd_array[%d]:%p \r\n", __func__, cmd_array_index,&cmd_array[cmd_array_index]);
 			cmd = &cmd_array[cmd_array_index];
 			cmd_array[cmd_array_index].used = 1;
 			break;
@@ -523,7 +523,7 @@ int rwnx_send_add_if (struct rwnx_hw *rwnx_hw, const unsigned char *mac,
 	#ifdef CONFIG_RWNX_FULLMAC
 	//case NL80211_IFTYPE_P2P_DEVICE:
 	case NL80211_IFTYPE_P2P_CLIENT:
-		add_if_req_param->p2p = true;
+		//add_if_req_param->p2p = true;
 		// no break
 	#endif /* CONFIG_RWNX_FULLMAC */
 	case NL80211_IFTYPE_STATION:
@@ -536,7 +536,7 @@ int rwnx_send_add_if (struct rwnx_hw *rwnx_hw, const unsigned char *mac,
 
 	#ifdef CONFIG_RWNX_FULLMAC
 	case NL80211_IFTYPE_P2P_GO:
-		add_if_req_param->p2p = true;
+		//add_if_req_param->p2p = true;
 		// no break
 	#endif /* CONFIG_RWNX_FULLMAC */
 	case NL80211_IFTYPE_AP:

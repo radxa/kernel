@@ -256,7 +256,8 @@ static u8 rwnx_ac_from_wmm(int ac)
 {
 	switch (ac) {
 	default:
-		WARN_ON_ONCE(1);
+		printk("WARN_ON_ONCE(1)\n");
+		return 4;
 	case 0:
 		return AC_BE;
 	case 1:

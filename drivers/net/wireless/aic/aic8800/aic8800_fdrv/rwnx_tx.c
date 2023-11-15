@@ -317,14 +317,14 @@ u16 rwnx_select_txq(struct rwnx_vif *rwnx_vif, struct sk_buff *skb)
 		break;
 	}
 	case NL80211_IFTYPE_AP_VLAN:
-		if (rwnx_vif->ap_vlan.sta_4a) {
-			sta = rwnx_vif->ap_vlan.sta_4a;
-			break;
-		}
+//		if (rwnx_vif->ap_vlan.sta_4a) {
+//			sta = rwnx_vif->ap_vlan.sta_4a;
+//			break;
+//		}
 
 		/* AP_VLAN interface is not used for a 4A STA,
 		   fallback searching sta amongs all AP's clients */
-		rwnx_vif = rwnx_vif->ap_vlan.master;
+//		rwnx_vif = rwnx_vif->ap_vlan.master;
 	case NL80211_IFTYPE_AP:
 	case NL80211_IFTYPE_P2P_GO:
 	{
