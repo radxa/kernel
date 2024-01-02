@@ -433,10 +433,12 @@ static void repo_hpd_event(struct work_struct *p_work)
 		if (change) {
 			if (hdmi->plat_data->set_ddc_io)
 				hdmi->plat_data->set_ddc_io(data, hdmi->hpd_state);
+#if IS_REACHABLE(CONFIG_DRM_DW_HDMI_CEC)
 			if (hdmi->cec_adap->devnode.registered)
 				cec_queue_pin_hpd_event(hdmi->cec_adap,
 							hdmi->hpd_state,
 							ktime_get());
+#endif
 		}
 		drm_bridge_hpd_notify(&hdmi->bridge, status);
 	}
