@@ -104,16 +104,19 @@
 		rgb0-red {
 			pwms = <&pwm1 0 1000000 0>;
 			max-brightness = <255>;
+			linux,default-trigger = "default-on";
 		};
 
 		rgb0-blue {
 			pwms = <&pwm12 0 1000000 0>;
 			max-brightness = <255>;
+			linux,default-trigger = "default-on";
 		};
 
 		rgb0-green {
 			pwms = <&pwm2 0 1000000 0>;
 			max-brightness = <255>;
+			linux,default-trigger = "default-on";
 		};
 	};
 };
