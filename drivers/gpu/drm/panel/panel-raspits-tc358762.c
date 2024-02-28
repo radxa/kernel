@@ -503,10 +503,42 @@ static const struct bridge_desc raspits_tc358762_bridge = {
 	.lanes = 1,
 };
 
+static const struct drm_display_mode raspits_tc358762_mode_5inch = {
+	.clock = 26000000 / 1000,
+	.hdisplay = 800,
+	.hsync_start = 800 + 48,
+	.hsync_end = 800 + 48 + 18,
+	.htotal = 800 + 48 + 18 + 20,
+	.vdisplay = 480,
+	.vsync_start = 480 + 7,
+	.vsync_end = 480 + 7 + 1,
+	.vtotal = 480 + 7 + 1 + 21,
+	.flags = DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_NHSYNC,
+};
+
+static const struct bridge_desc raspits_tc358762_5inch_bridge = {
+	.desc = {
+		.modes = &raspits_tc358762_mode_5inch,
+		.num_modes = 1,
+		.bpc = 8,
+		.size = {
+			.width = 217,
+			.height = 136,
+		},
+	},
+	.flags = MIPI_DSI_MODE_VIDEO |
+		 MIPI_DSI_MODE_VIDEO_BURST | MIPI_DSI_MODE_LPM,
+	.format = MIPI_DSI_FMT_RGB888,
+	.lanes = 1,
+};
+
 static const struct of_device_id dsi_of_match[] = {
 	{
 		.compatible = "raspits,tc358762",
 		.data = &raspits_tc358762_bridge
+	}, {
+		.compatible = "raspits,tc358762-5inch",
+		.data = &raspits_tc358762_5inch_bridge
 	}, {
 		/* sentinel */
 	}
