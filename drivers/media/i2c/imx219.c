@@ -1048,12 +1048,12 @@ static int imx219_probe(struct i2c_client *client,
 		return -EPROBE_DEFER;
 	}
 
-	/* 1920 * 1080 by default */
-	priv->cur_mode = &supported_modes[0];
+	/* 3280 * 2464 by default */
+	priv->cur_mode = &supported_modes[1];
 	priv->cfg_num = ARRAY_SIZE(supported_modes);
 
-	priv->crop_rect.left = 680;
-	priv->crop_rect.top = 692;
+	// priv->crop_rect.left = 680;
+	// priv->crop_rect.top = 692;
 	priv->crop_rect.width = priv->cur_mode->width;
 	priv->crop_rect.height = priv->cur_mode->height;
 
