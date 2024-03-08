@@ -220,12 +220,11 @@ error:
 	return ret;
 }
 
-static int rockpi_mcu_remove(struct i2c_client *client)
+static void rockpi_mcu_remove(struct i2c_client *client)
 {
 	struct rockpi_mcu_data *mcu_data = i2c_get_clientdata(client);
 	connected = 0;
 	kfree(mcu_data);
-	return 0;
 }
 
 static const struct i2c_device_id rockpi_mcu_id[] = {
