@@ -445,7 +445,7 @@ free_backlight:
 	return err;
 }
 
-static int raspits_tc358762_remove(struct device *dev)
+static void raspits_tc358762_remove(struct device *dev)
 {
 	struct raspits_tc358762 *panel = dev_get_drvdata(dev);
 
@@ -457,8 +457,6 @@ static int raspits_tc358762_remove(struct device *dev)
 
 	if (panel->backlight)
 		put_device(&panel->backlight->dev);
-
-	return 0;
 }
 
 static void raspits_tc358762_shutdown(struct device *dev)
@@ -564,7 +562,7 @@ static int raspits_tc358762_dsi_probe(struct mipi_dsi_device *dsi)
 	return mipi_dsi_attach(dsi);
 }
 
-static int raspits_tc358762_dsi_remove(struct mipi_dsi_device *dsi)
+static void raspits_tc358762_dsi_remove(struct mipi_dsi_device *dsi)
 {
 	int err;
 
