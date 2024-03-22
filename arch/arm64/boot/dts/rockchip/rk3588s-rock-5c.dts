@@ -154,9 +154,8 @@
 		};
 
 		user-led2 {
-			gpios = <&gpio3 RK_PD5 GPIO_ACTIVE_LOW>;
+			gpios = <&gpio3 RK_PD5 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "heartbeat";
-			default-state = "on";
 		};
 	};
 };
