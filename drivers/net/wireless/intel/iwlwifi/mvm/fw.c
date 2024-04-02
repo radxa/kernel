@@ -424,6 +424,12 @@ static int iwl_mvm_load_ucode_wait_alive(struct iwl_mvm *mvm,
 		return -EIO;
 	}
 
+	// ty-a0-gf-a0-59.ucode load pnvm will be init failed
+	if (strstr(mvm->fw->fw_version, "ty-a0-gf-a0-59.ucode") != NULL) {
+		IWL_INFO(mvm, "Firmware version is %s, don't load pnvm\n", mvm->fw->fw_version);
+		mvm->trans->pnvm_loaded = true;
+	}
+
 	ret = iwl_pnvm_load(mvm->trans, &mvm->notif_wait);
 	if (ret) {
 		IWL_ERR(mvm, "Timeout waiting for PNVM load!\n");
