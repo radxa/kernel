@@ -560,7 +560,7 @@ static int hym8563_probe(struct i2c_client *client)
 	ret = hym8563_init_device(client);
 	if (ret) {
 		dev_err(&client->dev, "could not init device, %d\n", ret);
-		return ret;
+		return -EPROBE_DEFER;
 	}
 
 	if (client->irq > 0) {
