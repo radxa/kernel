@@ -525,7 +525,8 @@ Description:
 
 		Valid values:
 			      "Unknown", "NiMH", "Li-ion", "Li-poly", "LiFe",
-			      "NiCd", "LiMn", "PbAc", "NiZn", "RAM", "ZnAr"
+			      "NiCd", "LiMn", "PbAc", "NiZn", "RAM", "ZnAr",
+			      "Capacitor"
 
 
 What:		/sys/class/power_supply/<supply_name>/voltage_avg,
@@ -904,3 +905,36 @@ Description:
 		Valid values:
 
 		- 0 - 70 (minutes), step by 10 (rounded down)
+
+What:		/sys/class/power_supply/<supply_name>/number_of_serial_cells
+Date:		November 2026
+Contact:	linux-pm@vger.kernel.org
+Description:
+		Reports the number of cells connected in series in a battery or
+		supercapacitor stack.
+
+		Access: Read
+
+What:		/sys/class/power_supply/<supply_name>/cell1_voltage_now
+What:		/sys/class/power_supply/<supply_name>/cell2_voltage_now
+What:		/sys/class/power_supply/<supply_name>/cell3_voltage_now
+What:		/sys/class/power_supply/<supply_name>/cell4_voltage_now
+Date:		November 2026
+Contact:	linux-pm@vger.kernel.org
+Description:
+		Reports the instantaneous voltage of an individual cell in a
+		battery or supercapacitor stack. Cells are numbered from one.
+
+		Access: Read
+		Valid values: Voltage in microvolts
+
+What:		/sys/class/power_supply/<supply_name>/cell_voltage_min
+What:		/sys/class/power_supply/<supply_name>/cell_voltage_max
+Date:		November 2026
+Contact:	linux-pm@vger.kernel.org
+Description:
+		Reports or sets the per-cell undervoltage and overvoltage alarm
+		thresholds. Each threshold applies to all cells in the stack.
+
+		Access: Read, Write (if supported by the driver)
+		Valid values: Voltage in microvolts
