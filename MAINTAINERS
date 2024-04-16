@@ -15530,6 +15530,12 @@ W:	https://ez.analog.com/linux-software-drivers
 F:	Documentation/devicetree/bindings/leds/adi,ltc3220.yaml
 F:	drivers/leds/leds-ltc3220.c
 
+LTC3350 SUPERCAPACITOR BACKUP CONTROLLER
+M:	Mike Looijmans <mike.looijmans@topic.nl>
+L:	linux-pm@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/power/supply/lltc,ltc3350.yaml
+
 LTC4282 HARDWARE MONITOR DRIVER
 M:	Nuno Sa <nuno.sa@analog.com>
 L:	linux-hwmon@vger.kernel.org

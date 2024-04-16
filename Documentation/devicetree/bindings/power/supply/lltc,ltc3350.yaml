@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/power/supply/lltc,ltc3350.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Linear Technology LTC3350 Supercapacitor Backup Controller
+
+maintainers:
+  - Mike Looijmans <mike.looijmans@topic.nl>
+
+properties:
+  compatible:
+    const: lltc,ltc3350
+
+  reg:
+    maxItems: 1
+
+  lltc,rsnsc-micro-ohms:
+    description: Charger current sense resistor in microohms.
+    minimum: 1000
+
+  lltc,rsnsi-micro-ohms:
+    description: Input current sense resistor in microohms.
+    minimum: 1000
+
+required:
+  - compatible
+  - reg
+  - lltc,rsnsc-micro-ohms
+  - lltc,rsnsi-micro-ohms
+
+additionalProperties: false
+
+examples:
+  - |
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        charger@9 {
+            compatible = "lltc,ltc3350";
+            reg = <0x09>;
+            lltc,rsnsc-micro-ohms = <6000>;
+            lltc,rsnsi-micro-ohms = <16000>;
+        };
+    };
