@@ -15534,7 +15534,9 @@ LTC3350 SUPERCAPACITOR BACKUP CONTROLLER
 M:	Mike Looijmans <mike.looijmans@topic.nl>
 L:	linux-pm@vger.kernel.org
 S:	Maintained
+F:	Documentation/ABI/testing/sysfs-class-power-ltc3350
 F:	Documentation/devicetree/bindings/power/supply/lltc,ltc3350.yaml
+F:	drivers/power/supply/ltc3350-charger.c
 
 LTC4282 HARDWARE MONITOR DRIVER
 M:	Nuno Sa <nuno.sa@analog.com>

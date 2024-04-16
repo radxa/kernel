@@ -1,0 +1,53 @@
+What:		/sys/class/power_supply/ltc3350/vshunt
+Date:		November 2026
+Contact:	Mike Looijmans <mike.looijmans@topic.nl>
+Description:
+		Reports or sets the per-cell shunt voltage in microvolts.
+		Access: Read, Write
+
+What:		/sys/class/power_supply/ltc3350/gpi
+Date:		November 2026
+Contact:	Mike Looijmans <mike.looijmans@topic.nl>
+Description:
+		Reports the general-purpose input voltage in microvolts.
+		Access: Read
+
+What:		/sys/class/power_supply/ltc3350/gpi_uv
+What:		/sys/class/power_supply/ltc3350/gpi_ov
+Date:		November 2026
+Contact:	Mike Looijmans <mike.looijmans@topic.nl>
+Description:
+		Reports or sets the general-purpose input undervoltage and
+		overvoltage alarm thresholds in microvolts. Writing a threshold
+		clears and enables the corresponding alarm.
+		Access: Read, Write
+
+What:		/sys/class/power_supply/ltc3350/vin
+Date:		November 2026
+Contact:	Mike Looijmans <mike.looijmans@topic.nl>
+Description:
+		Reports the input supply voltage in microvolts.
+		Access: Read
+
+What:		/sys/class/power_supply/ltc3350/vin_uv
+What:		/sys/class/power_supply/ltc3350/vin_ov
+Date:		November 2026
+Contact:	Mike Looijmans <mike.looijmans@topic.nl>
+Description:
+		Reports or sets the input supply undervoltage and overvoltage
+		alarm thresholds in microvolts. Writing a threshold clears and
+		enables the corresponding alarm.
+		Access: Read, Write
+
+What:		/sys/class/power_supply/ltc3350/charge_status
+Date:		November 2026
+Contact:	Mike Looijmans <mike.looijmans@topic.nl>
+Description:
+		Reports the raw CHRG_STATUS register as a hexadecimal bit mask.
+		Bits 0 and 1 indicate step-down and step-up operation, respectively;
+		bit 2 indicates constant-voltage charging, bit 3 undervoltage
+		lockout, bit 4 input current limiting, bit 5 capacitor power good,
+		bits 6 and 7 shunting and balancing, bit 8 charging disabled for
+		capacitance measurement, bit 9 constant-current charging, and
+		bit 11 input power failure.
+		Access: Read
