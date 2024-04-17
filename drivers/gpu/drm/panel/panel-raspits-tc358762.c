@@ -545,12 +545,25 @@ static const struct of_device_id dsi_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, dsi_of_match);
 
+static bool of_child_node_is_present(const struct device_node *node,
+				     const char *name)
+{
+	struct device_node *child;
+
+	child = of_get_child_by_name(node, name);
+	of_node_put(child);
+
+	return !!child;
+}
+
 extern int rockpi_mcu_is_connected(void);
 static int raspits_tc358762_dsi_probe(struct mipi_dsi_device *dsi)
 {
 	const struct bridge_desc *desc;
+	struct bridge_desc *desc_tmp;
 	const struct of_device_id *id;
 	const struct panel_desc *pdesc;
+	u32 bus_flags;
 	u32 val;
 	int err;
 
@@ -564,9 +577,33 @@ static int raspits_tc358762_dsi_probe(struct mipi_dsi_device *dsi)
 		return -EPROBE_DEFER;
 	}
 
-	desc = id->data;
+	desc_tmp = devm_kzalloc(&dsi->dev, sizeof(*desc_tmp), GFP_KERNEL);
+	if (!desc_tmp) {
+		return -ENOMEM;
+	}
+
+	desc_tmp->desc.modes = ((const struct bridge_desc *)id->data)->desc.modes;
+	desc_tmp->flags = ((const struct bridge_desc *)id->data)->flags;
+	desc_tmp->lanes = ((const struct bridge_desc *)id->data)->lanes;
+	desc_tmp->format = ((const struct bridge_desc *)id->data)->format;
+	desc_tmp->desc.num_modes = ((const struct bridge_desc *)id->data)->desc.num_modes;
+	desc_tmp->desc.bpc = ((const struct bridge_desc *)id->data)->desc.bpc;
+	desc_tmp->desc.size = ((const struct bridge_desc *)id->data)->desc.size;
 
 	printk("find panel: %s\n", id->compatible);
+
+	if (of_child_node_is_present(dsi->dev.of_node, "display-timings")) {
+		struct drm_display_mode *mode;
+		mode = devm_kzalloc(&dsi->dev, sizeof(*mode), GFP_KERNEL);
+		if (!mode)
+			return -ENOMEM;
+
+		if (!of_get_drm_display_mode(dsi->dev.of_node, mode, &bus_flags,
+					     OF_USE_NATIVE_MODE)) {
+			desc_tmp->desc.modes = mode;
+		}
+	}
+	desc = desc_tmp;
 
 	if (desc) {
 		dsi->mode_flags = desc->flags;
