@@ -460,6 +460,15 @@ config TOUCHSCREEN_ILI210X
 	  To compile this driver as a module, choose M here: the
 	  module will be called ili210x.
 
+config TOUCHSCREEN_ILI2511
+	tristate "Ilitek ILI2511 support"
+	depends on I2C
+	help
+	  Say Y here if you have a touchscreen interface using the
+	  ilitek 2511, and your board-specific initialization
+	  code includes that in its table of IIC devices.
+	  If unsure, say N.
+
 config TOUCHSCREEN_IPROC
 	tristate "IPROC touch panel driver support"
 	depends on ARCH_BCM_IPROC || COMPILE_TEST

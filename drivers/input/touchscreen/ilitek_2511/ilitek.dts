@@ -1,0 +1,14 @@
+ilitek@41 {
+	compatible = "tchip,ilitek";
+	reg = <0x41>;
+	interrupt-parent = <&msm_gpio>;
+	interrupts = <13 0x0>;
+	vdd-supply = <&pm8916_l17>;
+	vcc_i2c-supply = <&pm8916_l6>;
+	ilitek,irq-gpio = <&msm_gpio 13 0x0>;
+	ilitek,reset-gpio = <&msm_gpio 12 0x0>;
+	ilitek,vbus = "vcc_i2c";
+	ilitek,vdd = "vdd";
+	ilitek,name = "ilitek_i2c";
+};
+
