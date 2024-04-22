@@ -188,7 +188,7 @@ static void raspits_ft5426_work(struct work_struct *work)
 	struct raspits_ft5426_data *ts_data
 			= container_of(work, struct raspits_ft5426_data, ft5426_work);
 	struct ts_event *event = &ts_data->event;
-	int ret = 0, count = 8, td_status;
+	int ret = 0, count = 40, td_status;
 
 	while(count > 0) {
 		ret = fts_check_fw_ver(ts_data->client);
