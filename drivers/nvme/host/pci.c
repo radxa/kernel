@@ -26,6 +26,7 @@
 #include <linux/io-64-nonatomic-hi-lo.h>
 #include <linux/sed-opal.h>
 #include <linux/pci-p2pdma.h>
+#include <linux/leds.h>
 
 #include "trace.h"
 #include "nvme.h"
@@ -937,6 +938,7 @@ static blk_status_t nvme_queue_rq(struct blk_mq_hw_ctx *hctx,
 
 	if (blk_rq_nr_phys_segments(req)) {
 		ret = nvme_map_data(dev, req, &cmnd);
+		ledtrig_disk_activity(req_op(req) == REQ_OP_WRITE);
 		if (ret)
 			goto out_free_cmd;
 	}
