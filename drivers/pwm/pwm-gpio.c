@@ -90,43 +90,25 @@ static enum hrtimer_restart gpio_pwm_timer(struct hrtimer *timer)
 	return HRTIMER_RESTART;
 }
 
-static int gpio_pwm_config(struct pwm_chip *chip, struct pwm_device *pwm,
-			    int duty_ns, int period_ns)
+static int gpio_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
+			const struct pwm_state *state)
 {
 	struct gpio_pwm_chip *pc = to_gpio_pwm_chip(chip);
 
-	pc->on_time = duty_ns;
-	pc->off_time = period_ns - duty_ns;
+	pc->on_time = state->duty_cycle;
+	pc->off_time = state->period - state->duty_cycle;
 
-	return 0;
-}
-
-static int gpio_pwm_set_polarity(struct pwm_chip *chip, struct pwm_device *pwm,
-				 enum pwm_polarity polarity)
-{
-	return 0;
-}
-
-static int gpio_pwm_enable(struct pwm_chip *chip, struct pwm_device *pwm)
-{
-	struct gpio_pwm_chip *pc = to_gpio_pwm_chip(chip);
-
-	if (pwm_is_enabled(pc->chip.pwms))
-		return -EBUSY;
-
-	if (pc->off_time) {
-		hrtimer_start(&pc->timer, ktime_set(0, 0), HRTIMER_MODE_REL);
+	if (state->enabled) {
+		hrtimer_start(&pc->timer, ktime_set(0, pc->on_time), HRTIMER_MODE_REL);
 	} else {
-		if (pc->on_time)
-			gpio_pwm_on(pc);
-		else
-			gpio_pwm_off(pc);
+		hrtimer_cancel(&pc->timer);
+		gpio_pwm_off(pc);
 	}
 
 	return 0;
 }
 
-static void gpio_pwm_disable(struct pwm_chip *chip, struct pwm_device *pwm)
+static void gpio_pwm_free(struct pwm_chip *chip, struct pwm_device *pwm)
 {
 	struct gpio_pwm_chip *pc = to_gpio_pwm_chip(chip);
 
@@ -135,10 +117,8 @@ static void gpio_pwm_disable(struct pwm_chip *chip, struct pwm_device *pwm)
 }
 
 static const struct pwm_ops gpio_pwm_ops = {
-	.config = gpio_pwm_config,
-	.set_polarity = gpio_pwm_set_polarity,
-	.enable = gpio_pwm_enable,
-	.disable = gpio_pwm_disable,
+	.apply = gpio_pwm_apply,
+	.free = gpio_pwm_free,
 	.owner = THIS_MODULE,
 };
 
@@ -186,7 +166,9 @@ static int gpio_pwm_remove(struct platform_device *pdev)
 	struct gpio_pwm_chip *pc = platform_get_drvdata(pdev);
 
 	hrtimer_cancel(&pc->timer);
-	return pwmchip_remove(&pc->chip);
+	pwmchip_remove(&pc->chip);
+
+	return 0;
 }
 
 #ifdef CONFIG_OF
