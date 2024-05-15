@@ -347,6 +347,7 @@
 
 &hdmi0 {
 	status = "okay";
+	enable-gpios = <&gpio4 RK_PB6 GPIO_ACTIVE_HIGH>;
 };
 
 &hdmi0_in_vp0 {
