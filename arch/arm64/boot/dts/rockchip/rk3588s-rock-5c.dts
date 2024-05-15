@@ -435,6 +435,7 @@
 &hdmi0 {
 	status = "okay";
 	cec-enable = "true";
+	enable-gpios = <&gpio4 RK_PB6 GPIO_ACTIVE_HIGH>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&hdmim0_tx0_cec &hdmim1_tx0_hpd &hdmim0_tx0_scl &hdmim0_tx0_sda>;
 };
