@@ -386,6 +386,14 @@
 	status = "okay";
 };
 
+&av1d {
+	status = "okay";
+};
+
+&av1d_mmu {
+	status = "okay";
+};
+
 &saradc {
 	status = "okay";
 	vref-supply = <&avcc_1v8_s0>;
