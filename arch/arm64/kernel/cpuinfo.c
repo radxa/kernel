@@ -24,6 +24,7 @@
 #include <linux/sched.h>
 #include <linux/smp.h>
 #include <linux/delay.h>
+#include <linux/of_platform.h>
 
 unsigned int system_serial_low;
 EXPORT_SYMBOL(system_serial_low);
@@ -164,6 +165,9 @@ static const char *const compat_hwcap2_str[] = {
 static int c_show(struct seq_file *m, void *v)
 {
 	int i, j;
+	struct device_node *np;
+	const char *cpu_model;
+
 	bool compat = personality(current->personality) == PER_LINUX32 ||
 		      is_compat_task();
 
@@ -218,6 +222,12 @@ static int c_show(struct seq_file *m, void *v)
 		}
 		seq_puts(m, "\n");
 
+		np = of_find_node_by_path("/system");
+		if (np) {
+			if (!of_property_read_string(np, "cpu,model", &cpu_model))
+				seq_printf(m, "cpu model\t: %s\n", cpu_model);
+			of_node_put(np);
+		}
 		seq_printf(m, "CPU implementer\t: 0x%02x\n",
 			   MIDR_IMPLEMENTOR(midr));
 		seq_printf(m, "CPU architecture: 8\n");
