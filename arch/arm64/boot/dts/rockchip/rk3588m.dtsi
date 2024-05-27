@@ -5,3 +5,9 @@
  */
 
 #include "rk3588.dtsi"
+
+/{
+	system {
+		cpu,model = "Rockchip RK3588M";
+	};
+};

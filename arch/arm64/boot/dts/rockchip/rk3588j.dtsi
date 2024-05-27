@@ -6,6 +6,12 @@
 
 #include "rk3588.dtsi"
 
+/{
+	system {
+		cpu,model = "Rockchip RK3588J";
+	};
+};
+
 &cluster0_opp_table {
 	/*
 	 * The Max frequency is 1296MHz in default normal mode.
