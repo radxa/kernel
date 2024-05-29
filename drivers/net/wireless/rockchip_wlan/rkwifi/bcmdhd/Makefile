@@ -40,7 +40,7 @@ CONFIG_BCMDHD_DEBUG := y
 #CONFIG_BCMDHD_TIMESTAMP := y
 #CONFIG_BCMDHD_WAPI := y
 #CONFIG_BCMDHD_RANDOM_MAC := y
-CONFIG_BCMDHD_REQUEST_FW := y
+#CONFIG_BCMDHD_REQUEST_FW := y
 #CONFIG_BCMDHD_FW_SIGNATURE := y
 #CONFIG_BCMDHD_DWDS := y
 CONFIG_BCMDHD_TPUT := y
@@ -433,11 +433,11 @@ ifeq ($(CONFIG_BCMDHD_REQUEST_FW),y)
 else
 	DHDCFLAGS += -DDHD_SUPPORT_VFS_CALL
 ifeq ($(CONFIG_BCMDHD_FW_PATH),)
-	DHDCFLAGS += -DCONFIG_BCMDHD_FW_PATH="\"/vendor/etc/firmware/fw_bcmdhd.bin\""
-	DHDCFLAGS += -DCONFIG_BCMDHD_NVRAM_PATH="\"/vendor/etc/firmware/nvram.txt\""
-	DHDCFLAGS += -DCONFIG_BCMDHD_CLM_PATH="\"/vendor/etc/firmware/clm_bcmdhd.blob\""
+	DHDCFLAGS += -DCONFIG_BCMDHD_FW_PATH="\"/lib/firmware/brcm/fw_bcmdhd.bin\""
+	DHDCFLAGS += -DCONFIG_BCMDHD_NVRAM_PATH="\"/lib/firmware/brcm/nvram.txt\""
+	DHDCFLAGS += -DCONFIG_BCMDHD_CLM_PATH="\"/lib/firmware/brcm/clm_bcmdhd.blob\""
 endif
-	DHDCFLAGS += -DCONFIG_BCMDHD_CONFIG_PATH="\"/vendor/etc/firmware/config.txt\""
+	DHDCFLAGS += -DCONFIG_BCMDHD_CONFIG_PATH="\"/lib/firmware/brcm/config.txt\""
 endif
 
 ifeq ($(CONFIG_BCMDHD_FW_SIGNATURE),y)
