@@ -81,6 +81,7 @@ static int uvc_queue_setup(struct vb2_queue *vq,
 }
 
 #if defined(CONFIG_ARCH_ROCKCHIP) && defined(CONFIG_NO_GKI)
+MODULE_IMPORT_NS(DMA_BUF);
 /*
  * uvc_dma_buf_phys_to_virt - Get the physical address of the dma_buf and
  * translate it to virtual address.
