@@ -457,6 +457,19 @@
 	};
 };
 
+&i2c1 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c1m0_xfer>;
+
+	eeprom:	bl24c16@50 {
+		status = "okay";
+		compatible = "atmel,24c16";
+		reg = <0x50>;
+		pagesize = <16>;
+	};
+};
+
 &pinctrl {
 	usb {
 		vcc5v0_host_en: vcc5v0-host-en {
