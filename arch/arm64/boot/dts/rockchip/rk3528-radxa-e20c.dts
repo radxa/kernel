@@ -15,7 +15,7 @@
 
 / {
 	model = "Radxa E20C";
-	compatible = "radxa,e20c", "rockchip,rk3528a";
+	compatible = "radxa,e20c", "radxa,rock-2", "rockchip,rk3528a";
 
 	/delete-node/ chosen;
 
