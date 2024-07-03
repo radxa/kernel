@@ -11,7 +11,7 @@
 
 / {
 	model = "Radxa ZERO 3";
-	compatible ="radxa,zero3w-ap6212", "radxa,zero3", "rockchip,rk3566";
+	compatible = "radxa,zero3w-ap6212", "radxa,zero3", "rockchip,rk3566";
 
 	wireless_wlan: wireless-wlan {
 		compatible = "wlan-platdata";
