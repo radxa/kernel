@@ -823,6 +823,14 @@
 	>;
 };
 
+&threshold {
+	temperature = <60000>;
+};
+
+&soc_thermal {
+	sustainable-power = <5000>; /* milliwatts */
+};
+
 &pinctrl {
 	pmic {
 		pmic_int: pmic_int {
