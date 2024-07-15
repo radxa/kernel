@@ -505,6 +505,23 @@
 &pcie2x1l2 {
 	status = "okay";
 	reset-gpios = <&gpio3 RK_PD1 GPIO_ACTIVE_HIGH>;
+
+	pcie@40 {
+		reg = <0x00400000 0 0 0 0>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+
+		rtl8125_2: pcie-eth@40,0 {
+			compatible = "pci10ec,8125";
+			reg = <0x000000 0 0 0 0>;
+
+			// LED0 => G+ , LED1 => G- , LED2 => Y-
+			// LED0=High active, blink on every speed act
+			// LED1=Low active, always on every speed link
+			// LED2=LED1
+			realtek,led-data = <0x1200 0x2b 0x2b 0>;
+		};
+	};
 };
 
 &combphy2_psu {
@@ -514,6 +531,23 @@
 &pcie2x1l1 {
 	status = "okay";
 	reset-gpios = <&gpio4 RK_PA2 GPIO_ACTIVE_HIGH>;
+
+	pcie@40 {
+		reg = <0x00400000 0 0 0 0>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+
+		rtl8125_1: pcie-eth@40,0 {
+			compatible = "pci10ec,8125";
+			reg = <0x000000 0 0 0 0>;
+
+			// LED0 => G+ , LED1 => G- , LED2 => Y-
+			// LED0=High active, blink on every speed act
+			// LED1=Low active, always on every speed link
+			// LED2=LED1
+			realtek,led-data = <0x1200 0x2b 0x2b 0>;
+		};
+	};
 };
 
 &pwm3 {
