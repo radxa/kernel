@@ -3094,6 +3094,10 @@ dw_hdmi_connector_detect(struct drm_connector *connector, bool force)
 	}
 
 out:
+	mutex_lock(&hdmi->mutex);
+	hdmi->last_connector_result = result;
+	mutex_unlock(&hdmi->mutex);
+
 	if (result == connector_status_connected) {
 		extcon_set_state_sync(hdmi->extcon, EXTCON_DISP_HDMI, true);
 		handle_plugged_change(hdmi, true);
