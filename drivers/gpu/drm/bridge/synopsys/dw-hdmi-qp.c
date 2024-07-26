@@ -2149,6 +2149,11 @@ dw_hdmi_connector_detect(struct drm_connector *connector, bool force)
 			result = connector_status_disconnected;
 	}
 
+	if (result == connector_status_connected)
+		hdmi->last_connector_result = connector_status_connected;
+	else
+		hdmi->last_connector_result = connector_status_disconnected;
+
 	return result;
 }
 
