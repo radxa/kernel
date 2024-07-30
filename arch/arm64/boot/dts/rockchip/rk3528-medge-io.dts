@@ -1,0 +1,174 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (c) 2022 Rockchip Electronics Co., Ltd.
+ * Copyright (c) 2024 Radxa Limited
+ *
+ */
+
+/dts-v1/;
+
+#include "rk3528-medge.dtsi"
+
+/ {
+	model = "Radxa mEdge-RK3528A IO";
+	compatible = "radxa,medge-rk3528a-io", "radxa,medge-rk3528a", "rockchip,rk3528a";
+
+	/* Select USB3.0 by default */
+	pcie_usb_selection: pcie-usb-selection-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "pcie_usb_selection";
+		regulator-boot-on;
+		regulator-always-on;
+		gpio = <&gpio4 RK_PA5 GPIO_ACTIVE_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pcie_usb_selection_pin>;
+	};
+};
+
+&i2c0 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c0m1_xfer>;
+
+	hym8563: hym8563@51 {
+		compatible = "haoyu,hym8563";
+		reg = <0x51>;
+		#clock-cells = <0>;
+		clock-frequency = <32768>;
+		clock-output-names = "hym8563";
+		pinctrl-names = "default";
+		pinctrl-0 = <&hym8563_int>;
+		interrupt-parent = <&gpio1>;
+		interrupts = <RK_PB3 IRQ_TYPE_LEVEL_LOW>;
+		wakeup-source;
+	};
+};
+
+&pinctrl {
+	usb {
+		pcie_usb_selection_pin: pcie-usb-selection-pin {
+			rockchip,pins = <4 RK_PA5 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	hym8563 {
+		hym8563_int: hym8563-int {
+			rockchip,pins = <1 RK_PB3 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+};
+
+&gpio0 {
+	gpio-line-names =
+		/* GPIO0_A0-A3 */
+		"", "", "", "",
+		/* GPIO0_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO0_B0-B3 */
+		"", "", "", "",
+		/* GPIO0_B4-B7 */
+		"", "", "", "",
+
+		/* GPIO0_C0-C3 */
+		"", "", "", "",
+		/* GPIO0_C4-C7 */
+		"", "", "", "",
+
+		/* GPIO0_D0-D3 */
+		"", "", "", "",
+		/* GPIO0_D4-D7 */
+		"", "", "", "";
+};
+
+&gpio1 {
+	gpio-line-names =
+		/* GPIO1_A0-A3 */
+		"", "", "", "",
+		/* GPIO1_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO1_B0-B3 */
+		"PIN_31", "PIN_33", "PIN_22", "",
+		/* GPIO1_B4-B7 */
+		"PIN_36", "PIN_12", "PIN_35", "PIN_38",
+
+		/* GPIO1_C0-C3 */
+		"PIN_40", "", "", "",
+		/* GPIO1_C4-C7 */
+		"", "", "", "",
+
+		/* GPIO1_D0-D3 */
+		"", "", "", "",
+		/* GPIO1_D4-D7 */
+		"", "", "", "";
+};
+
+&gpio2 {
+	gpio-line-names =
+		/* GPIO2_A0-A3 */
+		"", "", "", "",
+		/* GPIO2_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO2_B0-B3 */
+		"", "", "", "",
+		/* GPIO2_B4-B7 */
+		"", "", "", "",
+
+		/* GPIO2_C0-C3 */
+		"", "", "", "",
+		/* GPIO2_C4-C7 */
+		"", "", "", "",
+
+		/* GPIO2_D0-D3 */
+		"", "", "", "",
+		/* GPIO2_D4-D7 */
+		"", "", "", "";
+};
+
+&gpio3 {
+	gpio-line-names =
+		/* GPIO3_A0-A3 */
+		"", "", "", "",
+		/* GPIO3_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO3_B0-B3 */
+		"", "", "", "",
+		/* GPIO3_B4-B7 */
+		"", "", "", "",
+
+		/* GPIO3_C0-C3 */
+		"", "", "", "",
+		/* GPIO3_C4-C7 */
+		"", "", "", "",
+
+		/* GPIO3_D0-D3 */
+		"", "", "", "",
+		/* GPIO3_D4-D7 */
+		"", "", "", "";
+};
+
+&gpio4 {
+	gpio-line-names =
+		/* GPIO4_A0-A3 */
+		"PIN_3", "PIN_5", "PIN_27", "PIN_28",
+		/* GPIO4_A4-A7 */
+		"", "", "PIN_7", "",
+
+		/* GPIO4_B0-B3 */
+		"PIN_16", "PIN_18", "PIN_19", "PIN_21",
+		/* GPIO4_B4-B7 */
+		"PIN_23", "PIN_29", "PIN_24", "PIN_11",
+
+		/* GPIO4_C0-C3 */
+		"PIN_13", "PIN_26", "", "PIN_32",
+		/* GPIO4_C4-C7 */
+		"", "", "PIN_15", "PIN_10",
+
+		/* GPIO4_D0-D3 */
+		"PIN_8", "", "", "",
+		/* GPIO4_D4-D7 */
+		"", "", "", "";
+};
