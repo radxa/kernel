@@ -1344,12 +1344,16 @@ headers_install: headers
 PHONY += archheaders archscripts
 
 hdr-inst := -f $(srctree)/scripts/Makefile.headersinst obj
+hdr-inst-bsp := -f $(srctree)/bsp/scripts/Makefile.headersinst obj
 
 PHONY += headers
 headers: $(version_h) scripts_unifdef uapi-asm-generic archheaders archscripts
 	$(if $(filter um, $(SRCARCH)), $(error Headers not exportable for UML))
 	$(Q)$(MAKE) $(hdr-inst)=include/uapi
 	$(Q)$(MAKE) $(hdr-inst)=arch/$(SRCARCH)/include/uapi
+ifneq ($(wildcard $(srctree)/bsp/scripts/Makefile.headersinst),)
+	$(Q)$(MAKE) $(hdr-inst-bsp)=bsp/include/uapi
+endif
 
 # Deprecated. It is no-op now.
 PHONY += headers_check
