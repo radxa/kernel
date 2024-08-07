@@ -22,7 +22,7 @@
 		#io-channel-cells = <1>;
 	};
 
-	led {
+	mt6360_led: led {
 		compatible = "mediatek,mt6360-led";
 	};
 
