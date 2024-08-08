@@ -210,7 +210,6 @@
 	status = "okay";
 	reset-gpios = <&gpio1 RK_PB2 GPIO_ACTIVE_HIGH>;
 	vpcie3v3-supply = <&vcc3v3_sys>;
-	pinctrl-names = "default";
 	pinctrl-0 = <&pcie20m2_pins>;
 };
 
