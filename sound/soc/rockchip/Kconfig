@@ -161,3 +161,11 @@ config SND_SOC_RK3399_GRU_SOUND
 	help
 	  Say Y or M here if you want to add support multiple codecs for SoC
 	  audio on Rockchip RK3399 GRU boards.
+
+config SND_SOC_HIFIBERRY_DAC
+        tristate "Support for HifiBerry DAC"
+        depends on SND_SOC_ROCKCHIP_I2S
+        select SND_SOC_PCM5102A
+        select SND_SIMPLE_CARD
+        help
+         Say Y or M if you want to add support for HifiBerry DAC.
