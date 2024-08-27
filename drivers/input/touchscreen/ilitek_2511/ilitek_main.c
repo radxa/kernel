@@ -1137,11 +1137,7 @@ static void ilitek_report_touch_event(uint8_t cnt, struct touch_fmt touch[40],
 			y_max - touch[i].y + y_min : touch[i].y;
 
 #if ILITEK_ROTATE_FLAG
-	swap(touch[i].x, touch[i].y);
-#endif
-
-#if 1
-	touch[i].y = (uint16_t)((touch[i].y / 600.0) * 480);
+		swap(touch[i].x, touch[i].y);
 #endif
 
 		if (ts->system_suspend) {
