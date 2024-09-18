@@ -16,7 +16,7 @@
 
 / {
 	model = "Radxa ROCK3 Model A";
-	compatible = "radxa,rock-3a", "rockchip,rk3568";
+	compatible = "radxa,rock-3a-pcie", "radxa,rock-3a", "rockchip,rk3568";
 
 	fan0: pwm-fan {
 		compatible = "pwm-fan";
