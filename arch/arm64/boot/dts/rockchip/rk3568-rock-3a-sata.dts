@@ -5,7 +5,8 @@
  *
  */
 
-/dts-v1/
+/dts-v1/;
+
 #include "rk3568-rock-3a.dts"
 
 / {
