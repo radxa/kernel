@@ -4379,7 +4379,7 @@ static void run_state_machine(struct tcpm_port *port)
 		 * and handled by all USB PD source and dual role devices
 		 * according to the specification.
 		 */
-		if (tcpm_pd_send_control(port, PD_CTRL_GET_SOURCE_CAP))
+		if (tcpm_pd_send_control(port, PD_CTRL_GET_SOURCE_CAP, TCPC_TX_SOP))
 			tcpm_set_state_cond(port, hard_reset_state(port), 0);
 		else
 			tcpm_set_state(port, hard_reset_state(port), PD_T_SINK_WAIT_CAP);
