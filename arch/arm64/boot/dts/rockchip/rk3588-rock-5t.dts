@@ -220,7 +220,7 @@
 		pinctrl-names = "default";
 
 		user-led2 {
-			gpios = <&gpio1 RK_PA7 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpio0 RK_PA0 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "heartbeat";
 		};
 	};
