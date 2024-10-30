@@ -794,7 +794,7 @@ static int rockchip_canfd_err(struct net_device *ndev, u32 isr)
 		cancel_delayed_work(&rcan->tx_err_work);
 		netif_stop_queue(ndev);
 		rockchip_canfd_stop(ndev);
-		can_free_echo_skb(ndev, 0);
+		can_free_echo_skb(ndev, 0, NULL);
 		rockchip_canfd_start(ndev);
 		netif_start_queue(ndev);
 	}
