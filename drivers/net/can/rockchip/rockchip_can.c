@@ -334,7 +334,7 @@ static void rockchip_can_rx(struct net_device *ndev)
 		return;
 
 	fi = readl(rcan->base + CAN_RX_FRM_INFO);
-	cf->can_dlc = get_can_dlc(fi & CAN_DLC_MASK);
+	cf->can_dlc = can_cc_dlc2len(fi & CAN_DLC_MASK);
 	id = readl(rcan->base + CAN_RX_ID);
 	if (fi & CAN_EFF)
 		id |= CAN_EFF_FLAG;

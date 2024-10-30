@@ -666,7 +666,7 @@ static int rockchip_canfd_rx(struct net_device *ndev)
 	if (dlc & FDF_MASK)
 		cf->len = can_dlc2len(dlc & DLC_MASK);
 	else
-		cf->len = get_can_dlc(dlc & DLC_MASK);
+		cf->len = can_cc_dlc2len(dlc & DLC_MASK);
 
 	/* Change CAN ID format to socketCAN ID format */
 	if (dlc & FORMAT_MASK) {
