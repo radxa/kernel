@@ -595,7 +595,7 @@ static int rockchip_canfd_start_xmit(struct sk_buff *skb,
 		for (i = 0; i < cf->len; i += 4)
 			rockchip_canfd_write(rcan, CAN_TXDAT0 + i,
 					     *(u32 *)(cf->data + i));
-		can_put_echo_skb(skb, ndev, 0);
+		can_put_echo_skb(skb, ndev, 0, 0);
 		rockchip_canfd_write(rcan, CAN_CMD, CAN_TX1_REQ);
 		local_irq_restore(flags);
 		return NETDEV_TX_OK;
@@ -608,7 +608,7 @@ static int rockchip_canfd_start_xmit(struct sk_buff *skb,
 		rockchip_canfd_write(rcan, CAN_TXDAT0 + i,
 				     *(u32 *)(cf->data + i));
 
-	can_put_echo_skb(skb, ndev, 0);
+	can_put_echo_skb(skb, ndev, 0, 0);
 	rockchip_canfd_write(rcan, CAN_MODE,
 			     rockchip_canfd_read(rcan, CAN_MODE) | MODE_SPACE_RX);
 	rockchip_canfd_write(rcan, CAN_CMD, cmd);
