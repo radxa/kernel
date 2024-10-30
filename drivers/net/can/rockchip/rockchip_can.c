@@ -308,7 +308,7 @@ static int rockchip_can_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	}
 
 	writel(fi, rcan->base + CAN_TX_FRM_INFO);
-	can_put_echo_skb(skb, ndev, 0);
+	can_put_echo_skb(skb, ndev, 0, 0);
 
 	rockchip_can_write_cmdreg(rcan, TX_REQ);
 	netdev_dbg(ndev, "TX: can_id:0x%08x dlc: %d mode: 0x%08x data: 0x%08x 0x%08x\n",
