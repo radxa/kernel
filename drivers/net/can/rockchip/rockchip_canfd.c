@@ -1146,7 +1146,7 @@ static int rockchip_canfd_probe(struct platform_device *pdev)
 
 	if (rcan->mode == ROCKCHIP_RK3568_CAN_MODE_V2) {
 		rcan->txtorx = 0;
-		netif_napi_add(ndev, &rcan->napi, rockchip_canfd_rx_poll, 6);
+		netif_napi_add_weight(ndev, &rcan->napi, rockchip_canfd_rx_poll, 6);
 	}
 
 	ndev->netdev_ops = &rockchip_canfd_netdev_ops;
