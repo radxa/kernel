@@ -501,6 +501,7 @@ static irqreturn_t rockchip_can_interrupt(int irq, void *dev_id)
 	u8 err_int = ERR_WARN_INT | RX_BUF_OV | PASSIVE_ERR |
 		     TX_LOSTARB | BUS_ERR_INT;
 	u8 isr;
+	unsigned int ign;
 
 	isr = readl(rcan->base + CAN_INT);
 	if (isr & TX_FINISH) {
@@ -509,7 +510,7 @@ static irqreturn_t rockchip_can_interrupt(int irq, void *dev_id)
 				   CAN_DLC_MASK;
 		stats->tx_packets++;
 		rockchip_can_write_cmdreg(rcan, 0);
-		can_get_echo_skb(ndev, 0);
+		ign = can_get_echo_skb(ndev, 0, NULL);
 		netif_wake_queue(ndev);
 	}
 
