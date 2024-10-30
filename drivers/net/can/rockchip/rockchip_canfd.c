@@ -817,6 +817,8 @@ static irqreturn_t rockchip_canfd_interrupt(int irq, void *dev_id)
 	u32 dlc = 0;
 	u32 quota, work_done = 0;
 
+	unsigned int ign;
+
 	isr = rockchip_canfd_read(rcan, CAN_INT);
 	if (isr & TX_FINISH_INT) {
 		cancel_delayed_work(&rcan->tx_err_work);
@@ -843,7 +845,7 @@ static irqreturn_t rockchip_canfd_interrupt(int irq, void *dev_id)
 					     0, 5000000, false, rcan, CAN_CMD))
 			netdev_err(ndev, "Warning: wait tx req timeout!\n");
 		rockchip_canfd_write(rcan, CAN_CMD, 0);
-		can_get_echo_skb(ndev, 0);
+		ign = can_get_echo_skb(ndev, 0, NULL);
 		netif_wake_queue(ndev);
 	}
 
