@@ -7,6 +7,7 @@
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_uapi.h>
 #include <drm/drm_blend.h>
+#include <drm/drm_color_mgmt.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_debugfs.h>
 #include <drm/drm_flip_work.h>
@@ -795,11 +796,6 @@ struct vop2_video_port {
 	 * @lut_dma_rid: lut dma id
 	 */
 	u16 lut_dma_rid;
-
-	/**
-	 * @gamma_lut: atomic gamma look up table
-	 */
-	struct drm_color_lut *gamma_lut;
 
 	/**
 	 * @cubic_lut_len: cubic look up table size
@@ -4935,59 +4931,35 @@ static void rockchip_vop2_crtc_fb_gamma_get(struct drm_crtc *crtc, u16 *red,
 	*blue = b * 0xffff / (lut_len - 1);
 }
 
-static int vop2_crtc_legacy_gamma_set(struct drm_crtc *crtc, u16 *red,
-				      u16 *green, u16 *blue, uint32_t size,
-				      struct drm_modeset_acquire_ctx *ctx)
-{
-	struct vop2_video_port *vp = to_vop2_video_port(crtc);
-	struct vop2 *vop2 = vp->vop2;
-	const struct vop2_video_port_data *vp_data = &vop2->data->vp[vp->id];
-	int i;
-
-	if (!vp->lut)
-		return -EINVAL;
-
-	if (size > vp_data->gamma_lut_len) {
-		DRM_ERROR("gamma size[%d] out of video port%d gamma lut len[%d]\n",
-			  size, vp->id, vp_data->gamma_lut_len);
-		return -ENOMEM;
-	}
-	for (i = 0; i < size; i++)
-		rockchip_vop2_crtc_fb_gamma_set(crtc, red[i], green[i],
-						blue[i], i);
-	vop2_crtc_load_lut(crtc);
-	vop2_cfg_done(crtc);
-	/*
-	 * maybe appear the following case:
-	 * -> set gamma
-	 * -> config done
-	 * -> atomic commit
-	 *  --> update win format
-	 *  --> update win address
-	 *  ---> here maybe meet vop hardware frame start, and triggle some config take affect.
-	 *  ---> as only some config take affect, this maybe lead to iommu pagefault.
-	 *  --> update win size
-	 *  --> update win other parameters
-	 * -> config done
-	 *
-	 * so we add vop2_wait_for_fs_by_done_bit_status() to make sure the first config done take
-	 * effect and then to do next frame config.
-	 */
-	if (VOP_MODULE_GET(vop2, vp, standby) == 0)
-		vop2_wait_for_fs_by_done_bit_status(vp);
-
-	return 0;
-}
-
 static int vop2_crtc_atomic_gamma_set(struct drm_crtc *crtc,
-				      struct drm_crtc_state *old_state)
+				      struct drm_crtc_state *state)
 {
 	struct vop2_video_port *vp = to_vop2_video_port(crtc);
 	struct vop2 *vop2 = vp->vop2;
 	const struct vop2_video_port_data *vp_data = &vop2->data->vp[vp->id];
-	struct drm_color_lut *lut = vp->gamma_lut;
+	struct rockchip_crtc_state *vcstate = to_rockchip_crtc_state(state);
+	const struct drm_color_lut *lut;
 	unsigned int i;
 
+	if (!vp->lut || !vop2->lut_res.regs || !vp_data->gamma_lut_len)
+		return 0;
+
+	/* A cleared blob means bypass; never reuse data from a retired state. */
+	if (!state->gamma_lut) {
+		spin_lock(&vop2->reg_lock);
+		VOP_MODULE_SET(vop2, vp, dsp_lut_en, 0);
+		vp->gamma_lut_active = false;
+		if (vcstate->splice_mode) {
+			struct vop2_video_port *splice_vp = &vop2->vps[vp_data->splice_vp_id];
+
+			VOP_MODULE_SET(vop2, splice_vp, dsp_lut_en, 0);
+			splice_vp->gamma_lut_active = false;
+		}
+		spin_unlock(&vop2->reg_lock);
+		return 0;
+	}
+
+	lut = state->gamma_lut->data;
 	for (i = 0; i < vp_data->gamma_lut_len; i++)
 		rockchip_vop2_crtc_fb_gamma_set(crtc, lut[i].red, lut[i].green,
 						lut[i].blue, i);
@@ -12950,6 +12922,10 @@ static int vop2_crtc_atomic_check(struct drm_crtc *crtc,
 	struct drm_display_mode *adjusted_mode = &new_crtc_state->adjusted_mode;
 	unsigned long flags;
 
+	if (new_crtc_state->gamma_lut &&
+	    drm_color_lut_size(new_crtc_state->gamma_lut) != crtc->gamma_size)
+		return -EINVAL;
+
 	if (vop2_has_feature(vop2, VOP_FEATURE_SPLICE)) {
 		if (adjusted_mode->hdisplay > VOP2_MAX_VP_OUTPUT_WIDTH) {
 			new_vcstate->splice_mode = true;
@@ -16661,11 +16637,7 @@ static void vop2_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_atomic_stat
 
 
 	if (crtc->state->color_mgmt_changed || crtc->state->active_changed) {
-		if (crtc->state->gamma_lut || vp->gamma_lut) {
-			if (crtc->state->gamma_lut)
-				vp->gamma_lut = crtc->state->gamma_lut->data;
-			vop2_crtc_atomic_gamma_set(crtc, crtc->state);
-		}
+		vop2_crtc_atomic_gamma_set(crtc, crtc->state);
 		if (vcstate->cubic_lut_data || vp->cubic_lut) {
 			if (vcstate->cubic_lut_data)
 				vp->cubic_lut = vcstate->cubic_lut_data->data;
@@ -17218,7 +17190,6 @@ static int vop2_crtc_atomic_set_property(struct drm_crtc *crtc,
 }
 
 static const struct drm_crtc_funcs vop2_crtc_funcs = {
-	.gamma_set = vop2_crtc_legacy_gamma_set,
 	.set_config = drm_atomic_helper_set_config,
 	.page_flip = drm_atomic_helper_page_flip,
 	.destroy = vop2_crtc_destroy,
