@@ -1700,6 +1700,16 @@ static int rk_pcie_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static void rk_pcie_shutdown(struct platform_device *pdev)
+{
+	struct device *dev = &pdev->dev;
+	struct rk_pcie *rk_pcie = dev_get_drvdata(dev);
+
+	dev_dbg(rk_pcie->pci->dev, "shutdown...\n");
+	rk_pcie_disable_ltssm(rk_pcie);
+	rk_pcie_writel_apb(rk_pcie, PCIE_CLIENT_INTR_MASK, 0xffffffff);
+}
+
 #ifdef CONFIG_PCIEASPM
 static void rk_pcie_downstream_dev_to_d0(struct rk_pcie *rk_pcie, bool enable)
 {
@@ -2028,6 +2038,7 @@ static struct platform_driver rk_plat_pcie_driver = {
 	},
 	.probe = rk_pcie_probe,
 	.remove = rk_pcie_remove,
+	.shutdown = rk_pcie_shutdown,
 };
 
 module_platform_driver(rk_plat_pcie_driver);
