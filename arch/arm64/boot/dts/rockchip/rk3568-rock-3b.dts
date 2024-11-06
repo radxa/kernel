@@ -133,6 +133,16 @@
 		vin-supply = <&dc_12v>;
 	};
 
+	vcc3v3_sys2: vcc3v3-sys2 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc3v3_sys2";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		vin-supply = <&vcc5v0_sys>;
+	};
+
 	vcc5v0_host: vcc5v0-host-regulator {
 		compatible = "regulator-fixed";
 		enable-active-high;
@@ -1034,7 +1044,7 @@
 	//rockchip,bifurcation;
 	reset-gpios = <&gpio2 RK_PD6 GPIO_ACTIVE_HIGH>;
 	pinctrl-0 = <&pcie30x2m1_pins>;
-	vpcie3v3-supply = <&pcie30_3v3>;
+	vpcie3v3-supply = <&vcc3v3_sys2>;
 	status = "okay";
 };
 
