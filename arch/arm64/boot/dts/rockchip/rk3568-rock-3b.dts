@@ -314,6 +314,14 @@
 	status = "okay";
 };
 
+&vp0_out_hdmi {
+	status = "okay";
+};
+
+&display_subsystem {
+	status = "okay";
+};
+
 &route_hdmi {
 	status = "okay";
 	connect = <&vp0_out_hdmi>;
