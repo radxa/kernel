@@ -21,6 +21,19 @@
 		regulator-max-microvolt = <12000000>;
 	};
 
+	usb20_reset: usb20-reset-regulator {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio0 RK_PC0 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&usb20_reset_pin>;
+		regulator-name = "usb20_reset";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+	};
+
 	hdmi_sound: hdmi-sound {
 		compatible = "simple-audio-card";
 		simple-audio-card,format = "i2s";
@@ -146,6 +159,14 @@
 		status = "okay";
 		reg = <0x51>;
 		quartz-load-femtofarads = <12500>;
+	};
+};
+
+&pinctrl {
+	usb {
+		usb20_reset_pin: usb20-reset {
+			rockchip,pins = <0 RK_PC0 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
 	};
 };
 
