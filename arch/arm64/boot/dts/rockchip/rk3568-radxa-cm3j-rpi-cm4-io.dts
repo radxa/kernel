@@ -242,9 +242,9 @@
 &gpio3 {
 	gpio-line-names =
 		/* GPIO3_A0-A3 */
-		"PIN_29", "PIN_18", "PIN_22", "",
+		"PIN_29", "PIN_18", "PIN_22", "PIN_12",
 		/* GPIO3_A4-A7 */
-		"PIN_36", "PIN_40", "PIN_38", "",
+		"PIN_35", "PIN_40", "PIN_38", "",
 
 		/* GPIO3_B0-B3 */
 		"", "PIN_13", "PIN_11", "PIN_28",
@@ -252,7 +252,7 @@
 		"PIN_27", "PIN_5", "PIN_3", "PIN_32",
 
 		/* GPIO3_C0-C3 */
-		"PIN_15", "PIN_16", "PIN_12", "PIN_35",
+		"PIN_15", "PIN_16", "PIN_26", "PIN_36",
 		/* GPIO3_C4-C7 */
 		"", "PIN_37", "", "",
 
