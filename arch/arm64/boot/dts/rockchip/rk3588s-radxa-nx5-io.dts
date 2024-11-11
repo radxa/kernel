@@ -51,7 +51,7 @@
 		compatible = "pwm-fan";
 		#cooling-cells = <2>;
 		cooling-levels = <0 64 128 192 255>;
-		pwms = <&pwm12 0 10000 0>;
+		pwms = <&pwm12 0 60000 0>;
 		fan-supply = <&vcc5v0_sys>;
 	};
 
