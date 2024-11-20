@@ -101,7 +101,7 @@
 		compatible = "gpio-leds";
 		status = "okay";
 		user_leds: user-led {
-			gpios = <&gpio0 6 GPIO_ACTIVE_HIGH>;	
+			gpios = <&gpio0 RK_PB4 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "heartbeat";
 			default-state = "on";
 			pinctrl-0 = <&user_led>;
