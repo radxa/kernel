@@ -1404,14 +1404,13 @@
 			(0
 			| RKPM_SLP_ARMOFF_LOGOFF
 			| RKPM_SLP_PMU_PMUALIVE_32K
-			| RKPM_SLP_PMU_DIS_OSC
-			| RKPM_SLP_PMIC_LP
 			| RKPM_SLP_32K_EXT
 			)
 		>;
 		rockchip,wakeup-config = <
 			(0
 			| RKPM_GPIO_WKUP_EN
+			| RKPM_USB_WKUP_EN
 			)
 		>;
 		rockchip,sleep-io-ret-config = <
