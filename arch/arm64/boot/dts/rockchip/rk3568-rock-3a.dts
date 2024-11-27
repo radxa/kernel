@@ -551,6 +551,13 @@
 			status = "okay";
 		};
 	};
+
+	eeprom:	at24c16@50 {
+		status = "okay";
+		compatible = "atmel,24c16";
+		reg = <0x50>;
+		pagesize = <16>;
+	};
 };
 
 &i2c5 {
