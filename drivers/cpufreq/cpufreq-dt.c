@@ -160,7 +160,7 @@ out_clk_put:
 
 static int cpufreq_online(struct cpufreq_policy *policy)
 {
-#ifdef CONFIG_ARCH_ROCKCHIP
+#ifdef CONFIG_ARM_ROCKCHIP_CPUFREQ
 	return rockchip_cpufreq_online(policy->cpu);
 #endif
 	/* We did light-weight tear down earlier, nothing to do here */
@@ -169,7 +169,7 @@ static int cpufreq_online(struct cpufreq_policy *policy)
 
 static int cpufreq_offline(struct cpufreq_policy *policy)
 {
-#ifdef CONFIG_ARCH_ROCKCHIP
+#ifdef CONFIG_ARM_ROCKCHIP_CPUFREQ
 	return rockchip_cpufreq_offline(policy->cpu);
 #endif
 	/*
