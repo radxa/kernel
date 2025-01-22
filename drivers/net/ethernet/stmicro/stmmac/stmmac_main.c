@@ -60,6 +60,14 @@
 #define	STMMAC_ALIGN(x)		ALIGN(ALIGN(x, SMP_CACHE_BYTES), 16)
 #define	TSO_MAX_BUFF_SIZE	(SZ_16K - 1)
 
+#define	YT8531C_PHY_ID		0x4f51e91b
+#define	YT8531C_PHY_ID_MASK	0x001fffff
+#define REG_DEBUG_ADDR_OFFSET           0x1e
+#define REG_DEBUG_DATA                  0x1f
+
+#define YT8531C_EXTREG_LED1              0xA00D
+#define YT8531C_EXTREG_LED2              0xA00E
+
 /* Module parameters */
 #define TX_TIMEO	5000
 static int watchdog = TX_TIMEO;
@@ -7002,6 +7010,63 @@ void stmmac_fpe_handshake(struct stmmac_priv *priv, bool enable)
 	}
 }
 
+static int ytphy_read_ext(struct phy_device *phydev, u32 regnum)
+{
+    int ret;
+
+    phy_lock_mdio_bus(phydev);
+    ret = __phy_write(phydev, REG_DEBUG_ADDR_OFFSET, regnum);
+    if (ret < 0)
+        goto err_handle;
+
+    ret = __phy_read(phydev, REG_DEBUG_DATA);
+    if (ret < 0)
+        goto err_handle;
+
+err_handle:
+    phy_unlock_mdio_bus(phydev);
+    return ret;
+}
+
+static int ytphy_write_ext(struct phy_device *phydev, u32 regnum, u16 val)
+{
+    int ret;
+
+    phy_lock_mdio_bus(phydev);
+    ret = __phy_write(phydev, REG_DEBUG_ADDR_OFFSET, regnum);
+    if (ret < 0)
+        goto err_handle;
+
+    ret = __phy_write(phydev, REG_DEBUG_DATA, val);
+    if (ret < 0)
+        goto err_handle;
+
+err_handle:
+    phy_unlock_mdio_bus(phydev);
+    return ret;
+}
+
+static int phy_yt8531c_led_fixup(struct phy_device *phydev)
+{
+	int ret;
+	int val;
+
+	val = ytphy_read_ext(phydev, YT8531C_EXTREG_LED1);
+	if (val < 0)
+		return val;
+	val = 0x1e00; /* 10/100/1000Mbps blink*/
+	ret = ytphy_write_ext(phydev, YT8531C_EXTREG_LED1, val);
+	if (ret < 0)
+		return ret;
+
+	val = ytphy_read_ext(phydev, YT8531C_EXTREG_LED2);
+	if (val < 0)
+		return val;
+	val = 0x1800; /* 10/100/1000Mbps light*/
+	ret = ytphy_write_ext(phydev, YT8531C_EXTREG_LED2, val);
+	return ret;
+}
+
 /**
  * stmmac_dvr_probe
  * @device: device pointer
@@ -7279,6 +7344,12 @@ int stmmac_dvr_probe(struct device *device,
 	 * If CONFIG_PM is not enabled, the clocks will stay powered.
 	 */
 	pm_runtime_put(device);
+
+	/* Register fixup for PHY YT8531C */
+	ret = phy_register_fixup_for_uid(YT8531C_PHY_ID, YT8531C_PHY_ID_MASK, phy_yt8531c_led_fixup);
+	if (ret) {
+		dev_warn(priv->device, "Failed to register fixup for PHY YT8531C.\n");
+	}
 
 	return ret;
 
