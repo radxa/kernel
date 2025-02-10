@@ -12,8 +12,6 @@
 #include <dt-bindings/pwm/pwm.h>
 #include <dt-bindings/pinctrl/rockchip.h>
 #include <dt-bindings/input/rk-input.h>
-#include <dt-bindings/display/drm_mipi_dsi.h>
-#include <dt-bindings/display/rockchip_vop.h>
 #include <dt-bindings/sensor-dev.h>
 #include "rk3588s.dtsi"
 #include "rk3588-rk806-single.dtsi"
@@ -63,16 +61,6 @@
 		regulator-min-microvolt = <1100000>;
 		regulator-max-microvolt = <1100000>;
 		vin-supply = <&vcc5v0_sys>;
-	};
-
-	hdmi0_sound: hdmi0-sound {
-		status = "okay";
-		compatible = "rockchip,hdmi";
-		rockchip,mclk-fs = <128>;
-		rockchip,card-name = "rockchip-hdmi0";
-		rockchip,cpu = <&i2s5_8ch>;
-		rockchip,codec = <&hdmi0>;
-		rockchip,jack-det;
 	};
 
 	vcc5v0_otg: vcc5v0-otg-regulator {
@@ -403,88 +391,6 @@
 /* ADC */
 
 &tsadc {
-	status = "okay";
-};
-
-/* HDMI */
-
-&hdmi0 {
-	status = "okay";
-	cec-enable = "true";
-	enable-gpios = <&gpio4 RK_PB6 GPIO_ACTIVE_HIGH>;
-	pinctrl-names = "default";
-	pinctrl-0 = <&hdmim0_tx0_cec &hdmim1_tx0_hpd &hdmim0_tx0_scl &hdmim0_tx0_sda>;
-};
-
-&hdmi0_in_vp0 {
-	status = "okay";
-};
-
-&route_hdmi0 {
-	status = "okay";
-};
-
-&hdptxphy_hdmi0 {
-	status = "okay";
-};
-
-&i2s5_8ch {
-	status = "okay";
-};
-
-&vdpu {
-	status = "okay";
-};
-
-&vdpu_mmu {
-	status = "okay";
-};
-
-/* Video Ports */
-
-&vop {
-	status = "okay";
-};
-
-&vop_mmu {
-	status = "okay";
-};
-
-&vepu {
-	status = "okay";
-};
-
-/* vp0 & vp1 splice for 8K output */
-&vp0 {
-	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER0 | 1 << ROCKCHIP_VOP2_ESMART0)>;
-	rockchip,primary-plane = <ROCKCHIP_VOP2_CLUSTER0>;
-	cursor-win-id = <ROCKCHIP_VOP2_ESMART0>;
-};
-
-&vp1 {
-	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER1 | 1 << ROCKCHIP_VOP2_ESMART1)>;
-	rockchip,primary-plane = <ROCKCHIP_VOP2_CLUSTER1>;
-	cursor-win-id = <ROCKCHIP_VOP2_ESMART1>;
-};
-
-&vp2 {
-	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER2 | 1 << ROCKCHIP_VOP2_ESMART2)>;
-	rockchip,primary-plane = <ROCKCHIP_VOP2_CLUSTER2>;
-	cursor-win-id = <ROCKCHIP_VOP2_ESMART2>;
-};
-
-&vp3 {
-	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER3 | 1 << ROCKCHIP_VOP2_ESMART3)>;
-	rockchip,primary-plane = <ROCKCHIP_VOP2_CLUSTER3>;
-	cursor-win-id = <ROCKCHIP_VOP2_ESMART3>;
-};
-
-&display_subsystem {
-	clocks = <&hdptxphy_hdmi0>;
-	clock-names = "hdmi0_phy_pll";
-};
-
-&hdptxphy_hdmi0 {
 	status = "okay";
 };
 
