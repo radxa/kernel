@@ -13,5 +13,6 @@ config WLAN_VENDOR_AIC
 if WLAN_VENDOR_AIC
 
 source "drivers/net/wireless/aic/aic8800_usb/Kconfig"
+source "drivers/net/wireless/aic/aic8800_sdio/Kconfig"
 
 endif # WLAN_VENDOR_AIC
