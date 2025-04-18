@@ -90,10 +90,49 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c0m1_xfer>;
 
+	/* J17 FAN */
+	emc2301: emc2301@2f {
+		status = "okay";
+		compatible = "microchip,emc2301";
+		reg = <0x2f>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		#cooling-cells = <2>;
+		microchip,pwm-separate;
+		microchip,cooling-levels = <10>;
+
+		channel@0 {
+			reg = <0>;
+			pwm-min = <0>;
+		};
+	};
+
 	pcf85063: pcf85063@51 {
 		compatible = "nxp,pcf85063";
 		status = "okay";
 		reg = <0x51>;
 		quartz-load-femtofarads = <12500>;
+	};
+};
+
+&threshold {
+	temperature = <60000>;
+};
+
+&little_core_thermal {
+	cooling-maps {
+		sustainable-power = <5000>; /* milliwatts */
+		map3 {
+			trip = <&target>;
+			cooling-device =
+				<&emc2301 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+			contribution = <8192>;
+		};
+		map4 {
+			trip = <&threshold>;
+			cooling-device =
+				<&emc2301 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+			contribution = <8192>;
+		};
 	};
 };
