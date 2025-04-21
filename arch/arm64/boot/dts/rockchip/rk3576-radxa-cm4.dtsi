@@ -64,7 +64,7 @@
 	hdmi_sound: hdmi-sound {
 		compatible = "rockchip,hdmi";
 		rockchip,mclk-fs = <128>;
-		rockchip,card-name = "rockchip-hdmi";
+		rockchip,card-name = "rockchip-hdmi0";
 		rockchip,cpu = <&sai6>;
 		rockchip,codec = <&hdmi>;
 		rockchip,jack-det;
