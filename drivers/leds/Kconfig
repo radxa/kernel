@@ -307,6 +307,14 @@ config LEDS_HP6XX
 	  This option enables LED support for the handheld
 	  HP Jornada 620/660/680/690.
 
+config LEDS_HTR32XX
+	tristate "LED support for YONGFUKANG HTR32XX I2C LED controller family"
+	depends on LEDS_CLASS && I2C && OF
+	help
+	  Say Y here to include support for YONGFUKANG HTR32XX LED controllers.
+	  They are I2C devices with multiple constant-current channels, each
+	  with independent 256-level PWM control.
+
 config LEDS_PCA9532
 	tristate "LED driver for PCA9532 dimmer"
 	depends on LEDS_CLASS
