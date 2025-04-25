@@ -318,6 +318,19 @@
 	status = "okay";
 };
 
+&i2c6 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c6m3_xfer>;
+
+	eeprom:	at24c16@50 {
+		status = "okay";
+		compatible = "atmel,24c16";
+		reg = <0x50>;
+		pagesize = <16>;
+	};
+};
+
 &pinctrl {
 	wifi {
 		wifi_chip_en_gpio: wifi-chip-en-gpio {
