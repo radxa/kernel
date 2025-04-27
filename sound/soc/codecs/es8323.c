@@ -183,6 +183,7 @@ static const struct snd_kcontrol_new es8323_diffmux_controls = SOC_DAPM_ENUM("Ro
 static const struct snd_kcontrol_new es8323_snd_controls[] = {
 	SOC_ENUM("3D Mode", es8323_enum[4]),
 	SOC_SINGLE("ALC Capture Target Volume", ES8323_ADCCONTROL11, 4, 15, 0),
+	SOC_SINGLE("ALC Select Mode", ES8323_ADCCONTROL10, 6, 3, 0),
 	SOC_SINGLE("ALC Capture Max PGA", ES8323_ADCCONTROL10, 3, 7, 0),
 	SOC_SINGLE("ALC Capture Min PGA", ES8323_ADCCONTROL10, 0, 7, 0),
 	SOC_ENUM("ALC Capture Function", es8323_enum[5]),
