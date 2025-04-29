@@ -68,6 +68,15 @@ config TYPEC_TCPCI_MAXIM
 
 endif # TYPEC_TCPCI
 
+config TYPEC_FUSB301
+	tristate "Fairchild FUSB301 Type-C chip driver"
+	depends on I2C
+	depends on EXTCON || !EXTCON
+	help
+	  The Fairchild FUSB301 Type-C chip driver that works with
+	  Type-C Port Controller Manager to provide USB PD and USB
+	  Type-C functionalities.
+
 config TYPEC_FUSB302
 	tristate "Fairchild FUSB302 Type-C chip driver"
 	depends on I2C
