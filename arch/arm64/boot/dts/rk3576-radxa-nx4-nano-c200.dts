@@ -1,0 +1,323 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (c) 2024 Rockchip Electronics Co., Ltd.
+ * Copyright (c) 2025 Radxa Computer (Shenzhen) Co., Ltd.
+ *
+ */
+
+/dts-v1/;
+#include "rk3576-radxa-nx4.dtsi"
+
+/ {
+	model = "Radxa NX4 NANO C200 Board";
+	compatible = "radxa,nx4-nano-c200", "radxa,nx4", "rockchip,rk3576";
+
+	vcc_1v8_shutdown: vcc-1v8-shutdown {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_power";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&gpio4 RK_PA2 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&shutdown_en>;
+	};
+
+	vcc5v0_hdmi: vcc5v0-hdmi {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc5v0_hdmi";
+		regulator-boot-on;
+		regulator-always-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		enable-active-high;
+		gpio = <&gpio0 RK_PA5 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&hdmi_en>;
+	};
+
+	vcc3v3_wifi: vcc3v3-wifi {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc3v3_wifi";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+		enable-active-high;
+		gpios = <&gpio2 RK_PC7 GPIO_ACTIVE_HIGH>;
+		startup-delay-us = <5000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&usb_wifi_power_en>;
+	};
+
+	wifi_chip_en: wifi-chip-en {
+		compatible = "regulator-fixed";
+		regulator-name = "wifi_chip_en";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+		enable-active-high;
+		gpios = <&gpio2 RK_PD1 GPIO_ACTIVE_HIGH>;
+		startup-delay-us = <5000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&wifi_chip_en_pin>;
+	};
+
+	fan0: pwm-fan {
+		compatible = "pwm-fan";
+		#cooling-cells = <2>;
+		cooling-levels = <0 64 128 192 255>;
+		pwms = <&pwm2_8ch_0 0 60000 0>;
+	};
+
+	vcc_sys: vcc5v0-sys {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_sys";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+	};
+};
+
+&combphy0_ps {
+	status = "okay";
+};
+
+&combphy1_psu {
+	status = "okay";
+};
+
+&pcie0 {
+	reset-gpios = <&gpio2 RK_PB4 GPIO_ACTIVE_HIGH>;
+	rockchip,skip-scan-in-resume;
+	status = "okay";
+};
+
+&i2c6 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c6m3_xfer>;
+
+	fusb301@25 {
+		compatible = "onsemi,fusb301";
+		reg = <0x25>;
+		status = "okay";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		interrupt-parent = <&gpio3>;
+		interrupts = <RK_PD4 IRQ_TYPE_LEVEL_LOW>;
+		int-n-gpios = <&gpio3 RK_PD4 GPIO_ACTIVE_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&usbc0_int>;
+		connector@0 {
+			port@0 {
+				fusb_p0: endpoint {
+					remote-endpoint = <&dwc3_0_role_switch>;
+				};
+			};
+		};
+	};
+};
+
+&u2phy0 {
+	status = "okay";
+};
+
+&u2phy0_otg {
+	status = "okay";
+};
+
+&usb_drd0_dwc3 {
+	extcon = <&u2phy0>;
+	dr_mode = "otg";
+	status = "okay";
+	usb-role-switch;
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		dwc3_0_role_switch: endpoint@0 {
+			reg = <0>;
+			remote-endpoint = <&fusb_p0>;
+		};
+	};
+};
+
+&usbdp_phy {
+	rockchip,dp-lane-mux = <2 3>;
+	status = "okay";
+};
+
+&usbdp_phy_dp {
+	status = "disabled";
+};
+
+&usbdp_phy_u3 {
+	status = "okay";
+};
+
+&u2phy1 {
+	status = "okay";
+};
+
+&u2phy1_otg {
+	status = "okay";
+};
+
+&usb_drd1_dwc3 {
+	dr_mode = "host";
+	status = "okay";
+};
+
+&pwm2_8ch_0{
+	pinctrl-0 = <&pwm2m0_ch0>;
+	status = "okay";
+};
+
+&pinctrl {
+	shutdown {
+		shutdown_en: shutdown-en {
+			rockchip,pins = <4 RK_PA2 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	usb-typec {
+		usbc0_int: usbc0-int {
+			rockchip,pins = <3 RK_PD4 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	hdmi {
+		hdmi_en: hdmi-en {
+			rockchip,pins = <0 RK_PA5 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	wifi {
+		usb_wifi_power_en: usb-wifi-power-en {
+			rockchip,pins = <2 RK_PC7 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		wifi_chip_en_pin: wifi-chip-en-pin {
+			rockchip,pins = <2 RK_PD1 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+};
+
+&gpio0 {
+	gpio-line-names =
+		/* GPIO0_A0-A3 */
+		"", "", "", "",
+		/* GPIO0_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO0_B0-B3 */
+		"", "", "", "",
+		/* GPIO0_B4-B7 */
+		"", "", "", "",
+
+		/* GPIO0_C0-C3 */
+		"", "", "", "",
+		/* GPIO0_C4-C7 */
+		"", "", "", "",
+
+		/* GPIO0_D0-D3 */
+		"", "", "", "",
+		/* GPIO0_D4-D7 */
+		"PIN_8", "PIN_10", "", "";
+};
+
+&gpio1 {
+	gpio-line-names =
+		/* GPIO1_A0-A3 */
+		"", "", "", "",
+		/* GPIO1_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO1_B0-B3 */
+		"", "", "", "",
+		/* GPIO1_B4-B7 */
+		"PIN_23", "PIN_19", "PIN_21", "PIN_24",
+
+		/* GPIO1_C0-C3 */
+		"PIN_26", "PIN_31", "PIN_33", "PIN_7",
+		/* GPIO1_C4-C7 */
+		"PIN_11", "PIN_15", "PIN_5", "PIN_3",
+
+		/* GPIO1_D0-D3 */
+		"PIN_40", "PIN_12", "PIN_35", "PIN_38",
+		/* GPIO1_D4-D7 */
+		"PIN_36", "PIN_32", "", "";
+};
+
+&gpio2 {
+	gpio-line-names =
+		/* GPIO2_A0-A3 */
+		"", "", "", "",
+		/* GPIO2_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO2_B0-B3 */
+		"", "", "", "",
+		/* GPIO2_B4-B7 */
+		"", "", "PIN_16", "PIN_18",
+
+		/* GPIO2_C0-C3 */
+		"PIN_13", "", "", "",
+		/* GPIO2_C4-C7 */
+		"", "", "", "",
+
+		/* GPIO2_D0-D3 */
+		"", "", "", "",
+		/* GPIO2_D4-D7 */
+		"", "", "", "PIN_22";
+};
+
+&gpio3 {
+	gpio-line-names =
+		/* GPIO3_A0-A3 */
+		"", "", "PIN_29", "PIN_37",
+		/* GPIO3_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO3_B0-B3 */
+		"", "", "", "",
+		/* GPIO3_B4-B7 */
+		"", "", "", "",
+
+		/* GPIO3_C0-C3 */
+		"", "", "", "",
+		/* GPIO3_C4-C7 */
+		"", "", "", "",
+
+		/* GPIO3_D0-D3 */
+		"", "", "", "",
+		/* GPIO3_D4-D7 */
+		"", "", "", "";
+};
+
+&gpio4 {
+	gpio-line-names =
+		/* GPIO4_A0-A3 */
+		"", "", "", "",
+		/* GPIO4_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO4_B0-B3 */
+		"", "", "", "",
+		/* GPIO4_B4-B7 */
+		"", "", "", "",
+
+		/* GPIO4_C0-C3 */
+		"", "", "", "",
+		/* GPIO4_C4-C7 */
+		"", "", "PIN_28", "PIN_27",
+
+		/* GPIO4_D0-D3 */
+		"", "", "", "",
+		/* GPIO4_D4-D7 */
+		"", "", "", "";
+};
