@@ -9,8 +9,8 @@
 #include "rk3576-radxa-nx4.dtsi"
 
 / {
-	model = "Radxa NX4 NANO C200 Board";
-	compatible = "radxa,nx4-nano-c200", "radxa,nx4", "rockchip,rk3576";
+	model = "Radxa NX4 ORIN C200 Board";
+	compatible = "radxa,nx4-orin-c200", "radxa,nx4", "rockchip,rk3576";
 
 	vcc_1v8_shutdown: vcc-1v8-shutdown {
 		compatible = "regulator-fixed";
