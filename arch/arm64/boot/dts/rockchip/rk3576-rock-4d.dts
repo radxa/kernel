@@ -26,7 +26,7 @@
 		compatible = "pwm-fan";
 		#cooling-cells = <2>;
 		cooling-levels = <0 64 128 192 255>;
-		pwms = <&pwm2_8ch_5 0 10000 0>;
+		pwms = <&pwm2_8ch_5 0 60000 0>;
 	};
 
 	vcc_sys: vcc5v0-sys {
