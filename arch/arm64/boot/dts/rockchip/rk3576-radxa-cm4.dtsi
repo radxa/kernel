@@ -247,6 +247,7 @@
 &hdmi {
 	status = "okay";
 	enable-gpios = <&gpio2 RK_PB0 GPIO_ACTIVE_HIGH>;
+	cec-enable = "true";
 };
 
 &hdmi_in_vp0 {
