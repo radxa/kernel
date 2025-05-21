@@ -81,6 +81,15 @@
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
 	};
+
+	gpio-leds {
+		compatible = "gpio-leds";
+
+		power-led {
+			gpios = <&gpio3 RK_PC6 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "default-on";
+		};
+	};
 };
 
 &combphy0_ps {
