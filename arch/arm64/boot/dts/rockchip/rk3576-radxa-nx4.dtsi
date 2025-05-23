@@ -187,6 +187,18 @@
 	rockchip,regulator-on-before-mem = <&vdd_npu_s0>;
 };
 
+&vdd_logic_s0 {
+	regulator-state-mem {
+		regulator-on-in-suspend;
+	};
+};
+
+&vcca_1v8_s0 {
+	regulator-state-mem {
+		regulator-on-in-suspend;
+	};
+};
+
 &saradc {
 	status = "okay";
 	vref-supply = <&vcca_1v8_s0>;
