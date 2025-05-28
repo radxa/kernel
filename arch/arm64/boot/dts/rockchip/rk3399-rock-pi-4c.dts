@@ -7,21 +7,19 @@
 
 /dts-v1/;
 #include "rk3399-rock-pi-4.dtsi"
+#include "rk3399-opp.dtsi"
 
 / {
 	model = "Radxa ROCK Pi 4C";
 	compatible = "radxa,rockpi4c", "radxa,rockpi4", "rockchip,rk3399";
-
-	aliases {
-		mmc2 = &sdio0;
-	};
 };
 
-&es8316 {
-	pinctrl-0 = <&hp_detect &hp_int>;
-	pinctrl-names = "default";
-	interrupt-parent = <&gpio1>;
-	interrupts = <RK_PA1 IRQ_TYPE_LEVEL_HIGH>;
+&pinctrl {
+	usb2 {
+		vcc5v0_host_en: vcc5v0-host-en {
+			rockchip,pins = <3 RK_PD6 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
 };
 
 &sdio0 {
@@ -31,15 +29,11 @@
 		compatible = "brcm,bcm4329-fmac";
 		reg = <1>;
 		interrupt-parent = <&gpio0>;
-		interrupts = <RK_PA3 IRQ_TYPE_LEVEL_HIGH>;
+		interrupts = <RK_PA3 GPIO_ACTIVE_HIGH>;
 		interrupt-names = "host-wake";
 		pinctrl-names = "default";
 		pinctrl-0 = <&wifi_host_wake_l>;
 	};
-};
-
-&sound {
-	hp-det-gpio = <&gpio1 RK_PA0 GPIO_ACTIVE_HIGH>;
 };
 
 &uart0 {
@@ -61,9 +55,8 @@
 };
 
 &vcc5v0_host {
+	enable-active-high;
 	gpio = <&gpio3 RK_PD6 GPIO_ACTIVE_HIGH>;
-};
-
-&vcc5v0_host_en {
-	rockchip,pins = <3 RK_PD6 RK_FUNC_GPIO &pcfg_pull_none>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&vcc5v0_host_en>;
 };
