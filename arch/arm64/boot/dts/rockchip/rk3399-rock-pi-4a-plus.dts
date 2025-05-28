@@ -13,13 +13,17 @@
 	compatible = "radxa,rockpi4a-plus", "radxa,rockpi4", "rockchip,rk3399";
 };
 
-&es8316 {
-	pinctrl-0 = <&hp_detect &hp_int>;
-	pinctrl-names = "default";
-	interrupt-parent = <&gpio1>;
-	interrupts = <RK_PA1 IRQ_TYPE_LEVEL_HIGH>;
+&pinctrl {
+	usb2 {
+		vcc5v0_host_en: vcc5v0-host-en {
+			rockchip,pins = <4 RK_PD1 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
 };
 
-&sound {
-	hp-det-gpio = <&gpio1 RK_PA0 GPIO_ACTIVE_HIGH>;
+&vcc5v0_host {
+	enable-active-high;
+	gpio = <&gpio4 RK_PD1 GPIO_ACTIVE_HIGH>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&vcc5v0_host_en>;
 };
