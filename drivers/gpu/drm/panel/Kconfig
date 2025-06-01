@@ -596,6 +596,15 @@ config DRM_PANEL_ORISETECH_OTA5601A
           Say Y here if you want to enable support for the panels built
           around the Orise Technology OTA9601A display controller.
 
+config DRM_PANEL_ORISETECH_OTA7290B
+	tristate "Orise Technology ota7290b dsi panel"
+	depends on OF
+	depends on DRM_MIPI_DSI
+	depends on BACKLIGHT_CLASS_DEVICE
+	help
+	  Say Y here if you want to enable support for Orise Technology
+	  ota7290b dsi panel.
+
 config DRM_PANEL_ORISETECH_OTM8009A
 	tristate "Orise Technology otm8009a 480x800 dsi 2dl panel"
 	depends on OF
