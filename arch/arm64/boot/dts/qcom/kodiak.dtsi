@@ -57,6 +57,10 @@
 		i2c13 = &i2c13;
 		i2c14 = &i2c14;
 		i2c15 = &i2c15;
+		i2c16 = &cci0_i2c0;
+		i2c17 = &cci0_i2c1;
+		i2c18 = &cci1_i2c0;
+		i2c19 = &cci1_i2c0;
 		mmc1 = &sdhc_1;
 		mmc2 = &sdhc_2;
 		spi0 = &spi0;
