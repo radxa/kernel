@@ -1175,7 +1175,7 @@ config REGULATOR_RASPBERRYPI_TOUCHSCREEN_V2
 	tristate "Raspberry Pi 7-inch touchscreen panel V2 regulator"
 	depends on ARM || ARM64 || COMPILE_TEST
 	depends on GPIOLIB
-	depends on I2C && PWM
+	depends on I2C && OF && PWM
 	select GPIO_REGMAP
 	select REGMAP_I2C
 	help
