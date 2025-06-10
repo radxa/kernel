@@ -685,6 +685,7 @@
 };
 
 &u2phy0_otg {
+	rockchip,dis-u2-susphy;
 	vbus-supply = <&vcc5v0_otg>;
 	status = "okay";
 };

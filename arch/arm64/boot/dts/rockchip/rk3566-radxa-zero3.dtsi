@@ -492,6 +492,7 @@
 };
 
 &u2phy0_otg {
+	rockchip,dis-u2-susphy;
 	status = "okay";
 };
 
@@ -540,10 +541,6 @@
 };
 
 &usbhost30 {
-	status = "okay";
-};
-
-&u2phy0_otg {
 	status = "okay";
 };
 
