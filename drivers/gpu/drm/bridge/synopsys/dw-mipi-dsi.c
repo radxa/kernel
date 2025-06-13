@@ -272,6 +272,7 @@ struct dw_mipi_dsi {
 	} vpg_defs;
 #endif /* CONFIG_DEBUG_FS */
 
+	struct dw_mipi_dsi *dsi0;
 	struct dw_mipi_dsi *master; /* dual-dsi master ptr */
 	struct dw_mipi_dsi *slave; /* dual-dsi slave ptr */
 
@@ -408,6 +409,7 @@ static void dw_mipi_message_config(struct dw_mipi_dsi *dsi,
 		ctrl |= PHY_TXREQUESTCLKHS;
 	}
 
+	ctrl |= PHY_TXREQUESTCLKHS;
 	dsi_write(dsi, DSI_VID_MODE_CFG, val);
 	dsi_write(dsi, DSI_LPCLK_CTRL, ctrl);
 }
@@ -586,6 +588,7 @@ static void dw_mipi_dsi_video_mode_config(struct dw_mipi_dsi *dsi)
 static void dw_mipi_dsi_set_mode(struct dw_mipi_dsi *dsi,
 				 unsigned long mode_flags)
 {
+	u32 val = 0;
 	dsi_write(dsi, DSI_PWR_UP, RESET);
 
 	if (mode_flags & MIPI_DSI_MODE_VIDEO) {
@@ -594,6 +597,15 @@ static void dw_mipi_dsi_set_mode(struct dw_mipi_dsi *dsi,
 	} else {
 		dsi_write(dsi, DSI_MODE_CFG, ENABLE_CMD_MODE);
 	}
+
+	/* The high-speed clock is started before that the
+	 * high-speed data is sent via the data lanes.
+	 */
+	val = dsi_read(dsi, DSI_LPCLK_CTRL);
+	if(((val & PHY_TXREQUESTCLKHS) != PHY_TXREQUESTCLKHS)
+		&& (mode_flags & MIPI_DSI_MODE_VIDEO))
+		val |= PHY_TXREQUESTCLKHS;
+	val |= PHY_TXREQUESTCLKHS;
 
 	dsi_write(dsi, DSI_PWR_UP, POWERUP);
 }
@@ -605,6 +617,8 @@ static void dw_mipi_dsi_disable(struct dw_mipi_dsi *dsi)
 	dw_mipi_dsi_set_mode(dsi, 0);
 	if (dsi->slave)
 		dw_mipi_dsi_disable(dsi->slave);
+	if (dsi->dsi0)
+		dw_mipi_dsi_disable(dsi->dsi0);
 }
 
 static void dw_mipi_dsi_init(struct dw_mipi_dsi *dsi)
@@ -871,6 +885,8 @@ static void dw_mipi_dsi_post_disable(struct dw_mipi_dsi *dsi)
 
 	if (dsi->slave)
 		dw_mipi_dsi_post_disable(dsi->slave);
+	if (dsi->dsi0)
+		dw_mipi_dsi_set_mode(dsi->dsi0, 0);
 }
 
 static void dw_mipi_dsi_bridge_post_atomic_disable(struct drm_bridge *bridge,
@@ -927,6 +943,8 @@ static void dw_mipi_dsi_bridge_mode_set(struct drm_bridge *bridge,
 
 	if (dsi->slave)
 		drm_mode_copy(&dsi->slave->mode, adjusted_mode);
+	if (dsi->dsi0)
+		drm_mode_copy(&dsi->dsi0->mode, adjusted_mode);
 }
 
 static void dw_mipi_dsi_pre_enable(struct dw_mipi_dsi *dsi)
@@ -937,6 +955,8 @@ static void dw_mipi_dsi_pre_enable(struct dw_mipi_dsi *dsi)
 	int ret;
 	u32 lanes = dw_mipi_dsi_get_lanes(dsi);
 
+	if (dsi->dsi0)
+		dw_mipi_dsi_pre_enable(dsi->dsi0);
 	if (dsi->apb_rst) {
 		reset_control_assert(dsi->apb_rst);
 		usleep_range(10, 20);
@@ -1002,6 +1022,8 @@ static void dw_mipi_dsi_enable(struct dw_mipi_dsi *dsi)
 	u32 val;
 
 	val = PHY_TXREQUESTCLKHS;
+	if (dsi->dsi0)
+		dw_mipi_dsi_enable(dsi->dsi0);
 	if (dsi->mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS)
 		val |= AUTO_CLKLANE_CTRL;
 
@@ -1263,6 +1285,19 @@ void dw_mipi_dsi_set_slave(struct dw_mipi_dsi *dsi, struct dw_mipi_dsi *slave)
 	dsi->slave->mode_flags = dsi->mode_flags;
 }
 EXPORT_SYMBOL_GPL(dw_mipi_dsi_set_slave);
+
+void dw_mipi_dsi_set_dsi0(struct dw_mipi_dsi *dsi, struct dw_mipi_dsi *dsi0)
+{
+	/* introduce controllers to each other */
+	dsi->dsi0 = dsi0;
+
+	/* migrate settings for already attached displays */
+	dsi->dsi0->lanes = dsi->lanes;
+	dsi->dsi0->channel = dsi->channel;
+	dsi->dsi0->format = dsi->format;
+	dsi->dsi0->mode_flags = dsi->mode_flags;
+}
+EXPORT_SYMBOL_GPL(dw_mipi_dsi_set_dsi0);
 
 /*
  * Probe/remove API, used from platforms based on the DRM bridge API.
