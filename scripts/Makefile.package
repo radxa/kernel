@@ -158,6 +158,18 @@ pacman-pkg:
 		KBUILD_REVISION="$(shell $(srctree)/scripts/build-version)" \
 		makepkg $(MAKEPKGOPTS)
 
+# pacman-radxa-pkg
+# ---------------------------------------------------------------------------
+
+PHONY += pacman-radxa-pkg
+pacman-radxa-pkg:
+	@ln -srf $(srctree)/scripts/package/PKGBUILD-radxa $(objtree)/PKGBUILD
+	+BUILDDIR="$(realpath $(objtree))/pacman" \
+		CARCH="$(UTS_MACHINE)" \
+		KBUILD_MAKEFLAGS="$(MAKEFLAGS)" \
+		KBUILD_REVISION="$(shell $(srctree)/scripts/build-version)" \
+		makepkg $(MAKEPKGOPTS)
+
 # dir-pkg tar*-pkg - tarball targets
 # ---------------------------------------------------------------------------
 
@@ -257,6 +269,7 @@ help:
 	@echo '  snap-pkg            - Build only the binary kernel snap package'
 	@echo '                        (will connect to external hosts)'
 	@echo '  pacman-pkg          - Build only the binary kernel pacman package'
+	@echo '  pacman-radxa-pkg    - Build only the binary kernel pacman package for stable testing'
 	@echo '  dir-pkg             - Build the kernel as a plain directory structure'
 	@echo '  tar-pkg             - Build the kernel as an uncompressed tarball'
 	@echo '  targz-pkg           - Build the kernel as a gzip compressed tarball'
