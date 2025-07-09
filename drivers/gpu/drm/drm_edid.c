@@ -40,6 +40,8 @@
 #include <linux/seq_buf.h>
 #include <linux/slab.h>
 #include <linux/vga_switcheroo.h>
+#include <linux/of.h>
+#include <linux/of_device.h>
 
 #include <drm/drm_drv.h>
 #include <drm/drm_edid.h>
@@ -96,6 +98,8 @@ enum drm_edid_internal_quirk {
 	EDID_QUIRK_NON_DESKTOP,
 	/* Cap the DSC target bitrate to 15bpp */
 	EDID_QUIRK_CAP_DSC_15BPP,
+	/* Prefer Full HD */
+	CONNECTOR_QUIRK_PREFER_FHD
 };
 
 #define MICROSOFT_IEEE_OUI	0xca125c
@@ -2965,6 +2969,26 @@ static u32 edid_get_quirks(const struct drm_edid *drm_edid)
 	return 0;
 }
 
+static u32 connector_get_quirks(struct drm_connector *connector)
+{
+	struct device_node *np = connector->dev->dev->of_node;
+	u32 quirks = 0;
+
+	if (!np)
+		return 0;
+
+	if (of_property_read_bool(np, "quirk-prefer-fhd"))
+		quirks |= BIT(CONNECTOR_QUIRK_PREFER_FHD);
+
+	if (of_property_read_bool(np, "quirk-prefer-large-60"))
+		quirks |= BIT(EDID_QUIRK_PREFER_LARGE_60);
+
+	if (of_property_read_bool(np, "quirk-prefer-large-75"))
+		quirks |= BIT(EDID_QUIRK_PREFER_LARGE_75);
+
+	return quirks;
+}
+
 static bool drm_edid_has_internal_quirk(struct drm_connector *connector,
 					enum drm_edid_internal_quirk quirk)
 {
@@ -3006,6 +3030,14 @@ static void edid_fixup_preferred(struct drm_connector *connector)
 
 		if (cur_mode == preferred_mode)
 			continue;
+
+		if (drm_edid_has_internal_quirk(connector, CONNECTOR_QUIRK_PREFER_FHD) &&
+			MODE_SIZE(cur_mode) > 1920 * 1080)
+			continue;
+
+		if (drm_edid_has_internal_quirk(connector, CONNECTOR_QUIRK_PREFER_FHD) &&
+			MODE_SIZE(preferred_mode) > 1920 * 1080)
+			preferred_mode = cur_mode;
 
 		/* Largest mode is preferred */
 		if (MODE_SIZE(cur_mode) > MODE_SIZE(preferred_mode))
@@ -6685,7 +6717,7 @@ static void update_display_info(struct drm_connector *connector,
 
 	edid = drm_edid->edid;
 
-	info->quirks = edid_get_quirks(drm_edid);
+	info->quirks = edid_get_quirks(drm_edid) | connector_get_quirks(connector);
 
 	info->width_mm = edid->width_cm * 10;
 	info->height_mm = edid->height_cm * 10;
