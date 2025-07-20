@@ -71,9 +71,12 @@ static void qcom_tzmem_cleanup_area(struct qcom_tzmem_area *area)
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/of.h>
 
+#define QCOM_SHM_BRIDGE_SELF_OWNER BIT(1)
+#define QCOM_SHM_BRIDGE_SELF_OWNER_PERM_SHIFT 2
 #define QCOM_SHM_BRIDGE_NUM_VM_SHIFT 9
 
 static bool qcom_tzmem_using_shm_bridge;
+static u32 qcom_tzmem_vmid = QCOM_SCM_VMID_HLOS;
 
 /* List of machines that are known to not support SHM bridge correctly. */
 static const char *const qcom_tzmem_blacklist[] = {
@@ -91,9 +94,15 @@ static int qcom_tzmem_init(void)
 	const char *const *platform;
 	int ret;
 
-	for (platform = qcom_tzmem_blacklist; *platform; platform++) {
-		if (of_machine_is_compatible(*platform))
-			goto notsupp;
+	device_property_read_u32(qcom_tzmem_dev, "qcom,shm-bridge-vmid",
+				 &qcom_tzmem_vmid);
+
+	/* Skip blocklist if self owner is requested */
+	if (qcom_tzmem_vmid != QCOM_SCM_VMID_SELF_OWNER) {
+		for (platform = qcom_tzmem_blacklist; *platform; platform++) {
+			if (of_machine_is_compatible(*platform))
+				goto notsupp;
+		}
 	}
 
 	ret = qcom_scm_shm_bridge_enable(qcom_tzmem_dev);
@@ -125,6 +134,7 @@ notsupp:
 int qcom_tzmem_shm_bridge_create(phys_addr_t paddr, size_t size, u64 *handle)
 {
 	u64 pfn_and_ns_perm, ipfn_and_s_perm, size_and_flags;
+	u64 ns_vmids = qcom_tzmem_vmid;
 	int ret;
 
 	if (!qcom_tzmem_using_shm_bridge)
@@ -134,9 +144,15 @@ int qcom_tzmem_shm_bridge_create(phys_addr_t paddr, size_t size, u64 *handle)
 	ipfn_and_s_perm = paddr | QCOM_SCM_PERM_RW;
 	size_and_flags = size | (1 << QCOM_SHM_BRIDGE_NUM_VM_SHIFT);
 
+	if (qcom_tzmem_vmid == QCOM_SCM_VMID_SELF_OWNER) {
+		size_and_flags = size | QCOM_SHM_BRIDGE_SELF_OWNER |
+				 (QCOM_SCM_PERM_RW << QCOM_SHM_BRIDGE_SELF_OWNER_PERM_SHIFT);
+		ns_vmids = 0;
+	}
+
+
 	ret = qcom_scm_shm_bridge_create(pfn_and_ns_perm, ipfn_and_s_perm,
-					 size_and_flags, QCOM_SCM_VMID_HLOS,
-					 handle);
+					 size_and_flags, ns_vmids, handle);
 	if (ret) {
 		dev_err(qcom_tzmem_dev,
 			"SHM Bridge failed: ret %d paddr 0x%pa, size %zu\n",
