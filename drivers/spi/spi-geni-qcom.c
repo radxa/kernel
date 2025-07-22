@@ -1252,3 +1252,4 @@ module_platform_driver(spi_geni_driver);
 
 MODULE_DESCRIPTION("SPI driver for GENI based QUP cores");
 MODULE_LICENSE("GPL v2");
+MODULE_FIRMWARE("qcom/qcm6490/qupv3fw.elf");

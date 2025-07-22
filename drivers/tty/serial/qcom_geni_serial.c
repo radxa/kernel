@@ -2261,3 +2261,4 @@ module_exit(qcom_geni_serial_exit);
 
 MODULE_DESCRIPTION("Serial driver for GENI based QUP cores");
 MODULE_LICENSE("GPL v2");
+MODULE_FIRMWARE("qcom/qcm6490/qupv3fw.elf");

@@ -1703,3 +1703,4 @@ module_platform_driver(geni_se_driver);
 
 MODULE_DESCRIPTION("GENI Serial Engine Driver");
 MODULE_LICENSE("GPL v2");
+MODULE_FIRMWARE("qcom/qcm6490/qupv3fw.elf");
