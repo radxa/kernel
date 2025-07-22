@@ -1285,3 +1285,4 @@ module_platform_driver(geni_i2c_driver);
 
 MODULE_DESCRIPTION("I2C Controller Driver for GENI based QUP cores");
 MODULE_LICENSE("GPL v2");
+MODULE_FIRMWARE("qcom/qcm6490/qupv3fw.elf");
