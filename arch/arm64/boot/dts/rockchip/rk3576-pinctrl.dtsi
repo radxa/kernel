@@ -2860,7 +2860,7 @@
 		pwm2m1_ch5: pwm2m1-ch5 {
 			rockchip,pins =
 				/* pwm2_ch5_m1 */
-				<4 RK_PC5 14 &pcfg_pull_none_drv_level_2>;
+				<4 RK_PC5 14 &pcfg_pull_down_drv_level_2>;
 		};
 
 		/omit-if-no-ref/
