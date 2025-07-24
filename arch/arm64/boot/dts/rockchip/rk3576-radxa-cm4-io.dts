@@ -570,9 +570,9 @@
 		"PIN_23", "PIN_19", "PIN_21", "PIN_24",
 
 		/* GPIO1_C0-C3 */
-		"PIN_26", "PIN_31", "PIN_11", "PIN_7",
+		"PIN_26", "PIN_31", "PIN_33", "PIN_7",
 		/* GPIO1_C4-C7 */
-		"PIN_33", "PIN_15", "PIN_5", "PIN_3",
+		"PIN_11", "PIN_15", "PIN_5", "PIN_3",
 
 		/* GPIO1_D0-D3 */
 		"PIN_40", "PIN_12", "PIN_35", "PIN_38",
