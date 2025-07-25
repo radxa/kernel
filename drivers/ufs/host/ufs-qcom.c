@@ -1971,6 +1971,20 @@ static int ufs_qcom_probe(struct platform_device *pdev)
 {
 	int err;
 	struct device *dev = &pdev->dev;
+	struct gpio_desc *cd_gpio;
+
+	cd_gpio = devm_gpiod_get_optional(dev, "cd", GPIOD_IN);
+	if (IS_ERR(cd_gpio)) {
+		return dev_err_probe(dev, PTR_ERR(cd_gpio),
+				     "failed to get card-detect GPIO\n");
+	}
+
+	if (cd_gpio) {
+		if (!gpiod_get_value(cd_gpio)) {
+			dev_warn(dev, "UFS module not present, returning -ENODEV\n");
+			return -ENODEV;
+		}
+	}
 
 	/* Perform generic probe */
 	err = ufshcd_pltfrm_init(pdev, &ufs_hba_qcom_vops);
