@@ -104,7 +104,11 @@ static int  __set_pwm(struct pwm_fan_ctx *ctx, unsigned long pwm)
 
 	period = state->period;
 	state->duty_cycle = DIV_ROUND_UP(pwm * (period - 1), MAX_PWM);
+#if IS_ENABLED(CONFIG_ARCH_SUN60IW2)
+	state->enabled = true;
+#else
 	state->enabled = pwm ? true : false;
+#endif
 
 	ret = pwm_apply_state(ctx->pwm, state);
 	if (!ret)
