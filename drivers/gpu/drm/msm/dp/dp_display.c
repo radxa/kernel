@@ -921,6 +921,48 @@ static int msm_dp_display_disable(struct msm_dp_display_private *dp)
 	return 0;
 }
 
+static const struct msm_dp_bridge_mode_filter {
+	const char *compatible;
+	u32 max_pixels;
+	u32 max_vrefresh;
+} msm_dp_bridge_mode_filters[] = {
+	{ "radxa,dragon-q6a", 3440 * 1440, 30 },
+	{}
+};
+
+static bool msm_dp_bridge_mode_filter_valid(const struct drm_display_mode *mode)
+{
+	const struct msm_dp_bridge_mode_filter *filter;
+	struct device_node *np;
+	int vrefresh;
+	u32 pixels;
+
+	np = of_find_node_by_path("/");
+	if (!np)
+		return true;
+
+	pixels = mode->hdisplay * mode->vdisplay;
+	vrefresh = drm_mode_vrefresh(mode);
+
+	for (filter = msm_dp_bridge_mode_filters; filter->compatible; filter++) {
+		if (!of_device_is_compatible(np, filter->compatible))
+			continue;
+
+		if (pixels <= filter->max_pixels ||
+		    vrefresh <= filter->max_vrefresh)
+			continue;
+
+		DRM_INFO("mode filtered by %s: %ux%u@%u\n",
+			 filter->compatible, mode->hdisplay,
+			 mode->vdisplay, vrefresh);
+		of_node_put(np);
+		return false;
+	}
+
+	of_node_put(np);
+	return true;
+}
+
 /**
  * msm_dp_bridge_mode_valid - callback to determine if specified mode is valid
  * @bridge: Pointer to drm bridge structure
@@ -968,6 +1010,9 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
 	supported_rate_khz = link_info->num_lanes * link_info->rate * 8;
 
 	if (mode_rate_khz > supported_rate_khz)
+		return MODE_BAD;
+
+	if (!msm_dp_bridge_mode_filter_valid(mode))
 		return MODE_BAD;
 
 	return MODE_OK;
