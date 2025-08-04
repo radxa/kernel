@@ -929,6 +929,7 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
 	u32 mode_rate_khz = 0, supported_rate_khz = 0, mode_bpp = 0;
 	struct msm_dp *dp;
 	int mode_pclk_khz = mode->clock;
+	int vrefresh = drm_mode_vrefresh(mode);
 
 	dp = to_dp_bridge(bridge)->msm_dp_display;
 
@@ -959,6 +960,9 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
 	supported_rate_khz = link_info->num_lanes * link_info->rate * 8;
 
 	if (mode_rate_khz > supported_rate_khz)
+		return MODE_BAD;
+
+	if ((mode->hdisplay * mode->vdisplay > 3440 * 1440) && vrefresh > 30)
 		return MODE_BAD;
 
 	return MODE_OK;
