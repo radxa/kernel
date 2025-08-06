@@ -12,4 +12,7 @@ int iris_fw_load(struct iris_core *core);
 int iris_fw_unload(struct iris_core *core);
 int iris_set_hw_state(struct iris_core *core, bool resume);
 
+int iris_fw_init(struct iris_core *core);
+void iris_fw_deinit(struct iris_core *core);
+
 #endif
