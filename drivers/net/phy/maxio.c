@@ -11,8 +11,9 @@
 #include <linux/mdio.h>
 #include <linux/timer.h>
 #include <linux/netdevice.h>
+#include <linux/version.h>
 
-#define MAXIO_PHY_VER			"v1.8.1.2"
+#define MAXIO_PHY_VER			"v1.8.1.13"
 #define MAXIO_PAGE_SELECT		0x1f
 #define MAXIO_MAE0621A_WORK_STATUS_REG	0x1d
 #define MAXIO_MAE0621A_CLK_MODE_REG	0x02
@@ -165,12 +166,15 @@ static void phy_resolve_aneg_linkmode_maxio(struct phy_device *phydev){
 	} else {
 		phydev->duplex = DUPLEX_HALF;
 	}
-
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
+	genphy_read_lpa(phydev);
+#else
 	if (phydev->duplex == DUPLEX_FULL) {
-		int lpa = PHY_READ(phydev,MII_LPA);
-		phydev->pause = (lpa&LPA_PAUSE_CAP) ? 1 : 0;
-		phydev->asym_pause = (lpa&LPA_PAUSE_ASYM) ? 1 : 0;
+		int lpa = PHY_READ(phydev, MII_LPA);
+		phydev->pause = (lpa & LPA_PAUSE_CAP) ? 1 : 0;
+		phydev->asym_pause = (lpa & LPA_PAUSE_ASYM) ? 1 : 0;
 	}
+#endif
 }
 
 void phy_resolve_link_compatibility_maxio(struct phy_device *phydev)
@@ -328,9 +332,14 @@ static int maxio_mae0621aq3ci_config_init(struct phy_device *phydev)
 	ret |= maxio_write_paged(phydev, 0xd98, 0x17, 0x8506);
 	ret |= maxio_write_paged(phydev, 0xd95, 0x12, 0x6870);
 	ret |= maxio_write_paged(phydev, 0xd93, 0x15, 0x940);
-	ret |= maxio_write_paged(phydev, 0xdad, 0x12, 0x1303);
+	ret |= maxio_write_paged(phydev, 0xdad, 0x12, 0x303);   // TXCST OFF
+	ret |= maxio_write_paged(phydev, 0xdad, 0x13, 0x50d);   // IO DS=1
+	ret |= maxio_write_paged(phydev, 0xdad, 0x14, 0xd05);
+	ret |= maxio_write_paged(phydev, 0xdad, 0x15, 0x505);
+	ret |= maxio_write_paged(phydev, 0xdad, 0x17, 0x1);
 	ret |= maxio_write_paged(phydev, 0xda8, 0x11, 0x177);
 	ret |= maxio_write_paged(phydev, 0xda8, 0x10, 0x9a9);
+	ret |= maxio_write_paged(phydev, 0xda8, 0x12, 0x868);
 	ret |= maxio_write_paged(phydev, 0xa42, 0x12, 0x28);
 	ret |= maxio_write_paged(phydev, 0x0, 0x4, 0xde1);
 	ret |= maxio_write_paged(phydev, 0x0, 0x0, 0x9140);
