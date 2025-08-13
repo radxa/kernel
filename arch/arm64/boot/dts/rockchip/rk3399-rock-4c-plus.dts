@@ -336,11 +336,6 @@
 	pinctrl-0 = <&i2s0_8ch_bus>;
 };
 
-&i2s1 {
-	status = "okay";
-	#sound-dai-cells = <0>;
-};
-
 &i2s2 {
 	status = "okay";
 	dmas = <&dmac_bus 4>;
