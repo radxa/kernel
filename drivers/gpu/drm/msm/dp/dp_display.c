@@ -1496,6 +1496,8 @@ static struct platform_driver msm_dp_display_driver = {
 		.suppress_bind_attrs = true,
 		.pm = &msm_dp_pm_ops,
 	},
+	/* Apply clock parents after PHY is fully initialized */
+	.driver_managed_clk_defaults = true,
 };
 
 int __init msm_dp_register(void)
