@@ -7,6 +7,7 @@
 
 #include <linux/types.h>
 #include <linux/clk.h>
+#include <linux/clk/clk-conf.h>
 #include <linux/completion.h>
 #include <linux/delay.h>
 #include <linux/iopoll.h>
@@ -145,6 +146,7 @@ struct msm_dp_ctrl_private {
 	bool core_clks_on;
 	bool link_clks_on;
 	bool stream_clks_on[DP_STREAM_MAX];
+	bool clk_defaults_set;
 };
 
 static inline u32 msm_dp_read_ahb(const struct msm_dp_ctrl_private *ctrl, u32 offset)
@@ -1930,6 +1932,16 @@ static int msm_dp_ctrl_enable_mainlink_clocks(struct msm_dp_ctrl_private *ctrl,
 		if (ret)
 			return ret;
 		ctrl->phy_powered = true;
+	}
+
+	if (!ctrl->clk_defaults_set) {
+		ret = of_clk_set_defaults(ctrl->dev->of_node, false);
+		if (ret) {
+			msm_dp_ctrl_phy_power_off(ctrl);
+			return ret;
+		}
+
+		ctrl->clk_defaults_set = true;
 	}
 
 	dev_pm_opp_set_rate(ctrl->dev, ctrl->link->link_params.rate * 1000);
