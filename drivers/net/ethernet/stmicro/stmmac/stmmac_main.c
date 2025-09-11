@@ -66,6 +66,13 @@
 #define	RTL8211F_LCR_ADDR	0x10
 #define	RTL8211F_EEELCR_ADDR	0x11
 
+#define RK631_PHY_ID	0x4f51e91b
+#define RK631_PHY_ID_MASK	0x4fffffff
+#define RK631_EXTENDED_REGISTER_ADDRESS_OFFSET	0x1e
+#define RK631_EXTENDED_REGISTER_DATA	0x1f
+#define RK631_LED1_CFG	0xa00d
+#define RK631_LED2_CFG	0xa00e
+
 /* Module parameters */
 #define TX_TIMEO	5000
 static int watchdog = TX_TIMEO;
@@ -7138,6 +7145,18 @@ static int phy_rtl8211f_eee_fixup(struct phy_device *phydev)
 	return 0;
 }
 
+static int phy_rk631_led_fixup(struct phy_device *phydev)
+{
+	/* Set LED1(Green) Link 10/100/1000M + Active, and set LED2(Yellow) Link 10/100/1000M */
+	phy_write(phydev, RK631_EXTENDED_REGISTER_ADDRESS_OFFSET, RK631_LED2_CFG);
+	phy_write(phydev, RK631_EXTENDED_REGISTER_DATA, 0xc070);
+
+	phy_write(phydev, RK631_EXTENDED_REGISTER_ADDRESS_OFFSET, RK631_LED1_CFG);
+	phy_write(phydev, RK631_EXTENDED_REGISTER_DATA, 0xc607);
+
+	return 0;
+}
+
 /**
  * stmmac_dvr_probe
  * @device: device pointer
@@ -7429,6 +7448,12 @@ int stmmac_dvr_probe(struct device *device,
 	ret = phy_register_fixup_for_uid(RTL8211F_PHY_UID, RTL8211F_PHY_UID_MASK, phy_rtl8211f_eee_fixup);
 	if (ret) {
 		dev_warn(priv->device, "Failed to register fixup for PHY RTL8211F disabling EEE.\n");
+	}
+
+	/* Register fixup for PHY RK631 */
+	ret = phy_register_fixup_for_uid(RK631_PHY_ID, RK631_PHY_ID_MASK, phy_rk631_led_fixup);
+	if (ret) {
+		dev_warn(priv->device, "Failed to register fixup for PHY RK631.\n");
 	}
 
 	return ret;
