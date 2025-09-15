@@ -203,6 +203,11 @@
 	gpio_leds: gpio-leds {
 		compatible = "gpio-leds";
 
+		power-led {
+			gpios = <&gpio3 RK_PC1 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "default-on";
+		};
+
 		state-led {
 			gpios = <&gpio1 RK_PA3 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "heartbeat";
