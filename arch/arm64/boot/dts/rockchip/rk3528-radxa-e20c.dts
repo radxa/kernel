@@ -277,6 +277,7 @@
 		(0
 		| RKPM_CPU0_WKUP_EN
 		| RKPM_GPIO_WKUP_EN
+		| RKPM_USBDEV_WKUP_EN
 		)
 	>;
 	rockchip,pwm-regulator-config = <
