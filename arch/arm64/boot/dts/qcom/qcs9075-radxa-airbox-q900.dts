@@ -437,9 +437,9 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		sgmii_phy1: phy@18 {
+		sgmii_phy1: phy@1c {
 			compatible = "ethernet-phy-id004d.d101";
-			reg = <0x18>;
+			reg = <0x1c>;
 			device_type = "ethernet-phy";
 			reset-gpios = <&pmm8654au_2_gpios 9 GPIO_ACTIVE_LOW>;
 			reset-assert-us = <11000>;
