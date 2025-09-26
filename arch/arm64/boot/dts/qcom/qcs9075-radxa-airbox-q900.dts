@@ -821,6 +821,10 @@
 	status = "okay";
 };
 
+&pmm8654au_0_rtc {
+	status = "disabled";
+};
+
 &uart0 {
 	qcom,load-firmware;
 	qcom,xfer-mode = <1>;
