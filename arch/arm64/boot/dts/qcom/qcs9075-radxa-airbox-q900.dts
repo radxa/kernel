@@ -26,6 +26,7 @@
 		ethernet0 = &ethernet0;
 		ethernet1 = &ethernet1;
 		serial0 = &uart10;
+		i2c18 = &i2c18;
 		ufshc1 = &ufs_mem_hc;
 	};
 
@@ -639,6 +640,12 @@
 	pinctrl-0 = <&qup_i2c18_default>;
 	pinctrl-names = "default";
 	status = "okay";
+
+	/* RTC RS4C411ZAE */
+	rtc_m41t11: rtc-m41t11@68 {
+		compatible = "st,m41t11";
+		reg = <0x68>;
+	};
 };
 
 &i2c19 {
