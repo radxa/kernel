@@ -17,7 +17,7 @@
 #include "qcs9xxx-reserved-memory.dtsi"
 
 / {
-	model = "Radxa Airbox Q900";
+	model = "Radxa AIRbox Q900";
 	compatible = "radxa,airbox-q900", "qcom,qcs9075", "qcom,sa8775p";
 
 	qcom,msm-id = <676 0x20000>;
