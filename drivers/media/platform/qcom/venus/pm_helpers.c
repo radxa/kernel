@@ -688,8 +688,13 @@ static int decide_core(struct venus_inst *inst)
 		cu.video_core_enable_mask = min_lp_coreid;
 		move_core_to_power_save_mode(core, min_lp_coreid);
 	} else {
-		dev_warn(core->dev, "HW can't support this load");
-		return -EINVAL;
+		// dev_warn(core->dev, "HW can't support this load");
+		// return -EINVAL;
+		dev_warn(core->dev, "HW is overloaded(?) Will run at max performance.\n");
+		inst->clk_data.core_id = min_lp_coreid;
+		cu.video_core_enable_mask = min_lp_coreid;
+		move_core_to_power_save_mode(core, min_lp_coreid);
+		power_save_mode_enable(inst, true);
 	}
 
 done:

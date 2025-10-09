@@ -136,9 +136,9 @@ find_format(struct venus_inst *inst, u32 pixfmt, u32 type)
 	    !venus_helper_check_format(inst, fmt[i].pixfmt))
 		return NULL;
 
-	if (V4L2_TYPE_IS_CAPTURE(type) && fmt[i].pixfmt == V4L2_PIX_FMT_QC10C &&
-	    !(inst->bit_depth == VIDC_BITDEPTH_10))
-		return NULL;
+	// if (V4L2_TYPE_IS_CAPTURE(type) && fmt[i].pixfmt == V4L2_PIX_FMT_QC10C &&
+	//     !(inst->bit_depth == VIDC_BITDEPTH_10))
+	// 	return NULL;
 
 	return &fmt[i];
 }
@@ -164,9 +164,9 @@ find_format_by_index(struct venus_inst *inst, unsigned int index, u32 type)
 		} else {
 			valid = venus_helper_check_format(inst, fmt[i].pixfmt);
 
-			if (fmt[i].pixfmt == V4L2_PIX_FMT_QC10C &&
-			    !(inst->bit_depth == VIDC_BITDEPTH_10))
-				valid = false;
+			// if (fmt[i].pixfmt == V4L2_PIX_FMT_QC10C &&
+			//     !(inst->bit_depth == VIDC_BITDEPTH_10))
+			// 	valid = false;
 		}
 
 		if (k == index && valid)
@@ -1616,7 +1616,7 @@ static const struct hfi_inst_ops vdec_hfi_ops = {
 
 static void vdec_inst_init(struct venus_inst *inst)
 {
-	inst->hfi_codec = HFI_VIDEO_CODEC_H264;
+	inst->hfi_codec = HFI_VIDEO_CODEC_HEVC;
 	inst->fmt_out = &vdec_formats[VENUS_FMT_H264];
 	inst->fmt_cap = &vdec_formats[VENUS_FMT_NV12];
 	inst->width = frame_width_min(inst);
@@ -1628,7 +1628,7 @@ static void vdec_inst_init(struct venus_inst *inst)
 	inst->fw_min_cnt = 8;
 	inst->out_width = frame_width_min(inst);
 	inst->out_height = frame_height_min(inst);
-	inst->fps = 30;
+	inst->fps = VENUS_MAX_FPS;
 	inst->timeperframe.numerator = 1;
 	inst->timeperframe.denominator = 30;
 	inst->opb_buftype = HFI_BUFFER_OUTPUT;
