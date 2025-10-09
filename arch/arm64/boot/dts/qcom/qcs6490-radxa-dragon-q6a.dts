@@ -786,7 +786,7 @@
 };
 
 &remoteproc_cdsp {
-	firmware-name = "qcom/qcs6490/cdsp.mbn";
+	firmware-name = "qcom/qcs6490/radxa/dragon-q6a/cdsp.mbn";
 	status = "okay";
 };
 
