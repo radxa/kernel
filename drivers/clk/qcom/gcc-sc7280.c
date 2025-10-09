@@ -3102,7 +3102,7 @@ static struct gdsc gcc_pcie_0_gdsc = {
 		.name = "gcc_pcie_0_gdsc",
 	},
 	.pwrsts = PWRSTS_RET_ON,
-	.flags = VOTABLE,
+	.flags = VOTABLE | RETAIN_FF_ENABLE,
 };
 
 static struct gdsc gcc_pcie_1_gdsc = {
@@ -3111,7 +3111,7 @@ static struct gdsc gcc_pcie_1_gdsc = {
 		.name = "gcc_pcie_1_gdsc",
 	},
 	.pwrsts = PWRSTS_RET_ON,
-	.flags = VOTABLE,
+	.flags = VOTABLE | RETAIN_FF_ENABLE,
 };
 
 static struct gdsc gcc_ufs_phy_gdsc = {
@@ -3123,7 +3123,7 @@ static struct gdsc gcc_ufs_phy_gdsc = {
 		.name = "gcc_ufs_phy_gdsc",
 	},
 	.pwrsts = PWRSTS_OFF_ON,
-	.flags = VOTABLE,
+	.flags = VOTABLE | RETAIN_FF_ENABLE,
 };
 
 static struct gdsc gcc_usb30_prim_gdsc = {
@@ -3135,7 +3135,7 @@ static struct gdsc gcc_usb30_prim_gdsc = {
 		.name = "gcc_usb30_prim_gdsc",
 	},
 	.pwrsts = PWRSTS_RET_ON,
-	.flags = VOTABLE,
+	.flags = VOTABLE | RETAIN_FF_ENABLE,
 };
 
 static struct gdsc gcc_usb30_sec_gdsc = {
@@ -3144,7 +3144,7 @@ static struct gdsc gcc_usb30_sec_gdsc = {
 		.name = "gcc_usb30_sec_gdsc",
 	},
 	.pwrsts = PWRSTS_RET_ON,
-	.flags = VOTABLE,
+	.flags = VOTABLE | RETAIN_FF_ENABLE,
 };
 
 static struct gdsc hlos1_vote_mmnoc_mmu_tbu_hf0_gdsc = {
