@@ -555,7 +555,7 @@ LINUXINCLUDE    := \
 		-I$(objtree)/include \
 		$(USERINCLUDE)
 
-LINUXINCLUDE += -I$(srctree)/drivers/soc/cix/ap/platform/$(TARGET_SOC_PLATFORM)
+LINUXINCLUDE += -I$(srctree)/include/soc/cix/ap/platform/$(TARGET_SOC_PLATFORM)
 
 KBUILD_AFLAGS   := -D__ASSEMBLY__ -fno-PIE
 
