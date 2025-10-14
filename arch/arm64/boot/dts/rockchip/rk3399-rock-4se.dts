@@ -24,6 +24,27 @@
 	};
 };
 
+&dmc {
+	system-status-freq = <
+		/*system status         freq(KHz)*/
+		SYS_STATUS_NORMAL       666000
+		SYS_STATUS_REBOOT       666000
+		SYS_STATUS_SUSPEND      328000
+		SYS_STATUS_VIDEO_1080P  666000
+		SYS_STATUS_VIDEO_4K     666000
+		SYS_STATUS_VIDEO_4K_10B 666000
+		SYS_STATUS_PERFORMANCE  666000
+		SYS_STATUS_BOOST        666000
+		SYS_STATUS_DUALVIEW     666000
+		SYS_STATUS_ISP          666000
+	>;
+	vop-bw-dmc-freq = <
+	/* min_bw(MB/s) max_bw(MB/s) freq(KHz) */
+		0       762      416000
+		763     99999    666000
+	>;
+};
+
 &pinctrl {
 	usb2 {
 		vcc5v0_host_en: vcc5v0-host-en {
