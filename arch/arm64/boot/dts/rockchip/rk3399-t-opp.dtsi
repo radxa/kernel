@@ -83,6 +83,48 @@
 			opp-microvolt = <975000 975000 1150000>;
 		};
 	};
+
+	dmc_opp_table: opp-table3 {
+		compatible = "operating-points-v2";
+
+		opp-200000000 {
+			opp-hz = /bits/ 64 <200000000>;
+			opp-microvolt = <900000>;
+			status = "disabled";
+		};
+		opp-300000000 {
+			opp-hz = /bits/ 64 <300000000>;
+			opp-microvolt = <900000>;
+			status = "disabled";
+		};
+		opp-328000000 {
+			opp-hz = /bits/ 64 <328000000>;
+			opp-microvolt = <900000>;
+		};
+		opp-400000000 {
+			opp-hz = /bits/ 64 <400000000>;
+			opp-microvolt = <900000>;
+			status = "disabled";
+		};
+		opp-416000000 {
+			opp-hz = /bits/ 64 <416000000>;
+			opp-microvolt = <900000>;
+		};
+		opp-528000000 {
+			opp-hz = /bits/ 64 <528000000>;
+			opp-microvolt = <900000>;
+			status = "disabled";
+		};
+		opp-600000000 {
+			opp-hz = /bits/ 64 <600000000>;
+			opp-microvolt = <900000>;
+			status = "disabled";
+		};
+		opp-666000000 {
+			opp-hz = /bits/ 64 <666000000>;
+			opp-microvolt = <900000>;
+		};
+	};
 };
 
 &cpu_l0 {
@@ -107,6 +149,10 @@
 
 &cpu_b1 {
 	operating-points-v2 = <&cluster1_opp>;
+};
+
+&dmc {
+	operating-points-v2 = <&dmc_opp_table>;
 };
 
 &gpu {
