@@ -55,7 +55,6 @@
 
 &sdio0 {
 	status = "okay";
-	max-frequency = <100000000>;
 };
 
 &uart0 {
