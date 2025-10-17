@@ -137,20 +137,6 @@
 		vin-supply = <&vcc5v0_sys>;
 	};
 
-	virtual_pd: virtual-pd {
-		compatible = "linux,extcon-pd-virtual";
-		/* 0: positive, 1: negative*/
-		vpd,init-flip = <0>;
-		/* 0: u2, 1: u3*/
-		vpd,init-ss = <1>;
-		/* 0: dfp, 1: ufp, 2: dp 3: dp/ufp */
-		vpd,init-mode = <2>;
-		hpd-gpios = <&gpio4 RK_PD1 GPIO_ACTIVE_LOW>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&hpd_en>;
-		dp-pwr-supply = <&vcc3v3_dp>;
-	};
-
 	rk809_sound: rk809-sound {
 		compatible = "rockchip,multicodecs-card";
 		rockchip,card-name = "rockchip-rk809";
@@ -698,7 +684,7 @@
 
 &tcphy0 {
 	status = "okay";
-	extcon = <&virtual_pd>;
+	rockchip,dp-lane-mux = <2 3>;
 };
 
 &tcphy1 {
@@ -706,9 +692,11 @@
 };
 
 &cdn_dp {
-	phys = <&tcphy0_dp>;
-	extcon = <&virtual_pd>;
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&hpd_en>;
+	hpd-gpios = <&gpio4 RK_PD1 GPIO_ACTIVE_HIGH>;
+	phys = <&tcphy0_dp>;
 };
 
 &tcphy0_dp {
