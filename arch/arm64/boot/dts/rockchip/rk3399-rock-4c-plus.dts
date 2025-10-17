@@ -863,6 +863,10 @@
 	//allocator = <0>;
 };
 
+&dfi {
+	status = "okay";
+};
+
 &dmc {
 	status = "okay";
 	center-supply = <&vdd_log>;
@@ -893,7 +897,6 @@
 	>;
 
 	auto-min-freq = <328000>;
-	auto-freq-en = <0>;
 };
 
 &rga {
