@@ -72,8 +72,7 @@ static const struct regmap_config mmc5633_regmap_config = {
 	.max_register = 0x7F,
 };
 
-static int mmc5633_probe(struct i2c_client *client,
-			  const struct i2c_device_id *id)
+static int mmc5633_probe(struct i2c_client *client)
 {
 	struct mmc5633_data *data;
 	struct iio_dev *indio_dev;
