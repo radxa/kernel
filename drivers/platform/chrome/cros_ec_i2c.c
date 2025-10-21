@@ -340,7 +340,7 @@ static int cros_ec_i2c_resume(struct device *dev)
 #endif
 
 static const struct dev_pm_ops cros_ec_i2c_pm_ops = {
-#ifdef CONFIG_CIX_EC
+#if IS_ENABLED(CONFIG_CIX_EC)
 	SYSTEM_SLEEP_PM_OPS(cros_ec_i2c_suspend, cros_ec_i2c_resume)
 #else
 	SET_LATE_SYSTEM_SLEEP_PM_OPS(cros_ec_i2c_suspend, cros_ec_i2c_resume)

@@ -6391,7 +6391,7 @@ struct ec_params_usb_pd_mux_ack {
 #define EC_LPC_ADDR_OLD_PARAM   EC_HOST_CMD_REGION1
 #define EC_OLD_PARAM_SIZE       EC_HOST_CMD_REGION_SIZE
 
-#ifdef CONFIG_CIX_EC
+#if IS_ENABLED(CONFIG_CIX_EC)
 /*****************************************************************************/
 /* Cix EC commands */
 
@@ -6467,7 +6467,7 @@ struct ec_response_ic_error_info
 #endif /* CONFIG_CIX_EC_EXCEPTION */
 #endif /* CONFIG_CIX_EC */
 
-#ifdef CONFIG_CIX_EC
+#if IS_ENABLED(CONFIG_CIX_EC)
 #define ec_be16_to_cpu(x) be16_to_cpu(x)
 #define ec_be32_to_cpu(x) be32_to_cpu(x)
 #define ec_cpu_to_be16(x) cpu_to_be16(x)
