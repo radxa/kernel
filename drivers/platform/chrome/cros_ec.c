@@ -79,7 +79,7 @@ static bool cros_ec_handle_event(struct cros_ec_device *ec_dev)
 	return ec_has_more_events;
 }
 
-#ifdef CONFIG_CIX_EC
+#if IS_ENABLED(CONFIG_CIX_EC)
 /**
  * cix_ec_get_irq_info() - get irq info from EC
  * @ec_dev: Device which raise the irq
@@ -121,7 +121,7 @@ int cix_ec_get_irq_info(struct cros_ec_device *ec_dev)
 irqreturn_t cros_ec_irq_thread(int irq, void *data)
 {
 	struct cros_ec_device *ec_dev = data;
-#ifdef CONFIG_CIX_EC
+#if IS_ENABLED(CONFIG_CIX_EC)
 	int rc = cix_ec_get_irq_info(ec_dev);
 	if (rc < 0)
 		return IRQ_NONE;
@@ -254,7 +254,7 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 		err = devm_request_threaded_irq(dev, ec_dev->irq,
 						cros_ec_irq_handler,
 						cros_ec_irq_thread,
-#ifdef CONFIG_CIX_EC
+#if IS_ENABLED(CONFIG_CIX_EC)
 						IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
 #else
 						IRQF_TRIGGER_LOW | IRQF_ONESHOT,
@@ -328,7 +328,7 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 			goto exit;
 	}
 
-#ifdef CONFIG_CIX_EC
+#if IS_ENABLED(CONFIG_CIX_EC)
 	/* Maybe EC generates interrupt and EC pulls down gpio before request_irq,
 	 * so we must handle the interrupt
 	 */
@@ -530,13 +530,13 @@ EXPORT_SYMBOL(cros_ec_resume_early);
  */
 int cros_ec_resume(struct cros_ec_device *ec_dev)
 {
-#ifdef CONFIG_CIX_EC
+#if IS_ENABLED(CONFIG_CIX_EC)
 	int ret;
 #endif
 
 	cros_ec_resume_early(ec_dev);
 	cros_ec_resume_complete(ec_dev);
-#ifdef CONFIG_CIX_EC
+#if IS_ENABLED(CONFIG_CIX_EC)
 	ret = cix_ec_get_irq_info(ec_dev);
 	if (ret < 0)
 		dev_err(ec_dev->dev,"Failed: clear interrupts from str wakeup!\n");
