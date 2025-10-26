@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
+#include <dt-bindings/firmware/qcom,scm.h>
 
 /*
  * x1 specific modifications required to boot in EL2.
@@ -58,4 +59,8 @@
  */
 &sbsa_watchdog {
 	status = "disabled";
+};
+
+&scm {
+	qcom,shm-bridge-vmid = <QCOM_SCM_VMID_SELF_OWNER>;
 };
