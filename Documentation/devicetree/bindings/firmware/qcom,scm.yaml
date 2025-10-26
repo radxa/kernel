@@ -115,6 +115,15 @@ properties:
       Phandle to the memory region reserved for the shared memory bridge to TZ.
     maxItems: 1
 
+  qcom,shm-bridge-vmid:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description:
+      VMID to use as owner of shared memory bridge allocations for TZ.
+      QCOM_SCM_VMID_SELF_OWNER may be used to share bridges with both the
+      calling owner and HLOS. Sharing with HLOS allows firmware services to
+      validate nested buffers even when the calling owner is the hypervisor.
+      Defaults to QCOM_SCM_VMID_HLOS if not specified.
+
   qcom,sdi-enabled:
     description:
       Indicates that the SDI (Secure Debug Image) has been enabled by TZ
