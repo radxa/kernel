@@ -908,7 +908,7 @@
 		/* GPIO_20 ~ GPIO_23 */
 		"", "", "PIN_8", "PIN_10",
 		/* GPIO_24 ~ GPIO_27 */
-		"PIN_3", "PIN_5", "PIN_16", "PIN_27",
+		"PIN_3", "PIN_5", "PIN_16", "PIN_18",
 		/* GPIO_28 ~ GPIO_31 */
 		"PIN_31", "PIN_11", "PIN_32", "PIN_29",
 		/* GPIO_32 ~ GPIO_35 */
