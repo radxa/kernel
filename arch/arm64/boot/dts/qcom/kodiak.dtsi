@@ -4382,6 +4382,7 @@
 			phy-names = "usb2-phy";
 			maximum-speed = "high-speed";
 			usb-role-switch;
+			wakeup-source;
 
 			port {
 				usb2_role_switch: endpoint {
