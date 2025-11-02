@@ -31,10 +31,15 @@ sun8i_dw_hdmi_encoder_helper_funcs = {
 
 static enum drm_mode_status
 sun8i_dw_hdmi_mode_valid_a83t(struct dw_hdmi *hdmi, void *data,
-			      const struct drm_display_info *info,
-			      const struct drm_display_mode *mode)
+                              const struct drm_display_info *info,
+                              const struct drm_display_mode *mode)
 {
-	if (mode->clock > 297000)
+	/*
+	 * The A83T controller can safely drive TMDS clocks beyond the old
+	 * HDMI 1.4 limit.  Allow up to 340 MHz so that 1080p120 (297 MHz) and
+	 * similar high-refresh CEA/CTA modes are exposed to userspace.
+	 */
+	if (mode->clock > 340000)
 		return MODE_CLOCK_HIGH;
 
 	return MODE_OK;
