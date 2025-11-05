@@ -362,7 +362,7 @@ static int radxa_display_8hd_probe(struct mipi_dsi_device *dsi)
 	struct jadard_jd9365da *jadard_jd9365da;
 	int ret;
 
-	jadard_jd9365da = devm_kzalloc(&dsi->dev, sizeof(jadard_jd9365da), GFP_KERNEL);
+	jadard_jd9365da = devm_kzalloc(&dsi->dev, sizeof(*jadard_jd9365da), GFP_KERNEL);
 	if (!jadard_jd9365da)
 		return -ENOMEM;
 
