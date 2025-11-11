@@ -92,7 +92,8 @@
 #define	WLC_BAND_AUTO			0	/* auto-select */
 #define	WLC_BAND_5G			1	/* 5 Ghz */
 #define	WLC_BAND_2G			2	/* 2.4 Ghz */
-#define	WLC_BAND_ALL			3	/* all bands */
+#define	WLC_BAND_6G			3	/* 6 Ghz */
+#define	WLC_BAND_ALL			4	/* all bands */
 
 #define CHSPEC_CHANNEL(chspec)	((u8)((chspec) & WL_CHANSPEC_CHAN_MASK))
 #define CHSPEC_BAND(chspec)	((chspec) & WL_CHANSPEC_BAND_MASK)
@@ -201,6 +202,13 @@ static inline bool ac_bitmap_tst(u8 bitmap, int prec)
 #define CRYPTO_ALGO_AES_RESERVED2	6
 #define CRYPTO_ALGO_NALG		7
 
+#define CRYPTO_ALGO_AES_GCM     14  /* 128 bit GCM */
+#define CRYPTO_ALGO_AES_CCM256  15  /* 256 bit CCM */
+#define CRYPTO_ALGO_AES_GCM256  16  /* 256 bit GCM */
+#define CRYPTO_ALGO_BIP_CMAC256 17  /* 256 bit BIP CMAC */
+#define CRYPTO_ALGO_BIP_GMAC    18  /* 128 bit BIP GMAC */
+#define CRYPTO_ALGO_BIP_GMAC256 19  /* 256 bit BIP GMAC */
+
 /* wireless security bitvec */
 
 #define WEP_ENABLED		0x0001
@@ -232,6 +240,20 @@ static inline bool ac_bitmap_tst(u8 bitmap, int prec)
 #define WPA2_AUTH_PSK_SHA256	0x8000	/* PSK with SHA256 key derivation */
 
 #define WPA3_AUTH_SAE_PSK	0x40000	/* SAE with 4-way handshake */
+#define WPA3_AUTH_SAE_FBT       0x80000 /* FT authentication over SAE */
+#define WPA3_AUTH_SAE_FT_1X	0x2000000 /* SAE with FT 1X */
+#define WPA3_AUTH_OWE		0x100000 /* OWE */
+#define WFA_AUTH_DPP		0x200000 /* WFA DPP AUTH */
+#define WPA3_AUTH_1X_SUITE_B_SHA384	0x400000 /* Suite B-192 SHA384 */
+
+/* WPA3 1x with SHA256 key derivation.
+ * Shares the same value as WPA2_AUTH_1X_SHA256 since the value of
+ * akm-suite is the same for both
+ */
+#define WPA3_AUTH_1X_SHA256 WPA2_AUTH_1X_SHA256
+
+#define WFA_OUI			"\x50\x6F\x9A"	/* WFA OUI */
+#define DPP_VER			0x1A	/* WFA DPP v1.0 */
 
 #define DOT11_DEFAULT_RTS_LEN		2347
 #define DOT11_DEFAULT_FRAG_LEN		2346
@@ -243,5 +265,19 @@ static inline bool ac_bitmap_tst(u8 bitmap, int prec)
 
 #define HT_CAP_RX_STBC_NO		0x0
 #define HT_CAP_RX_STBC_ONE_STREAM	0x1
+
+#define WPA_PROTO_WPA BIT(0)
+#define WPA_PROTO_RSN BIT(1)
+
+static inline int wpa_akm_ft(int akm)
+{
+	return !!((akm == WLAN_AKM_SUITE_FT_PSK) ||
+		(akm == WLAN_AKM_SUITE_FT_8021X) ||
+		(akm == WLAN_AKM_SUITE_FT_8021X_SHA384) ||
+		(akm == WLAN_AKM_SUITE_FT_OVER_SAE) ||
+		(akm == WLAN_AKM_SUITE_FT_FILS_SHA256) ||
+		(akm == WLAN_AKM_SUITE_FT_FILS_SHA384) ||
+		(akm == WLAN_AKM_SUITE_FT_PSK_SHA384));
+}
 
 #endif				/* _BRCMU_WIFI_H_ */

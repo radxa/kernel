@@ -12,6 +12,9 @@
 #include "fwil_types.h"
 #include "cfg80211.h"
 #include "pno.h"
+#include "feature.h"
+#include "vendor_ifx.h"
+#include <brcmu_wifi.h>
 
 #define BRCMF_PNO_VERSION		2
 #define BRCMF_PNO_REPEAT		4
@@ -592,4 +595,172 @@ u32 brcmf_pno_get_bucket_map(struct brcmf_pno_info *pi,
 	}
 	mutex_unlock(&pi->req_lock);
 	return bucket_map;
+}
+
+int pfn_send_network_blob_fw(struct wiphy *wiphy,
+			     struct wireless_dev *wdev)
+{
+	int i, ret;
+	struct brcmf_cfg80211_vif *vif;
+	struct brcmf_if *ifp;
+	struct network_blob *network_blob_data;
+	struct brcm_pfn_param pfn_param;
+	struct brcm_pfn *pfn_list_buffer = NULL, *pssidnet;
+	int brcm_pfn_length = 0;
+	u32 offset;
+	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
+
+	vif = container_of(wdev, struct brcmf_cfg80211_vif, wdev);
+	ifp = vif->ifp;
+
+	brcmf_dbg(TRACE, "Enter\n");
+
+	ret = brcmf_fil_cmd_data_set(vif->ifp,
+				     BRCMF_C_DISASSOC, NULL, 0);
+	if (ret) {
+		brcmf_err("BRCMF_C_DISASSOC error:%d\n", ret);
+		return ret;
+	}
+	brcmf_pno_clean(ifp);
+
+	if (brcmf_feat_is_enabled(ifp, BRCMF_FEAT_FWSUP)) {
+		ret = brcmf_fil_iovar_int_set(ifp, "sup_wpa", 1);
+		if (ret) {
+			brcmf_err("sup_wpa set error:%d\n", ret);
+			return ret;
+		}
+	}
+
+	if (!cfg->pfn_data.count)
+		return 0;
+
+	pfn_param.flags = (PFN_LIST_ORDER << SORT_CRITERIA_BIT | ENABLE << IMMEDIATE_SCAN_BIT);
+	pfn_param.bestn = DEFAULT_BESTN;
+	pfn_param.mscan = DEFAULT_MSCAN;
+	pfn_param.repeat = DEFAULT_REPEAT;
+	pfn_param.exp = DEFAULT_EXP;
+
+	if (cfg->pfn_data.pfn_config == PFN_CONFIG_AUTOCONNECT) {
+		pfn_param.flags |= AUTO_CONNECT_MASK;
+
+	} else if (cfg->pfn_data.pfn_config == PFN_CONFIG_AUTOSWITCH_LISTORDER) {
+		pfn_param.flags |= AUTO_NET_SWITCH_MASK;
+		pfn_param.flags |= (PFN_LIST_ORDER << SORT_CRITERIA_BIT);
+
+	} else if (cfg->pfn_data.pfn_config == PFN_CONFIG_AUTOSWITCH_RSSI) {
+		pfn_param.flags |= AUTO_NET_SWITCH_MASK;
+		pfn_param.flags |= (PFN_RSSI << SORT_CRITERIA_BIT);
+	}
+
+	pfn_param.version = cpu_to_le32(PFN_VERSION);
+	pfn_param.scan_freq = cpu_to_le32(30);
+	pfn_param.lost_network_timeout = cpu_to_le32(60);
+	pfn_param.flags = cpu_to_le16(pfn_param.flags);
+	pfn_param.rssi_margin = cpu_to_le16(10);
+	pfn_param.slow_freq = cpu_to_le32(0);
+
+	ret = brcmf_fil_iovar_data_set(ifp, "pfn_set", (void *)&pfn_param,
+				       sizeof(struct brcm_pfn_param));
+	if (ret) {
+		brcmf_err("set pfn_set enable error:%d\n", ret);
+		return ret;
+	}
+
+	brcm_pfn_length = (cfg->pfn_data.count) * sizeof(struct brcm_pfn);
+
+	pfn_list_buffer = kzalloc(brcm_pfn_length, GFP_KERNEL);
+
+	if (!pfn_list_buffer)
+		return -ENOMEM;
+
+	pssidnet = pfn_list_buffer;
+	network_blob_data = cfg->pfn_data.network_blob_data;
+
+	for (i = 0; i < cfg->pfn_data.count; i++) {
+		/* Default setting, open, no WPA, no WEP and bss */
+		pssidnet->auth = WLAN_AUTH_OPEN;
+		pssidnet->wpa_auth = WPA_AUTH_DISABLED;
+		pssidnet->wsec = CRYPTO_ALGO_OFF;
+		pssidnet->infra = PFN_SSID_INFRA;
+		pssidnet->flags = 0;
+		memcpy((char *)pssidnet->ssid.SSID, network_blob_data->ssid,
+		       network_blob_data->ssid_len);
+		pssidnet->ssid.SSID_len = cpu_to_le32(network_blob_data->ssid_len);
+		pssidnet->flags = cpu_to_le32(pssidnet->flags);
+
+		if (strlen(network_blob_data->psk)) {
+			memcpy((char *)pssidnet->psk.key,
+			       network_blob_data->psk, WSEC_MAX_PASSWORD_LEN);
+			pssidnet->psk.key_len = strlen(network_blob_data->psk);
+		}
+
+		if (network_blob_data->proto == WPA_PROTO_WPA &&
+		    network_blob_data->key_mgmt == KEY_MGMT_WPA) {
+			pssidnet->wpa_auth = WPA_AUTH_PSK;
+
+		} else if (network_blob_data->proto == WPA_PROTO_RSN &&
+			   network_blob_data->key_mgmt == KEY_MGMT_WPA2) {
+			pssidnet->wpa_auth = WPA2_AUTH_PSK;
+
+		} else if (network_blob_data->proto == WPA_PROTO_RSN &&
+			   network_blob_data->key_mgmt == KEY_MGMT_SAE) {
+			pssidnet->wpa_auth = WPA3_AUTH_SAE_PSK;
+			pssidnet->auth = WLAN_AUTH_SAE;
+
+		} else if (network_blob_data->proto == WPA_PROTO_RSN &&
+			   network_blob_data->key_mgmt == KEY_MGMT_OWE) {
+			pssidnet->wpa_auth = WPA3_AUTH_OWE;
+		}
+
+		if (network_blob_data->pairwise_cipher == BIT(CRYPTO_ALGO_AES_CCM))
+			pssidnet->wsec = AES_ENABLED;
+
+		else if (network_blob_data->pairwise_cipher == BIT(CRYPTO_ALGO_TKIP))
+			pssidnet->wsec = TKIP_ENABLED;
+
+		brcmf_dbg(TRACE, "ssid %s key_mgmt %d proto %d wsec %d wpa_auth %d auth %d\n",
+			  network_blob_data->ssid, network_blob_data->key_mgmt,
+			  network_blob_data->proto, pssidnet->wsec,
+			  pssidnet->wpa_auth, pssidnet->auth);
+		pssidnet++;
+		network_blob_data++;
+	}
+
+	/* There is a limit in len of data that we can send to fw using an iovar at a time.
+	 * Here max value of cfg->pfn_data.count could be 16 which is exceeding the limit,
+	 * so sending it two times.
+	 */
+	if (cfg->pfn_data.count > (BRCMF_PNO_MAX_PFN_COUNT / 2)) {
+		offset = sizeof(struct brcm_pfn) * (BRCMF_PNO_MAX_PFN_COUNT / 2);
+		ret = brcmf_fil_iovar_data_set(ifp, "pfn_add", (void *)pfn_list_buffer,
+					       offset);
+		if (ret) {
+			brcmf_err("set pfnadd enable error:%d\n", ret);
+			return ret;
+		}
+
+		ret = brcmf_fil_iovar_data_set(ifp, "pfn_add", (void *)pfn_list_buffer + offset,
+					       brcm_pfn_length - offset);
+		if (ret) {
+			brcmf_err("set pfnadd enable error:%d\n", ret);
+			return ret;
+		}
+
+	} else {
+		ret = brcmf_fil_iovar_data_set(ifp, "pfn_add", (void *)pfn_list_buffer,
+					       brcm_pfn_length);
+	}
+
+	if (ret) {
+		brcmf_err("set pfnadd enable error:%d\n", ret);
+		return ret;
+	}
+	ret =  brcmf_fil_iovar_int_set(ifp, "pfn", PFN_SET);
+	if (ret) {
+		brcmf_err("set pfn error:%d\n", ret);
+		return ret;
+	}
+	kfree(pfn_list_buffer);
+	brcmf_dbg(TRACE, "Exit\n");
+	return 0;
 }

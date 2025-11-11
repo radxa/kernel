@@ -21,6 +21,7 @@
 
 
 #define MAX_HEX_DUMP_LEN	64
+#define MAX_CMD_RESEND		3
 
 #ifdef DEBUG
 static const char * const brcmf_fil_errstr[] = {
@@ -98,6 +99,7 @@ brcmf_fil_cmd_data(struct brcmf_if *ifp, u32 cmd, void *data, u32 len, bool set)
 {
 	struct brcmf_pub *drvr = ifp->drvr;
 	s32 err, fwerr;
+	u8 resend_cnt = 1;
 
 	if (drvr->bus_if->state != BRCMF_BUS_UP) {
 		bphy_err(drvr, "bus is down. we have nothing to do.\n");
@@ -106,12 +108,19 @@ brcmf_fil_cmd_data(struct brcmf_if *ifp, u32 cmd, void *data, u32 len, bool set)
 
 	if (data != NULL)
 		len = min_t(uint, len, BRCMF_DCMD_MAXLEN);
-	if (set)
-		err = brcmf_proto_set_dcmd(drvr, ifp->ifidx, cmd,
-					   data, len, &fwerr);
-	else
-		err = brcmf_proto_query_dcmd(drvr, ifp->ifidx, cmd,
-					     data, len, &fwerr);
+
+	do {
+		if (set)
+			err = brcmf_proto_set_dcmd(drvr, ifp->ifidx, cmd,
+						   data, len, &fwerr);
+		else
+			err = brcmf_proto_query_dcmd(drvr, ifp->ifidx, cmd,
+						     data, len, &fwerr);
+		if (!err || resend_cnt > MAX_CMD_RESEND)
+			break;
+
+		brcmf_err("cmd error %d, resend cmd count %d\n", err, resend_cnt++);
+	} while (true);
 
 	if (err) {
 		brcmf_dbg(FIL, "Failed: error=%d\n", err);

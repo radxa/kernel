@@ -24,12 +24,6 @@ static int brcmf_of_get_country_codes(struct device *dev,
 
 	count = of_property_count_strings(np, "brcm,ccode-map");
 	if (count < 0) {
-		/* If no explicit country code map is specified, check whether
-		 * the trivial map should be used.
-		 */
-		settings->trivial_ccode_map =
-			of_property_read_bool(np, "brcm,ccode-map-trivial");
-
 		/* The property is optional, so return success if it doesn't
 		 * exist. Otherwise propagate the error code.
 		 */
@@ -74,7 +68,8 @@ void brcmf_of_probe(struct device *dev, enum brcmf_bus_type bus_type,
 	int irq;
 	int err;
 	u32 irqf;
-	u32 val;
+	u32 val32;
+	u16 val16;
 
 	/* Apple ARM64 platforms have their own idea of board type, passed in
 	 * via the device tree. They also have an antenna SKU parameter
@@ -118,8 +113,15 @@ void brcmf_of_probe(struct device *dev, enum brcmf_bus_type bus_type,
 	if (bus_type != BRCMF_BUSTYPE_SDIO)
 		return;
 
-	if (of_property_read_u32(np, "brcm,drive-strength", &val) == 0)
-		sdio->drive_strength = val;
+	if (of_property_read_u32(np, "brcm,drive-strength", &val32) == 0)
+		sdio->drive_strength = val32;
+
+	sdio->broken_sg_support = of_property_read_bool(np,
+			"brcm,broken_sg_support");
+	if (of_property_read_u16(np, "brcm,sd_head_align", &val16) == 0)
+		sdio->sd_head_align = val16;
+	if (of_property_read_u16(np, "brcm,sd_sgentry_align", &val16) == 0)
+		sdio->sd_sgentry_align = val16;
 
 	/* make sure there are interrupts defined in the node */
 	if (!of_find_property(np, "interrupts", NULL))

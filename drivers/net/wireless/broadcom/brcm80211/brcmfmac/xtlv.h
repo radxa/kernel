@@ -27,5 +27,7 @@ enum brcmf_xtlv_option {
 int brcmf_xtlv_data_size(int dlen, u16 opts);
 void brcmf_xtlv_pack_header(struct brcmf_xtlv *xtlv, u16 id, u16 len,
 			    const u8 *data, u16 opts);
+u32 brcmf_pack_xtlv(u16 id, char *data, u32 len,
+		    char **buf, u16 *buflen);
 
 #endif /* __BRCMF_XTLV_H */
