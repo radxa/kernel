@@ -35,6 +35,44 @@
 #define	MAXPRIO			7
 #define NUMPRIO			(MAXPRIO + 1)
 
+/* DSCP type definitions for RFC4594 */
+/* DF: Standard (RFC2474) */
+#define DSCP_DF		0x00u
+/* AF1x: High-Throughput Data (RFC2597) */
+#define DSCP_AF11	0x0Au
+#define DSCP_AF12	0x0Cu
+#define DSCP_AF13	0x0Eu
+/* CS1: Low-Priority Data (RFC3662) */
+#define DSCP_CS1	0x08u
+/* AF2x: Low-Latency Data (RFC2597) */
+#define DSCP_AF21	0x12u
+#define DSCP_AF22	0x14u
+#define DSCP_AF23	0x16u
+/* CS2: OAM (RFC2474) */
+#define DSCP_CS2	0x10u
+/* AF3x: Multimedia Streaming (RFC2597) */
+#define DSCP_AF31	0x1Au
+#define DSCP_AF32	0x1Cu
+#define DSCP_AF33	0x1Eu
+/* CS3: Broadcast Video (RFC2474) */
+#define DSCP_CS3	0x18u
+/* AF4x: Multimedia Conferencing (RFC2597) */
+#define DSCP_AF41	0x22u
+#define DSCP_AF42	0x24u
+#define DSCP_AF43	0x26u
+/* CS4: Real-Time Interactive (RFC2474) */
+#define DSCP_CS4	0x20u
+/* CS5: Signaling (RFC2474) */
+#define DSCP_CS5	0x28u
+/* VA: VOCIE-ADMIT (RFC5865) */
+#define DSCP_VA		0x2Cu
+/* EF: Telephony (RFC3246) */
+#define DSCP_EF		0x2Eu
+/* CS6: Network Control (RFC2474) */
+#define DSCP_CS6	0x30u
+/* CS7: Network Control (RFC2474) */
+#define DSCP_CS7	0x38u
+
 #define WL_NUMRATES		16	/* max # of rates in a rateset */
 
 #define BRCM_CNTRY_BUF_SZ	4	/* Country string is 3 bytes + NUL */

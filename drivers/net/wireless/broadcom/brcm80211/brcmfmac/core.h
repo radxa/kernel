@@ -12,6 +12,8 @@
 
 #include <net/cfg80211.h>
 #include "fweh.h"
+#include "fwil_types.h"
+#include "feature.h"
 
 #define TOE_TX_CSUM_OL		0x00000001
 #define TOE_RX_CSUM_OL		0x00000002
@@ -91,6 +93,13 @@ struct brcmf_rev_info {
 	u32 nvramrev;
 };
 
+/** wlc interface version */
+struct brcmf_wlc_version {
+	/* wlc interface version numbers */
+	u16	wlc_ver_major;		/**< wlc interface major version number */
+	u16	wlc_ver_minor;		/**< wlc interface minor version number */
+};
+
 /* Common structure for module and instance linkage */
 struct brcmf_pub {
 	/* Linkage ponters */
@@ -121,10 +130,12 @@ struct brcmf_pub {
 	struct brcmf_ampdu_rx_reorder
 		*reorder_flows[BRCMF_AMPDU_RX_REORDER_MAXFLOWS];
 
-	u32 feat_flags;
+	u8 feat_flags[DIV_ROUND_UP(BRCMF_FEAT_LAST, 8)];
 	u32 chip_quirks;
+	int req_mpc;
 
 	struct brcmf_rev_info revinfo;
+	struct brcmf_wlc_version wlc_ver;
 #ifdef DEBUG
 	struct dentry *dbgfs_dir;
 #endif
@@ -136,6 +147,11 @@ struct brcmf_pub {
 	struct work_struct bus_reset;
 
 	u8 clmver[BRCMF_DCMD_SMLEN];
+	struct brcmf_pkt_filter_enable_le pkt_filter[MAX_PKT_FILTER_COUNT];
+	u8 sta_mac_idx;
+	u16 cnt_ver;
+
+	struct cfg80211_qos_map *qos_map;
 };
 
 /* forward declarations */
@@ -185,6 +201,7 @@ struct brcmf_if {
 	struct brcmf_fws_mac_descriptor *fws_desc;
 	int ifidx;
 	s32 bsscfgidx;
+	bool isap;
 	u8 mac_addr[ETH_ALEN];
 	u8 netif_stop;
 	spinlock_t netif_stop_lock;
@@ -193,6 +210,23 @@ struct brcmf_if {
 	struct in6_addr ipv6_addr_tbl[NDOL_MAX_ENTRIES];
 	u8 ipv6addr_idx;
 	bool fwil_fwerr;
+	struct list_head sta_list;              /* dll of associated stations */
+	spinlock_t sta_list_lock;
+	struct list_head twt_sess_list;         /* dll of TWT sessions */
+	spinlock_t twt_sess_list_lock;
+	struct timer_list twt_evt_timeout;	/* TWT event timeout */
+	bool fmac_pkt_fwd_en;
+};
+
+struct ether_addr {
+	u8 octet[ETH_ALEN];
+};
+
+/** Per STA params. A list of dhd_sta objects are managed in dhd_if */
+struct brcmf_sta {
+	void *ifp;             /* associated brcm_if */
+	struct ether_addr ea;   /* stations ethernet mac address */
+	struct list_head list;  /* link into brcmf_if::sta_list */
 };
 
 int brcmf_netdev_wait_pend8021x(struct brcmf_if *ifp);
@@ -208,12 +242,17 @@ void brcmf_remove_interface(struct brcmf_if *ifp, bool locked);
 void brcmf_txflowblock_if(struct brcmf_if *ifp,
 			  enum brcmf_netif_stop_reason reason, bool state);
 void brcmf_txfinalize(struct brcmf_if *ifp, struct sk_buff *txp, bool success);
-void brcmf_netif_rx(struct brcmf_if *ifp, struct sk_buff *skb);
+void brcmf_netif_rx(struct brcmf_if *ifp, struct sk_buff *skb, bool inirq);
 void brcmf_netif_mon_rx(struct brcmf_if *ifp, struct sk_buff *skb);
 void brcmf_net_detach(struct net_device *ndev, bool locked);
 int brcmf_net_mon_attach(struct brcmf_if *ifp);
 void brcmf_net_setcarrier(struct brcmf_if *ifp, bool on);
 int __init brcmf_core_init(void);
-void __exit brcmf_core_exit(void);
-
+void brcmf_core_exit(void);
+int brcmf_pktfilter_add_remove(struct net_device *ndev, int filter_num,
+			       bool add);
+int brcmf_pktfilter_enable(struct net_device *ndev, bool enable);
+void brcmf_del_sta(struct brcmf_if *ifp, const u8 *ea);
+struct brcmf_sta *brcmf_find_sta(struct brcmf_if *ifp, const u8 *ea);
+struct brcmf_sta *brcmf_findadd_sta(struct brcmf_if *ifp, const u8 *ea);
 #endif /* BRCMFMAC_CORE_H */

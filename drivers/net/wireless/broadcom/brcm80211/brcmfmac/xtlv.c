@@ -82,3 +82,22 @@ void brcmf_xtlv_pack_header(struct brcmf_xtlv *xtlv, u16 id, u16 len,
 		memcpy(data_buf, data, len);
 }
 
+u32 brcmf_pack_xtlv(u16 id, char *data, u32 len,
+		    char **buf, u16 *buflen)
+{
+	u32 iolen;
+
+	iolen = brcmf_xtlv_data_size(len, BRCMF_XTLV_OPTION_ALIGN32);
+
+	if (iolen > *buflen) {
+		WARN(true, "xtlv buffer is too short");
+		return 0;
+	}
+
+	brcmf_xtlv_pack_header((void *)*buf, id, len, data,
+			       BRCMF_XTLV_OPTION_ALIGN32);
+
+	*buf = *buf + iolen;
+	*buflen -= iolen;
+	return iolen;
+}

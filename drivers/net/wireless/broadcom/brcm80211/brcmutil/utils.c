@@ -292,6 +292,19 @@ char *brcmu_dotrev_str(u32 dotrev, char *buf)
 }
 EXPORT_SYMBOL(brcmu_dotrev_str);
 
+struct sk_buff *__brcmu_pkt_buf_get_skb(uint len, gfp_t gfp_mask)
+{
+	struct sk_buff *skb;
+
+	skb = __netdev_alloc_skb(NULL, len, gfp_mask);
+	if (skb) {
+		skb_put(skb, len);
+		skb->priority = 0;
+	}
+	return skb;
+}
+EXPORT_SYMBOL(__brcmu_pkt_buf_get_skb);
+
 #if defined(DEBUG)
 /* pretty hex print a pkt buffer chain */
 void brcmu_prpkt(const char *msg, struct sk_buff *p0)

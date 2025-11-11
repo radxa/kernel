@@ -527,7 +527,9 @@ static void brcmf_fw_free_request(struct brcmf_fw_request *req)
 	int i;
 
 	for (i = 0, item = &req->items[0]; i < req->n_items; i++, item++) {
-		if (item->type == BRCMF_FW_TYPE_BINARY)
+		if (item->type == BRCMF_FW_TYPE_BINARY ||
+		    item->type == BRCMF_FW_TYPE_TRXS ||
+		    item->type == BRCMF_FW_TYPE_TRXSE)
 			release_firmware(item->binary);
 		else if (item->type == BRCMF_FW_TYPE_NVRAM)
 			brcmf_fw_nvram_free(item->nv_data.data);
@@ -599,6 +601,8 @@ static int brcmf_fw_complete_request(const struct firmware *fw,
 		ret = brcmf_fw_request_nvram_done(fw, fwctx);
 		break;
 	case BRCMF_FW_TYPE_BINARY:
+	case BRCMF_FW_TYPE_TRXSE:
+	case BRCMF_FW_TYPE_TRXS:
 		if (fw)
 			cur->binary = fw;
 		else
@@ -659,9 +663,12 @@ static int brcmf_fw_request_firmware(const struct firmware **fw,
 		if (!alt_path)
 			goto fallback;
 
-		ret = firmware_request_nowarn(fw, alt_path, fwctx->dev);
+		ret = request_firmware_direct(fw, alt_path, fwctx->dev);
 		kfree(alt_path);
-		if (ret == 0)
+		if (ret)
+			brcmf_info("no board-specific nvram available (ret=%d), device will use %s\n",
+				   ret, cur->path);
+		else
 			return ret;
 	}
 
@@ -672,7 +679,26 @@ fallback:
 static void brcmf_fw_request_done(const struct firmware *fw, void *ctx)
 {
 	struct brcmf_fw *fwctx = ctx;
+	struct brcmf_fw_item *cur = &fwctx->req->items[fwctx->curpos];
+	char alt_path[BRCMF_FW_NAME_LEN];
 	int ret;
+
+	if (!fw && cur->type == BRCMF_FW_TYPE_TRXS) {
+		strscpy(alt_path, cur->path, BRCMF_FW_NAME_LEN);
+		/* strip 'se' from .trxse at the end */
+		//alt_path[strlen(alt_path) - ] = 0;
+		ret = request_firmware(&fw, alt_path, fwctx->dev);
+		if (!ret)
+			cur->path = alt_path;
+	}
+	if (!fw && cur->type == BRCMF_FW_TYPE_TRXSE) {
+		strscpy(alt_path, cur->path, BRCMF_FW_NAME_LEN);
+		/* strip 'se' from .trxse at the end */
+		alt_path[strlen(alt_path) - 2] = 0;
+		ret = request_firmware(&fw, alt_path, fwctx->dev);
+		if (!ret)
+			cur->path = alt_path;
+	}
 
 	ret = brcmf_fw_complete_request(fw, fwctx);
 
@@ -710,9 +736,11 @@ static void brcmf_fw_request_done_alt_path(const struct firmware *fw, void *ctx)
 		if (!alt_path)
 			goto fallback;
 
-		ret = request_firmware_nowait(THIS_MODULE, true, alt_path,
-					      fwctx->dev, GFP_KERNEL, fwctx,
-					      brcmf_fw_request_done_alt_path);
+		if (!fw) {
+			ret = request_firmware_nowait(THIS_MODULE, true, alt_path,
+										  fwctx->dev, GFP_KERNEL, fwctx,
+										  brcmf_fw_request_done_alt_path);
+		}
 		kfree(alt_path);
 
 		if (ret < 0)
@@ -743,6 +771,50 @@ static bool brcmf_fw_request_is_valid(struct brcmf_fw_request *req)
 			return false;
 	}
 	return true;
+}
+
+int brcmf_fw_get_firmware_sync(struct device *dev, struct brcmf_fw_request *req,
+			       void (*fw_cb)(struct device *dev, int err,
+					     struct brcmf_fw_request *req))
+{
+	struct brcmf_fw_item *first = &req->items[0];
+	struct brcmf_fw *fwctx;
+	char *alt_path = NULL;
+	const struct firmware *fw;
+	int ret = -ENOENT;
+
+	brcmf_dbg(TRACE, "enter: dev=%s\n", dev_name(dev));
+
+	if (!brcmf_fw_request_is_valid(req))
+		return -EINVAL;
+
+	if (req->n_items > 1)
+		return -EINVAL;
+
+	fwctx = kzalloc(sizeof(*fwctx), GFP_KERNEL);
+	if (!fwctx)
+		return -ENOMEM;
+
+	fwctx->dev = dev;
+	fwctx->req = req;
+	fwctx->done = fw_cb;
+
+	/* First try alternative board-specific path if any */
+	if (fwctx->req->board_types[0])
+		alt_path = brcm_alt_fw_path(first->path,
+					    fwctx->req->board_types[0]);
+	if (alt_path) {
+		/* Do not fallback to user-mode helper if file does not exist */
+		ret = request_firmware_direct(&fw, alt_path, fwctx->dev);
+		kfree(alt_path);
+	}
+
+	if (ret == -ENOENT)
+		ret = request_firmware(&fw, first->path, fwctx->dev);
+
+	brcmf_fw_request_done(fw, fwctx);
+
+	return ret;
 }
 
 int brcmf_fw_get_firmwares(struct device *dev, struct brcmf_fw_request *req,
@@ -776,8 +848,8 @@ int brcmf_fw_get_firmwares(struct device *dev, struct brcmf_fw_request *req,
 	if (alt_path) {
 		fwctx->board_index++;
 		ret = request_firmware_nowait(THIS_MODULE, true, alt_path,
-					      fwctx->dev, GFP_KERNEL, fwctx,
-					      brcmf_fw_request_done_alt_path);
+						fwctx->dev, GFP_KERNEL, fwctx,
+						brcmf_fw_request_done_alt_path);
 		kfree(alt_path);
 	} else {
 		ret = request_firmware_nowait(THIS_MODULE, true, first->path,

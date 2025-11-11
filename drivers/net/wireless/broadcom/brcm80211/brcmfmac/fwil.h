@@ -65,12 +65,14 @@
 #define BRCMF_C_GET_BANDLIST			140
 #define BRCMF_C_SET_SCB_TIMEOUT			158
 #define BRCMF_C_GET_ASSOCLIST			159
+#define BRCMF_C_GET_UP				162
 #define BRCMF_C_GET_PHYLIST			180
 #define BRCMF_C_SET_SCAN_CHANNEL_TIME		185
 #define BRCMF_C_SET_SCAN_UNASSOC_TIME		187
 #define BRCMF_C_SCB_DEAUTHENTICATE_FOR_REASON	201
 #define BRCMF_C_SET_ASSOC_PREFER		205
 #define BRCMF_C_GET_VALID_CHANNELS		217
+#define BRCMF_C_GET_FAKEFRAG                    218
 #define BRCMF_C_SET_FAKEFRAG			219
 #define BRCMF_C_GET_KEY_PRIMARY			235
 #define BRCMF_C_SET_KEY_PRIMARY			236
@@ -78,6 +80,9 @@
 #define BRCMF_C_GET_VAR				262
 #define BRCMF_C_SET_VAR				263
 #define BRCMF_C_SET_WSEC_PMK			268
+
+#define BRCMF_FW_BADARG				2
+#define BRCMF_FW_UNSUPPORTED			23
 
 s32 brcmf_fil_cmd_data_set(struct brcmf_if *ifp, u32 cmd, void *data, u32 len);
 s32 brcmf_fil_cmd_data_get(struct brcmf_if *ifp, u32 cmd, void *data, u32 len);
