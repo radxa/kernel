@@ -21,6 +21,19 @@
 	} \
 }
 
+/* Spin at most 'ms' milliseconds with polling interval 'interval' milliseconds
+ * while 'exp' is true. Caller should explicitly test 'exp' when this completes
+ * and take appropriate error action if 'exp' is still true.
+ */
+#define SPINWAIT_MS(exp, ms, interval) { \
+	typeof(interval) interval_ = (interval); \
+	uint countdown = (ms) + (interval_ - 1U); \
+	while ((exp) && (countdown >= interval_)) { \
+		msleep(interval_); \
+		countdown -= interval_; \
+	} \
+}
+
 /* osl multi-precedence packet queue */
 #define PKTQ_LEN_DEFAULT        128	/* Max 128 packets */
 #define PKTQ_MAX_PREC           16	/* Maximum precedence levels */
@@ -116,6 +129,7 @@ struct sk_buff *brcmu_pktq_pdeq_match(struct pktq *pq, int prec,
 /* packet primitives */
 struct sk_buff *brcmu_pkt_buf_get_skb(uint len);
 void brcmu_pkt_buf_free_skb(struct sk_buff *skb);
+struct sk_buff *__brcmu_pkt_buf_get_skb(uint len, gfp_t gfp_mask);
 
 /* Empty the queue at particular precedence level */
 /* callback function fn(pkt, arg) returns true if pkt belongs to if */
