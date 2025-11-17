@@ -3,6 +3,7 @@
 #include "linux/stddef.h"
 #include <linux/err.h>
 #include <linux/init.h>
+#include <linux/io.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
@@ -11,6 +12,8 @@
 #include <linux/platform_device.h>
 
 #include "pinctrl-sky1.h"
+
+#define SKY1_CONF_MASK		(0x7fL)
 
 enum sky1_pads_s5 {
 	SKY1_IOMUXC_GPIO1 =	0,
@@ -440,6 +443,7 @@ static const struct sky1_pinctrl_soc_info sky1_pinctrl_s5_info = {
 };
 
 static const struct sky1_pinctrl_soc_info sky1_pinctrl_info = {
+	.flags = SKY1_PINCTRL_CONTEXT_LOSS_OFF,
 	.pins = sky1_pinctrl_pads,
 	.npins = ARRAY_SIZE(sky1_pinctrl_pads),
 };
@@ -451,9 +455,49 @@ static const struct of_device_id sky1_pinctrl_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, sky1_pinctrl_of_match);
 
+static int pinctrl_save_context(struct device *dev, struct sky1_pinctrl *spctl)
+{
+	int i;
+	unsigned long *reg;
+
+	if (!spctl->saved_vals) {
+		spctl->saved_vals = devm_kmalloc_array(dev, spctl->info->npins,
+					    sizeof(*reg),
+					    GFP_ATOMIC);
+		if (!spctl->saved_vals)
+			return -ENOMEM;
+	}
+
+	reg = spctl->saved_vals;
+	for (i = 0; i < spctl->info->npins; i++)
+		*reg++ = readl(spctl->base + spctl->pin_regs[i]) & ~SKY1_CONF_MASK;
+
+	return 0;
+}
+
+static void pinctrl_restore_context(struct sky1_pinctrl *spctl)
+{
+	int i;
+	unsigned long *reg;
+
+	reg = spctl->saved_vals;
+	for (i = 0; i < spctl->info->npins; i++)
+		writel(*reg++, spctl->base + spctl->pin_regs[i]);
+}
+
 static int __maybe_unused sky1_pinctrl_suspend(struct device *dev)
 {
 	struct sky1_pinctrl *spctl = dev_get_drvdata(dev);
+	if (!spctl)
+		return -EINVAL;
+
+	if (spctl->info->flags & SKY1_PINCTRL_CONTEXT_LOSS_OFF) {
+		int ret;
+
+		ret = pinctrl_save_context(dev, spctl);
+		if (ret < 0)
+			return ret;
+	}
 
 	return pinctrl_force_sleep(spctl->pctl);
 }
@@ -461,6 +505,11 @@ static int __maybe_unused sky1_pinctrl_suspend(struct device *dev)
 static int __maybe_unused sky1_pinctrl_resume(struct device *dev)
 {
 	struct sky1_pinctrl *spctl = dev_get_drvdata(dev);
+	if (!spctl)
+		return -EINVAL;
+
+	if (spctl->info->flags & SKY1_PINCTRL_CONTEXT_LOSS_OFF)
+		pinctrl_restore_context(spctl);
 
 	return pinctrl_force_default(spctl->pctl);
 }
