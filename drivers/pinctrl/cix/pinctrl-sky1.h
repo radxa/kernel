@@ -40,9 +40,14 @@ struct sky1_pinctrl {
 	sky1_pin_reg *pin_regs;
 	unsigned int group_index;
 	struct mutex mutex;
+	unsigned long *saved_vals;
 };
 
+// Flags based on pinctrl-single.c
+#define SKY1_PINCTRL_CONTEXT_LOSS_OFF	(1 << 3)
+
 struct sky1_pinctrl_soc_info {
+	unsigned int flags;
 	const struct pinctrl_pin_desc *pins;
 	unsigned int npins;
 };
