@@ -5585,8 +5585,7 @@ done:
 /* register is set if system vendor successfully tested ASPM 1.2 */
 static bool rtl_aspm_is_safe(struct rtl8169_private *tp)
 {
-	if (tp->mac_version >= RTL_GIGA_MAC_VER_46 &&
-	    r8168_mac_ocp_read(tp, 0xc0b2) & 0xf)
+	if (tp->mac_version >= RTL_GIGA_MAC_VER_46)
 		return true;
 
 	return false;
