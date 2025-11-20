@@ -870,8 +870,8 @@
 &dmc {
 	status = "okay";
 	center-supply = <&vdd_log>;
-	upthreshold = <40>;
-	downdifferential = <20>;
+	upthreshold = <20>;
+	downdifferential = <10>;
 	system-status-freq = <
 		/*system status         freq(KHz)*/
 		SYS_STATUS_NORMAL       666000
