@@ -34,6 +34,7 @@ dtb-$(CONFIG_ARCH_MEDIATEK) += display-lvdshdmidp.dtbo
 dtb-$(CONFIG_ARCH_MEDIATEK) += ddr-4g.dtbo
 dtb-$(CONFIG_ARCH_MEDIATEK) += ddr-8g.dtbo
 dtb-$(CONFIG_ARCH_MEDIATEK) += ddr-16g.dtbo
+dtb-$(CONFIG_ARCH_MEDIATEK) += gpio104-pwm.dtbo
 dtb-$(CONFIG_ARCH_MEDIATEK) += i2c3.dtbo
 dtb-$(CONFIG_ARCH_MEDIATEK) += i2c4.dtbo
 dtb-$(CONFIG_ARCH_MEDIATEK) += spi1-spidev.dtbo
