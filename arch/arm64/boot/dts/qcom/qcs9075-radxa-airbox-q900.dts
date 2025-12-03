@@ -143,6 +143,55 @@
 		pwm-gpio = <&pmm8654au_1_gpios 12 GPIO_ACTIVE_HIGH>;
 		gpios = <&pmm8654au_1_gpios 12 GPIO_ACTIVE_HIGH>;
 	};
+
+	fan0: pwm-fan {
+		compatible = "pwm-fan";
+		#cooling-cells = <2>;
+		pwms = <&pwm_gpio 0 1000000 0>; // default pwm0, 1ms period, normal polarity
+		cooling-levels = <0 100 170 255>; // max 255
+	};
+};
+
+&thermal_zones {
+	cpu-0-1-0-thermal {
+		polling-delay = <1000>;
+		polling-delay-passive = <1000>;
+		trips {
+			cpu_threshold:cpu-threshold {
+				temperature = <50000>;
+				hysteresis = <2000>;
+				type = "active";
+			};
+		};
+
+		cooling-maps {
+			map1 {
+				trip = <&cpu_threshold>;
+				cooling-device = <&fan0 0 3>;
+				contribution = <2048>;
+			};
+		};
+	};
+
+	gpuss-0-thermal {
+		polling-delay = <1000>;
+		polling-delay-passive = <1000>;
+		trips {
+			gpu_threshold:gpu-threshold {
+				temperature = <50000>;
+				hysteresis = <2000>;
+				type = "active";
+			};
+		};
+
+		cooling-maps {
+			map1 {
+				trip = <&gpu_threshold>;
+				cooling-device = <&fan0 0 3>;
+				contribution = <1024>;
+			};
+		};
+	};
 };
 
 &apps_rsc {
