@@ -450,6 +450,23 @@
 			reset-gpios = <&pmm8654au_2_gpios 8 GPIO_ACTIVE_LOW>;
 			reset-assert-us = <11000>;
 			reset-deassert-us = <70000>;
+
+			leds {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				led@0 {
+					reg = <0>;
+					active-low;
+					color = <LED_COLOR_ID_YELLOW>;
+				};
+
+				led@1 {
+					reg = <1>;
+					active-low;
+					color = <LED_COLOR_ID_GREEN>;
+				};
+			};
 		};
 	};
 
@@ -538,6 +555,23 @@
 			reset-gpios = <&pmm8654au_2_gpios 9 GPIO_ACTIVE_LOW>;
 			reset-assert-us = <11000>;
 			reset-deassert-us = <70000>;
+
+			leds {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				led@0 {
+					reg = <0>;
+					active-low;
+					color = <LED_COLOR_ID_YELLOW>;
+				};
+
+				led@1 {
+					reg = <1>;
+					active-low;
+					color = <LED_COLOR_ID_GREEN>;
+				};
+			};
 		};
 	};
 
