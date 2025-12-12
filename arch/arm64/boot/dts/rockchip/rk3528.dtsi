@@ -364,6 +364,8 @@
 	display_subsystem: display-subsystem {
 		compatible = "rockchip,display-subsystem";
 		ports = <&vop_out>;
+		quirk-prefer-fhd;
+		quirk-prefer-large-60;
 		status = "disabled";
 	};
 
