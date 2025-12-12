@@ -17,6 +17,7 @@
 #include <linux/of_net.h>
 #include <net/devlink.h>
 #include <net/sch_generic.h>
+#include <linux/i2c.h>
 
 #include "dsa_priv.h"
 
@@ -527,6 +528,78 @@ static void dsa_port_devlink_teardown(struct dsa_port *dp)
 	devlink_port_fini(dlp);
 }
 
+int dsa_port_read_mac_from_eeprom(struct dsa_port *dp)
+{
+	struct device_node *np = dp->dn;
+	struct device_node *eeprom_np;
+	struct i2c_client *client;
+	struct i2c_adapter *adap;
+	struct i2c_msg msg[2];
+	u32 offset, len;
+	u8 offbuf[1];
+	int ret;
+
+	if (!np)
+		return -EINVAL;
+
+	/* Format: mac-at-eeprom = <&eeprom offset len>; */
+	eeprom_np = of_parse_phandle(np, "mac-at-eeprom", 0);
+	if (!eeprom_np)
+		return -ENOENT;
+
+	of_property_read_u32_index(np, "mac-at-eeprom", 1, &offset);
+	of_property_read_u32_index(np, "mac-at-eeprom", 2, &len);
+
+	if (len != ETH_ALEN)
+		return -EINVAL;
+
+	client = of_find_i2c_device_by_node(eeprom_np);
+	if (!client)
+		return -ENODEV;
+
+	adap = client->adapter;
+
+	/* 24c16 offset = 1 byte */
+	offbuf[0] = offset & 0xff;
+
+	msg[0].addr  = client->addr;
+	msg[0].flags = 0;
+	msg[0].len   = 1;
+	msg[0].buf   = offbuf;
+
+	msg[1].addr  = client->addr;
+	msg[1].flags = I2C_M_RD;
+	msg[1].len   = ETH_ALEN;
+	msg[1].buf   = dp->mac;
+
+	ret = i2c_transfer(adap, msg, 2);
+	if (ret != 2)
+		return -EIO;
+
+	return is_valid_ether_addr(dp->mac) ? 0 : -EINVAL;
+}
+EXPORT_SYMBOL_GPL(dsa_port_read_mac_from_eeprom);
+
+static bool dsa_port_get_mac(struct dsa_port *dp, u8 *mac)
+{
+	/* 1. try EEPROM */
+	if (dsa_port_read_mac_from_eeprom(dp) == 0 &&
+		is_valid_ether_addr(dp->mac)) {
+		ether_addr_copy(mac, dp->mac);
+		return true;
+	}
+
+	/* 2. try DTS */
+	if (!of_get_mac_address(dp->dn, mac) &&
+		is_valid_ether_addr(mac)) {
+		return true;
+	}
+
+	/* 3. fallback */
+	eth_random_addr(mac);
+	return true;
+}
+
 static int dsa_port_setup(struct dsa_port *dp)
 {
 	struct devlink_port *dlp = &dp->devlink_port;
@@ -583,7 +656,8 @@ static int dsa_port_setup(struct dsa_port *dp)
 
 		break;
 	case DSA_PORT_TYPE_USER:
-		of_get_mac_address(dp->dn, dp->mac);
+		dsa_port_get_mac(dp, dp->mac);
+		pr_info("dsa port %s mac = %pM\n", dp->name, dp->mac);
 		err = dsa_slave_create(dp);
 		if (err)
 			break;
