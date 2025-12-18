@@ -194,6 +194,23 @@ config MTD_INTEL_DG
 	  To compile this driver as a module, choose M here: the module
 	  will be called mtd-intel-dg.
 
+config MTD_QCOM_SCM_STORAGE
+	tristate "Qualcomm TrustZone protected storage MTD driver"
+	depends on MTD
+	depends on QCOM_SCM || COMPILE_TEST
+	help
+	  This provides an MTD device to access storage (typically SPI NOR
+	  flash) that is managed by Qualcomm's TrustZone firmware. On some
+	  platforms, the firmware storage is not directly accessible from
+	  the non-secure world and all operations must go through secure
+	  monitor calls.
+
+	  This driver is only functional on devices where the bootloader
+	  has configured TrustZone to expose the storage interface.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called qcom_scm_storage.
+
 comment "Disk-On-Chip Device Drivers"
 
 config MTD_DOCG3
