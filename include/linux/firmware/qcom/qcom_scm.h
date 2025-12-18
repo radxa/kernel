@@ -53,6 +53,36 @@ enum qcom_scm_ice_cipher {
 	QCOM_SCM_ICE_CIPHER_AES_256_CBC = 4,
 };
 
+enum qcom_scm_storage_cmd_id {
+	QCOM_SCM_STORAGE_INIT      = 0,
+	QCOM_SCM_STORAGE_READ      = 1,
+	QCOM_SCM_STORAGE_WRITE     = 2,
+	QCOM_SCM_STORAGE_ERASE     = 3,
+	QCOM_SCM_STORAGE_GET_INFO  = 4,
+	QCOM_SCM_STORAGE_DEINIT    = 5,
+};
+
+enum qcom_scm_storage_type {
+	QCOM_SCM_STORAGE_NULL    = 0,
+	QCOM_SCM_STORAGE_SPINOR  = 1,
+};
+
+#define QCOM_SCM_STORAGE_FW_VER_LEN	32
+#define QCOM_SCM_STORAGE_MEM_TYPE_LEN	5
+#define QCOM_SCM_STORAGE_PROD_NAME_LEN	32
+
+struct qcom_scm_storage_info {
+	u64 total_blocks;
+	u32 block_size;
+	u32 page_size;
+	u32 num_physical;
+	u64 manufacturer_id;
+	u64 serial_num;
+	char fw_version[QCOM_SCM_STORAGE_FW_VER_LEN];
+	char memory_type[QCOM_SCM_STORAGE_MEM_TYPE_LEN];
+	char product_name[QCOM_SCM_STORAGE_PROD_NAME_LEN];
+} __packed;
+
 #define QCOM_SCM_PERM_READ       0x4
 #define QCOM_SCM_PERM_WRITE      0x2
 #define QCOM_SCM_PERM_EXEC       0x1
@@ -194,5 +224,22 @@ int qcom_scm_qtee_invoke_smc(phys_addr_t inbuf, size_t inbuf_size,
 			     u64 *result, u64 *response_type);
 int qcom_scm_qtee_callback_response(phys_addr_t buf, size_t buf_size,
 				    u64 *result, u64 *response_type);
+
+#if IS_ENABLED(CONFIG_MTD_QCOM_SCM_STORAGE)
+
+int qcom_scm_storage_send_cmd(enum qcom_scm_storage_type storage_type,
+			      enum qcom_scm_storage_cmd_id cmd_id,
+			      u64 lba, void *payload, size_t size);
+
+#else /* CONFIG_MTD_QCOM_SCM_STORAGE */
+
+static inline int qcom_scm_storage_send_cmd(enum qcom_scm_storage_type storage_type,
+					    enum qcom_scm_storage_cmd_id cmd_id,
+					    u64 lba, void *payload, size_t size)
+{
+	return -EOPNOTSUPP;
+}
+
+#endif /* CONFIG_MTD_QCOM_SCM_STORAGE */
 
 #endif
