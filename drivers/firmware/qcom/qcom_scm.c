@@ -75,6 +75,21 @@ struct qcom_scm_mem_map_info {
 	__le64 mem_size;
 };
 
+struct qcom_scm_storage_cmd {
+	__le64 storage_type;
+	__le64 slot_num;
+	__le64 lun;
+	__le64 guid_ptr;
+	__le64 storage_cmd;
+};
+
+struct qcom_scm_storage_cmd_details {
+	__le64 lba;
+	__le64 length;
+	__le64 data_ptr;
+	__le64 data_size;
+};
+
 /**
  * struct qcom_scm_qseecom_resp - QSEECOM SCM call response.
  * @result:    Result or status of the SCM call. See &enum qcom_scm_qseecom_result.
@@ -118,6 +133,15 @@ enum qcom_scm_qseecom_tz_cmd_app {
 
 enum qcom_scm_qseecom_tz_cmd_info {
 	QSEECOM_TZ_CMD_INFO_VERSION		= 3,
+};
+
+enum qcom_scm_storage_result {
+	STORAGE_RESULT_SUCCESS			= 0,
+	STORAGE_RESULT_NO_MEMORY		= 1,
+	STORAGE_RESULT_INVALID_PARAMETER	= 2,
+	STORAGE_RESULT_STORAGE_ERROR		= 3,
+	STORAGE_RESULT_ACCESS_DENIED		= 4,
+	STORAGE_RESULT_NOT_SUPPORTED		= 5,
 };
 
 #define RSCTABLE_BUFFER_NOT_SUFFICIENT		20
@@ -2499,6 +2523,159 @@ static void qcom_scm_qtee_init(struct qcom_scm *scm)
 	devm_add_action_or_reset(scm->dev, qcom_scm_qtee_free, qtee_dev);
 }
 
+#if IS_ENABLED(CONFIG_MTD_QCOM_SCM_STORAGE)
+
+int qcom_scm_storage_send_cmd(enum qcom_scm_storage_type storage_type,
+			      enum qcom_scm_storage_cmd_id cmd_id,
+			      u64 lba, void *payload, size_t size)
+{
+	struct qcom_scm_res scm_res = {};
+	struct qcom_scm_desc desc = {};
+	struct qcom_scm_storage_cmd *cmd;
+	struct qcom_scm_storage_cmd_details *details;
+	size_t buf_size;
+	void *payload_buf;
+	int ret;
+
+	buf_size = sizeof(*cmd) + sizeof(*details);
+	if (payload)
+		buf_size += size;
+	void *data __free(qcom_tzmem) = qcom_tzmem_alloc(__scm->mempool,
+							 buf_size,
+							 GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+	memset(data, 0, buf_size);
+	if (payload) {
+		payload_buf = data + sizeof(*cmd) + sizeof(*details);
+		memcpy(payload_buf, payload, size);
+	}
+
+	cmd = data;
+	cmd->storage_type = storage_type;
+	cmd->storage_cmd = cmd_id;
+
+	details = data + sizeof(*cmd);
+	details->lba = lba;
+	if (payload)
+		details->data_ptr = qcom_tzmem_to_phys(payload_buf);
+	details->length = size;
+
+	desc.svc = QCOM_SCM_SVC_STORAGE;
+	desc.cmd = QCOM_SCM_STORAGE_CMD;
+	desc.arginfo = QCOM_SCM_ARGS(4, QCOM_SCM_RO, QCOM_SCM_VAL,
+				     QCOM_SCM_RW, QCOM_SCM_VAL);
+	desc.args[0] = qcom_tzmem_to_phys(cmd);
+	desc.args[1] = sizeof(*cmd);
+	desc.args[2] = qcom_tzmem_to_phys(details);
+	desc.args[3] = sizeof(*details);
+	desc.owner = ARM_SMCCC_OWNER_SIP;
+
+	ret = qcom_scm_call(__scm->dev, &desc, &scm_res);
+	if (ret)
+		return ret;
+
+	if (payload)
+		memcpy(payload, payload_buf, size);
+
+	switch (scm_res.result[0]) {
+	case STORAGE_RESULT_SUCCESS:
+		return 0;
+	case STORAGE_RESULT_NO_MEMORY:
+		return -ENOMEM;
+	case STORAGE_RESULT_INVALID_PARAMETER:
+		return -EINVAL;
+	case STORAGE_RESULT_STORAGE_ERROR:
+		return -EIO;
+	case STORAGE_RESULT_ACCESS_DENIED:
+		return -EACCES;
+	case STORAGE_RESULT_NOT_SUPPORTED:
+		return -EOPNOTSUPP;
+	default:
+		return -EIO;
+	}
+}
+EXPORT_SYMBOL_GPL(qcom_scm_storage_send_cmd);
+
+/*
+ * Allowlist of platforms known to support and have tested SCM storage interface.
+ * This is a safety mechanism to prevent exposing potentially dangerous firmware
+ * access on untested platforms. New platforms should be added here after validation.
+ */
+static const struct of_device_id qcom_scm_storage_allowlist[] = {
+	{ .compatible = "radxa,dragon-q6a" },
+	{ }
+};
+
+static bool qcom_scm_storage_machine_is_allowed(void)
+{
+	struct device_node *np;
+	bool match;
+
+	np = of_find_node_by_path("/");
+	if (!np)
+		return false;
+
+	match = of_match_node(qcom_scm_storage_allowlist, np);
+	of_node_put(np);
+
+	return match;
+}
+
+static void qcom_scm_storage_free(void *data)
+{
+	struct platform_device *storage_dev = data;
+
+	platform_device_unregister(storage_dev);
+}
+
+static int qcom_scm_storage_init(struct qcom_scm *scm)
+{
+	struct qcom_scm_storage_info info;
+	struct platform_device *storage_dev;
+	int ret;
+
+	ret = qcom_scm_storage_send_cmd(QCOM_SCM_STORAGE_SPINOR,
+					QCOM_SCM_STORAGE_GET_INFO,
+					0, &info, sizeof(info));
+	if (ret < 0) {
+		dev_info(scm->dev, "scm storage not available: %d\n", ret);
+		return 0;
+	}
+
+	if (!qcom_scm_storage_machine_is_allowed()) {
+		dev_info(scm->dev, "scm storage untested, skipping\n");
+		return 0;
+	}
+
+	dev_info(scm->dev, "scm storage size %llu bytes\n",
+		 info.total_blocks * info.block_size);
+
+	storage_dev = platform_device_alloc("qcom_scm_storage", -1);
+	if (!storage_dev)
+		return -ENOMEM;
+
+	storage_dev->dev.parent = scm->dev;
+
+	ret = platform_device_add(storage_dev);
+	if (ret) {
+		platform_device_put(storage_dev);
+		return ret;
+	}
+
+	return devm_add_action_or_reset(scm->dev, qcom_scm_storage_free,
+					storage_dev);
+}
+
+#else /* CONFIG_MTD_QCOM_SCM_STORAGE */
+
+static int qcom_scm_storage_init(struct qcom_scm *scm)
+{
+	return 0;
+}
+
+#endif /* CONFIG_MTD_QCOM_SCM_STORAGE */
+
 /**
  * qcom_scm_is_available() - Checks if SCM is available
  */
@@ -2811,6 +2988,12 @@ static int qcom_scm_probe(struct platform_device *pdev)
 
 	/* Initialize the QTEE object interface. */
 	qcom_scm_qtee_init(scm);
+
+	/*
+	 * Initialize the SCM storage interface.
+	 */
+	ret = qcom_scm_storage_init(scm);
+	WARN(ret < 0, "failed to initialize scm storage: %d\n", ret);
 
 	return 0;
 }
