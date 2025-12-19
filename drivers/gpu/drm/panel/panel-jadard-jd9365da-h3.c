@@ -387,12 +387,12 @@ static const struct jadard_panel_desc radxa_display_8hd_ad002_desc = {
 		.hdisplay	= 800,
 		.hsync_start	= 800 + 40,
 		.hsync_end	= 800 + 40 + 18,
-		.htotal		= 800 + 40 + 18 + 20,
+		.htotal		= 800 + 40 + 18 + 40,
 
 		.vdisplay	= 1280,
 		.vsync_start	= 1280 + 20,
 		.vsync_end	= 1280 + 20 + 4,
-		.vtotal		= 1280 + 20 + 4 + 20,
+		.vtotal		= 1280 + 20 + 4 + 30,
 
 		.width_mm	= 127,
 		.height_mm	= 199,
