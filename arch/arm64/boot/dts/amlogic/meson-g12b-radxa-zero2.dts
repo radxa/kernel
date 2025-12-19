@@ -475,6 +475,10 @@
 	pinctrl-names = "default";
 };
 
+&npu {
+	status = "okay";
+};
+
 &pwm_ab {
 	pinctrl-0 = <&pwm_a_e_pins>;
 	pinctrl-names = "default";
