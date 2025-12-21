@@ -13,6 +13,7 @@
 #include <linux/pm_opp.h>
 #include <linux/pm_runtime.h>
 #include <linux/property.h>
+#include <linux/sizes.h>
 #include <linux/soc/qcom/geni-se.h>
 #include <linux/spi/spi.h>
 #include <linux/spinlock.h>
@@ -540,6 +541,32 @@ static int spi_geni_prepare_message(struct spi_controller *spi,
 
 	dev_err(mas->dev, "Mode not supported %d", mas->cur_xfer_mode);
 	return -EINVAL;
+}
+
+static size_t spi_geni_max_transfer_size(struct spi_device *slv)
+{
+	struct spi_controller *ctlr = slv->controller;
+	struct spi_geni_master *mas = spi_controller_get_devdata(ctlr);
+	struct device *dma_dev = NULL;
+	size_t max_seg = 0;
+
+	if (mas->cur_xfer_mode != GENI_GPI_DMA)
+		return SIZE_MAX;
+
+	if (mas->tx && mas->tx->device)
+		dma_dev = mas->tx->device->dev;
+	else if (ctlr->dma_map_dev)
+		dma_dev = ctlr->dma_map_dev;
+	else
+		dma_dev = ctlr->dev.parent;
+
+	if (dma_dev)
+		max_seg = dma_get_max_seg_size(dma_dev);
+
+	if (!max_seg)
+		max_seg = SZ_64K;
+
+	return max_seg;
 }
 
 static void spi_geni_release_dma_chan(void *data)
@@ -1075,6 +1102,7 @@ static int spi_geni_probe(struct platform_device *pdev)
 	spi->max_dma_len = 0xffff0; /* 24 bits for tx/rx dma length */
 	spi->prepare_message = spi_geni_prepare_message;
 	spi->transfer_one = spi_geni_transfer_one;
+	spi->max_transfer_size = spi_geni_max_transfer_size;
 	spi->can_dma = geni_can_dma;
 	spi->dma_map_dev = dev->parent;
 	spi->auto_runtime_pm = true;
