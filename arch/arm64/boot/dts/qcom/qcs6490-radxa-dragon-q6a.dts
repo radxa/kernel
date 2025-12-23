@@ -561,11 +561,6 @@
 	status = "okay";
 };
 
-/* It takes a long time in ufshcd_init_crypto when enabled */
-&ice {
-	status = "disabled";
-};
-
 &lpass_audiocc {
 	compatible = "qcom,qcm6490-lpassaudiocc";
 	/delete-property/ power-domains;
@@ -1040,7 +1035,6 @@
 	/* Gear-4 Rate-B is unstable due to board */
 	/* and UFS module design limitations */
 	limit-gear-rate = "rate-a";
-	/delete-property/ qcom,ice;
 
 	status = "okay";
 };
