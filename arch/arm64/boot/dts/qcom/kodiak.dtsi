@@ -7640,6 +7640,18 @@
 					type = "passive";
 				};
 
+				gpuss0_alert1: trip-point1 {
+					temperature = <100000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				gpuss0_alert2: trip-point2 {
+					temperature = <105000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
 				gpuss0_crit: gpuss0-crit {
 					temperature = <110000>;
 					hysteresis = <0>;
@@ -7650,6 +7662,16 @@
 			cooling-maps {
 				map0 {
 					trip = <&gpuss0_alert0>;
+					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+
+				map1 {
+					trip = <&gpuss0_alert1>;
+					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+
+				map2 {
+					trip = <&gpuss0_alert2>;
 					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
 			};
@@ -7667,6 +7689,18 @@
 					type = "passive";
 				};
 
+				gpuss1_alert1: trip-point1 {
+					temperature = <100000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				gpuss1_alert2: trip-point2 {
+					temperature = <105000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
 				gpuss1_crit: gpuss1-crit {
 					temperature = <110000>;
 					hysteresis = <0>;
@@ -7677,6 +7711,16 @@
 			cooling-maps {
 				map0 {
 					trip = <&gpuss1_alert0>;
+					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+
+				map1 {
+					trip = <&gpuss1_alert1>;
+					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+
+				map2 {
+					trip = <&gpuss1_alert2>;
 					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
 			};
