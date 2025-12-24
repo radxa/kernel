@@ -533,7 +533,7 @@ int dsa_port_read_mac_from_eeprom(struct dsa_port *dp)
 	struct device_node *np = dp->dn;
 	struct device_node *eeprom_np;
 	struct i2c_client *client;
-	struct i2c_adapter *adap;
+	struct i2c_adapter *adapter;
 	struct i2c_msg msg[2];
 	u32 offset, len;
 	u8 offbuf[1];
@@ -547,19 +547,46 @@ int dsa_port_read_mac_from_eeprom(struct dsa_port *dp)
 	if (!eeprom_np)
 		return -ENOENT;
 
-	of_property_read_u32_index(np, "mac-at-eeprom", 1, &offset);
-	of_property_read_u32_index(np, "mac-at-eeprom", 2, &len);
+	ret = of_property_read_u32_index(np, "mac-at-eeprom", 1, &offset);
+	if (ret) {
+		dev_err(dp->ds->dev,
+			"failed to read mac-at-eeprom offset\n");
+		goto out_put_np;
+	}
 
-	if (len != ETH_ALEN)
-		return -EINVAL;
+	ret = of_property_read_u32_index(np, "mac-at-eeprom", 2, &len);
+	if (ret) {
+		dev_err(dp->ds->dev,
+			"failed to read mac-at-eeprom length\n");
+		goto out_put_np;
+	}
+
+	if (len != ETH_ALEN) {
+		ret = -EINVAL;
+		goto out_put_np;
+	}
+
+	/* 24c16 uses 1-byte address */
+	if (offset > 0xff) {
+		dev_err(dp->ds->dev,
+			"mac-at-eeprom offset %u out of range\n", offset);
+		ret = -EINVAL;
+		goto out_put_np;
+	}
 
 	client = of_find_i2c_device_by_node(eeprom_np);
-	if (!client)
+	if (!client) {
+		ret = -ENODEV;
+		goto out_put_np;
+	}
+
+	of_node_put(eeprom_np);
+
+	if (!get_device(&client->dev))
 		return -ENODEV;
 
-	adap = client->adapter;
+	adapter = client->adapter;
 
-	/* 24c16 offset = 1 byte */
 	offbuf[0] = offset & 0xff;
 
 	msg[0].addr  = client->addr;
@@ -572,26 +599,32 @@ int dsa_port_read_mac_from_eeprom(struct dsa_port *dp)
 	msg[1].len   = ETH_ALEN;
 	msg[1].buf   = dp->mac;
 
-	ret = i2c_transfer(adap, msg, 2);
+	ret = i2c_transfer(adapter, msg, 2);
+	put_device(&client->dev);
+
 	if (ret != 2)
 		return -EIO;
 
 	return is_valid_ether_addr(dp->mac) ? 0 : -EINVAL;
+
+out_put_np:
+	of_node_put(eeprom_np);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(dsa_port_read_mac_from_eeprom);
 
 static bool dsa_port_get_mac(struct dsa_port *dp, u8 *mac)
 {
-	/* 1. try EEPROM */
-	if (dsa_port_read_mac_from_eeprom(dp) == 0 &&
-		is_valid_ether_addr(dp->mac)) {
-		ether_addr_copy(mac, dp->mac);
+	/* 1. try DTS */
+	if (!of_get_mac_address(dp->dn, mac) &&
+		is_valid_ether_addr(mac)) {
 		return true;
 	}
 
-	/* 2. try DTS */
-	if (!of_get_mac_address(dp->dn, mac) &&
-		is_valid_ether_addr(mac)) {
+	/* 2. try EEPROM */
+	if (dsa_port_read_mac_from_eeprom(dp) == 0 &&
+		is_valid_ether_addr(dp->mac)) {
+		ether_addr_copy(mac, dp->mac);
 		return true;
 	}
 
