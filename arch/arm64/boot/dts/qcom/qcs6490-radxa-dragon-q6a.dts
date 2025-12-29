@@ -34,6 +34,7 @@
 /delete-node/ &wlan_fw_mem;
 /delete-node/ &wpss_mem;
 /delete-node/ &xbl_mem;
+/delete-node/ &gpu_zap_mem;
 
 / {
 	model = "Radxa Dragon Q6A";
@@ -228,6 +229,11 @@
 
 		gpu_microcode_mem: gpu-microcode@89a00000 {
 			reg = <0x0 0x89a00000 0x0 0x2000>;
+			no-map;
+		};
+
+		gpu_zap_mem: zap@89b00000 {
+			reg = <0x0 0x89b00000 0x0 0x2000>;
 			no-map;
 		};
 
