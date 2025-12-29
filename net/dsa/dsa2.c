@@ -567,9 +567,10 @@ int dsa_port_read_mac_from_eeprom(struct dsa_port *dp)
 	}
 
 	/* 24c16 uses 1-byte address */
-	if (offset > 0xff) {
+	if (offset > 0xff || offset > 0x100 - len) {
 		dev_err(dp->ds->dev,
-			"mac-at-eeprom offset %u out of range\n", offset);
+				"mac-at-eeprom offset %u + len %u out of range\n",
+				offset, len);
 		ret = -EINVAL;
 		goto out_put_np;
 	}
