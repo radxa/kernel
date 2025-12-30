@@ -388,6 +388,7 @@ struct tcpm_port {
 	 * Set to false when vbus is greater than VSAFE0V max.
 	 */
 	bool vbus_vsafe0v;
+	bool skip_vsafe0v_check;
 
 	bool vbus_never_low;
 	bool vbus_source;
@@ -4818,7 +4819,8 @@ static void run_state_machine(struct tcpm_port *port)
 		else if (tcpm_port_is_audio(port))
 			tcpm_set_state(port, AUDIO_ACC_ATTACHED,
 				       port->timings.cc_debounce_time);
-		else if (tcpm_port_is_source(port) && port->vbus_vsafe0v)
+		else if (tcpm_port_is_source(port) && 
+			(port->vbus_vsafe0v || port->skip_vsafe0v_check))
 			tcpm_set_state(port,
 				       tcpm_try_snk(port) ? SNK_TRY
 							  : SRC_ATTACHED,
@@ -7914,6 +7916,8 @@ struct tcpm_port *tcpm_register_port(struct device *dev, struct tcpc_dev *tcpc)
 		err = PTR_ERR(port->typec_port);
 		goto out_unregister_pd;
 	}
+
+	port->skip_vsafe0v_check = device_property_read_bool(dev, "tcpm,skip-vsafe0v-check");
 
 	typec_port_register_altmodes(port->typec_port,
 				     &tcpm_altmode_ops, port,
