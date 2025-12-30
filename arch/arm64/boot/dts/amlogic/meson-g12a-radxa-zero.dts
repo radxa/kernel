@@ -8,6 +8,7 @@
 #include "meson-g12a.dtsi"
 #include <dt-bindings/gpio/meson-g12a-gpio.h>
 #include <dt-bindings/sound/meson-g12a-tohdmitx.h>
+#include <dt-bindings/usb/pd.h>
 
 / {
 	compatible = "radxa,zero", "amlogic,g12a";
@@ -129,6 +130,14 @@
 		regulator-always-on;
 	};
 
+	typec_vbus: regulator-typec-vbus {
+		compatible = "regulator-fixed";
+		regulator-name = "TYPEC_VBUS";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		vin-supply = <&ao_5v>;
+	};
+
 	sound {
 		compatible = "amlogic,axg-sound-card";
 		model = "RADXA-ZERO";
@@ -185,6 +194,20 @@
 		};
 	};
 
+	usb-sbu-mux {
+		compatible = "gpio-sbu-mux";
+		select-gpios = <&gpio_ao GPIOAO_6 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&usb_sbu_default>;
+		pinctrl-names = "default";
+		orientation-switch;
+
+		port {
+			usb0_sbu_mux: endpoint {
+				remote-endpoint = <&ucsi0_sbu>;
+			};
+		};
+	};
+
 	wifi32k: wifi32k {
 		compatible = "pwm-clock";
 		#clock-cells = <0>;
@@ -234,6 +257,81 @@
 &cvbs_vdac_port {
 	cvbs_vdac_out: endpoint {
 		remote-endpoint = <&cvbs_connector_in>;
+	};
+};
+
+&dwc3 {
+	ports {
+		usb_dwc2_out: endpoint@0 {
+			remote-endpoint = <&ucsi0_hs_in>;
+		};
+
+		usb_dwc3_out: endpoint@1 {
+			remote-endpoint = <&ucsi0_ss_in>;
+		};
+	};
+};
+
+&i2c3 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	pinctrl-0 = <&i2c3_sda_a_pins>, <&i2c3_sck_a_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	fusb302@22 {
+		compatible = "fcs,fusb302";
+		reg = <0x22>;
+
+		pinctrl-0 = <&fusb302_irq_pins>;
+		pinctrl-names = "default";
+		interrupt-parent = <&gpio_intc>;
+		interrupts = <IRQID_GPIOAO_5 IRQ_TYPE_LEVEL_LOW>;
+		tcpm,skip-vsafe0v-check;
+		fcs,force-vbus-toggle;
+
+		vbus-supply = <&typec_vbus>;
+
+		status = "okay";
+
+		usb_con: connector {
+			compatible = "usb-c-connector";
+			label = "USB-C";
+			data-role = "host";
+			/* fusb302 supports PD Rev 2.0 Ver 1.2 */
+			pd-revision = /bits/ 8 <0x2 0x0 0x1 0x2>;
+			power-role = "source";
+			source-pdos = <PDO_FIXED(5000, 1500, PDO_FIXED_USB_COMM)>;
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+
+					ucsi0_hs_in: endpoint {
+						remote-endpoint = <&usb_dwc2_out>;
+					};
+				};
+
+				port@1 {
+					reg = <1>;
+
+					ucsi0_ss_in: endpoint {
+						remote-endpoint = <&usb_dwc3_out>;
+					};
+				};
+
+				port@2 {
+					reg = <2>;
+
+					ucsi0_sbu: endpoint {
+						remote-endpoint = <&usb0_sbu_mux>;
+					};
+				};
+			};
+		};
 	};
 };
 
@@ -387,4 +485,24 @@
 
 &usb {
 	status = "okay";
+};
+
+&ao_pinctrl {
+	fusb302_irq_pins: fusb302_irq {
+		mux {
+			groups = "GPIOAO_5";
+			function = "gpio_aobus";
+			bias-pull-up;
+			output-disable;
+		};
+	};
+
+	usb_sbu_default: usb0-sbu-state {
+		mux {
+			groups = "GPIOAO_6";
+			function = "gpio_aobus";
+			bias-pull-down;
+			drive-strength-microamp = <4000>;
+		};
+	};
 };
