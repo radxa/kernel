@@ -100,6 +100,7 @@ struct fusb302_chip {
 	bool intr_togdone;
 	bool intr_bc_lvl;
 	bool intr_comp_chng;
+	bool force_vbus_toggle;
 
 	/* port status */
 	bool vconn_on;
@@ -777,6 +778,13 @@ static int tcpm_set_vbus(struct tcpc_dev *dev, bool on, bool charge)
 		}
 		chip->vbus_on = on;
 		fusb302_log(chip, "vbus := %s", str_on_off(on));
+		if (on && chip->force_vbus_toggle) {
+			fusb302_log(chip, "WORKAROUND: Forcing VBUS toggle for TCPM state machine");
+			chip->vbus_present = false;
+			tcpm_vbus_change(chip->tcpm_port);
+			chip->vbus_present = true;
+			tcpm_vbus_change(chip->tcpm_port);
+		}
 	}
 	if (chip->charge_on == charge)
 		fusb302_log(chip, "charge is already %s", str_on_off(charge));
@@ -1724,6 +1732,8 @@ static int fusb302_probe(struct i2c_client *client)
 	chip->vbus = devm_regulator_get(chip->dev, "vbus");
 	if (IS_ERR(chip->vbus))
 		return PTR_ERR(chip->vbus);
+
+	chip->force_vbus_toggle = device_property_read_bool(chip->dev, "fcs,force-vbus-toggle");
 
 	chip->wq = create_singlethread_workqueue(dev_name(chip->dev));
 	if (!chip->wq)
