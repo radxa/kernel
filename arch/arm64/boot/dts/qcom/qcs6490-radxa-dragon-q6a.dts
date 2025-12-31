@@ -527,24 +527,6 @@
 	firmware-name = "qcom/qcs6490/a660_zap.mbn";
 };
 
-/* Pin 13, 15 in GPIO header */
-&i2c0 {
-	qcom,enable-gsi-dma;
-	status = "okay";
-};
-
-/* Pin 27, 28 in GPIO header */
-&i2c2 {
-	qcom,enable-gsi-dma;
-	status = "okay";
-};
-
-/* Pin 3, 5 in GPIO header */
-&i2c6 {
-	qcom,enable-gsi-dma;
-	status = "okay";
-};
-
 &i2c10 {
 	qcom,enable-gsi-dma;
 	status = "okay";
@@ -855,24 +837,6 @@
 			sound-dai = <&q6apm>;
 		};
 	};
-};
-
-/* Pin 11, 29, 31, 32 in GPIO header */
-&spi7 {
-	qcom,enable-gsi-dma;
-	status = "okay";
-};
-
-/* Pin 19, 21, 23, 24, 26 in GPIO header */
-&spi12 {
-	qcom,enable-gsi-dma;
-	status = "okay";
-};
-
-/* Pin 22, 33, 36, 37 in GPIO header */
-&spi14 {
-	qcom,enable-gsi-dma;
-	status = "okay";
 };
 
 &swr0 {
