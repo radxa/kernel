@@ -361,11 +361,18 @@ static int _dpu_rm_reserve_lms(struct dpu_rm *rm,
 	int lm_idx[MAX_BLOCKS];
 	int pp_idx[MAX_BLOCKS];
 	int dspp_idx[MAX_BLOCKS] = {0};
-	int i, lm_count = 0;
+	int i, j, lm_count = 0;
+	int total_available = 0;
 
 	if (!topology->num_lm) {
 		DPU_ERROR("invalid number of lm: %d\n", topology->num_lm);
 		return -EINVAL;
+	}
+
+	/* Count available mixers */
+	for (i = 0; i < ARRAY_SIZE(rm->mixer_blks); i++) {
+		if (rm->mixer_blks[i])
+			total_available++;
 	}
 
 	/* Find a primary mixer */
@@ -409,7 +416,8 @@ static int _dpu_rm_reserve_lms(struct dpu_rm *rm,
 	}
 
 	if (lm_count != topology->num_lm) {
-		DPU_DEBUG("unable to find appropriate mixers\n");
+		DPU_ERROR("unable to find appropriate mixers (found %d, needed %d)\n",
+			  lm_count, topology->num_lm);
 		return -ENAVAIL;
 	}
 
@@ -670,11 +678,31 @@ static int _dpu_rm_make_reservation(
 		struct msm_display_topology *topology)
 {
 	int ret;
+	int orig_num_lm = topology->num_lm;
+	bool fallback_used = false;
 
+	/* First try with requested number of layer mixers */
 	ret = _dpu_rm_reserve_lms(rm, global_state, crtc_id, topology);
-	if (ret) {
+
+	/* If that fails and more than 1 LM was requested, try with just 1 LM */
+	if (ret && (orig_num_lm > 1)) {
+		DPU_DEBUG("Falling back to single layer mixer for crtc_id=%u\n", crtc_id);
+		topology->num_lm = 1;
+		fallback_used = true;
+		ret = _dpu_rm_reserve_lms(rm, global_state, crtc_id, topology);
+		if (ret) {
+			topology->num_lm = orig_num_lm;
+			DPU_ERROR("unable to find appropriate mixers, even with fallback\n");
+			return ret;
+		}
+	} else if (ret) {
 		DPU_ERROR("unable to find appropriate mixers\n");
 		return ret;
+	}
+
+	/* Only restore original value if we didn't use fallback */
+	if (!fallback_used) {
+		topology->num_lm = orig_num_lm;
 	}
 
 	if (topology->cwb_enabled) {
