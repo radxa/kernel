@@ -149,9 +149,9 @@
 		};
 	};
 
-	typec_vbus: regulator-typec-vbus {
+	ao_5v_b: regulator-ao-5v-b {
 		compatible = "regulator-fixed";
-		regulator-name = "TYPEC_VBUS";
+		regulator-name = "AO_5V_B";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
 		vin-supply = <&ao_5v>;
@@ -309,7 +309,7 @@
 		tcpm,skip-vsafe0v-check;
 		fcs,force-vbus-toggle;
 
-		vbus-supply = <&typec_vbus>;
+		vbus-supply = <&ao_5v_b>;
 
 		status = "okay";
 
