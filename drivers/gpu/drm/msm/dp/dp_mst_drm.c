@@ -50,7 +50,7 @@ static int msm_dp_mst_find_vcpi_slots(struct drm_dp_mst_topology_mgr *mgr, int p
 	struct drm_dp_mst_topology_state *state;
 
 	state = to_drm_dp_mst_topology_state(mgr->base.state);
-	num_slots = DIV_ROUND_UP(pbn, state->pbn_div.full);
+	num_slots = DIV_ROUND_UP(dfixed_const(pbn), state->pbn_div.full);
 
 	/* max. time slots - one slot for MTP header */
 	if (num_slots > 63)
@@ -69,21 +69,13 @@ static int msm_dp_mst_calc_pbn_mode(struct drm_display_mode *mode, u32 bpp)
 	return pbn;
 }
 
-static int msm_dp_mst_get_mst_pbn_div(struct msm_dp_panel *msm_dp_panel)
-{
-	struct msm_dp_link_info *link_info;
-
-	link_info = &msm_dp_panel->link_info;
-
-	return link_info->rate * link_info->num_lanes / 54000;
-}
-
 static int _msm_dp_mst_compute_config(struct drm_atomic_state *state,
 				      struct msm_dp_mst *mst, struct drm_connector *connector,
 				      struct drm_display_mode *mode)
 {
 	int slots = 0, pbn;
 	struct msm_dp_mst_connector *mst_conn = to_msm_dp_mst_connector(connector);
+	struct msm_dp_link_info *link_info = &mst_conn->dp_panel->link_info;
 	int rc = 0;
 	struct drm_dp_mst_topology_state *mst_state;
 
@@ -100,7 +92,9 @@ static int _msm_dp_mst_compute_config(struct drm_atomic_state *state,
 	mst_state = to_drm_dp_mst_topology_state(mst->mst_mgr.base.state);
 
 	if (!mst_state->pbn_div.full)
-		mst_state->pbn_div.full = msm_dp_mst_get_mst_pbn_div(mst_conn->dp_panel);
+		mst_state->pbn_div = drm_dp_get_vc_payload_bw(&mst->mst_mgr,
+							      link_info->rate,
+							      link_info->num_lanes);
 
 	rc = drm_dp_atomic_find_time_slots(state, &mst->mst_mgr, mst_conn->mst_port, pbn);
 	if (rc < 0) {
