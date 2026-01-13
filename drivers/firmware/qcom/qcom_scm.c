@@ -2604,6 +2604,7 @@ EXPORT_SYMBOL_GPL(qcom_scm_storage_send_cmd);
  */
 static const struct of_device_id qcom_scm_storage_allowlist[] = {
 	{ .compatible = "radxa,dragon-q6a" },
+	{ .compatible = "radxa,dragon-q8b" },
 	{ }
 };
 
