@@ -280,7 +280,7 @@
 };
 
 &dwc3 {
-	ports {
+	port {
 		usb_dwc2_out: endpoint@0 {
 			remote-endpoint = <&ucsi0_hs_in>;
 		};
