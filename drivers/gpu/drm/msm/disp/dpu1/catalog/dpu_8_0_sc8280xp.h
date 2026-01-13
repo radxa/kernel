@@ -390,7 +390,7 @@ static const struct dpu_perf_cfg sc8280xp_perf_data = {
 		{.rd_enable = 1, .wr_enable = 1},
 		{.rd_enable = 1, .wr_enable = 0}
 	},
-	.clk_inefficiency_factor = 105,
+	.clk_inefficiency_factor = 100,
 	.bw_inefficiency_factor = 120,
 };
 
