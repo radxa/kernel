@@ -664,7 +664,7 @@ static const struct meson_pmx_group meson_g12a_periphs_groups[] = {
 	GROUP(pwm_c_x8,			5),
 	GROUP(pwm_c_c,			5),
 	GROUP(pwm_c_z,			5),
-	GROUP(pwm_d_z,			4),
+	GROUP(pwm_d_z,			2),
 	GROUP(pwm_d_a,			3),
 	GROUP(pwm_d_x3,			4),
 	GROUP(pwm_d_x6,			4),
