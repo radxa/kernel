@@ -204,3 +204,45 @@
 &npu {
 	power-domains = <&pwrc PWRC_G12A_NNA_ID>;
 };
+
+&periphs_pinctrl {
+	pwm_b_h_pins: pwm-b-h {
+		mux {
+			groups = "pwm_b_h";
+			function = "pwm_b";
+			bias-disable;
+		};
+	};
+
+	pwm_b_z_pins: pwm-b-z {
+		mux {
+			groups = "pwm_b_z";
+			function = "pwm_b";
+			bias-disable;
+		};
+	};
+
+	pwm_c_z_pins: pwm-c-z {
+		mux {
+			groups = "pwm_c_z";
+			function = "pwm_c";
+			bias-disable;
+		};
+	};
+
+	pwm_d_a_pins: pwm-d-a {
+		mux {
+			groups = "pwm_d_a";
+			function = "pwm_d";
+			bias-disable;
+		};
+	};
+
+	pwm_d_z_pins: pwm-d-z {
+		mux {
+			groups = "pwm_d_z";
+			function = "pwm_d";
+			bias-disable;
+		};
+	};
+};
