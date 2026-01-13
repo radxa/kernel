@@ -379,17 +379,13 @@
 	};
 };
 
-&dwc2 {
-	port {
-		usb_dwc2_out: endpoint {
-			remote-endpoint = <&ucsi0_hs_in>;
-		};
-	};
-};
-
 &dwc3 {
 	port {
-		usb_dwc3_out: endpoint {
+		usb_dwc2_out: endpoint@0 {
+			remote-endpoint = <&ucsi0_hs_in>;
+		};
+
+		usb_dwc3_out: endpoint@1 {
 			remote-endpoint = <&ucsi0_ss_in>;
 		};
 	};
