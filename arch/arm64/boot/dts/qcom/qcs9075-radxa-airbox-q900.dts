@@ -27,6 +27,7 @@
 	aliases {
 		ethernet0 = &ethernet0;
 		ethernet1 = &ethernet1;
+		i2c15 = &i2c15;
 		i2c18 = &i2c18;
 		serial0 = &uart10;
 		ufshc1 = &ufs_mem_hc;
@@ -713,6 +714,16 @@
 &i2c15 {
 	qcom,load-firmware;
 	qcom,xfer-mode = <1>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&qup_i2c15_default>;
+
+	status = "okay";
+
+	eeprom: eeprom@50 {
+		compatible = "atmel,24c16";
+		reg = <0x50>;
+		pagesize = <16>;
+	};
 };
 
 &i2c16 {
