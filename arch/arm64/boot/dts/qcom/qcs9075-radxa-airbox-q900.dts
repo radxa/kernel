@@ -440,6 +440,9 @@
 
 	status = "okay";
 
+	eeprom-for-mac = <&eeprom>;
+	mac-eeprom-offset = <0x9e>;
+
 	mdio {
 		compatible = "snps,dwmac-mdio";
 		#address-cells = <1>;
@@ -544,6 +547,9 @@
 	snps,ps-speed = <1000>;
 
 	status = "okay";
+
+	eeprom-for-mac = <&eeprom>;
+	mac-eeprom-offset = <0xa4>;
 
 	mdio {
 		compatible = "snps,dwmac-mdio";
@@ -723,6 +729,7 @@
 		compatible = "atmel,24c16";
 		reg = <0x50>;
 		pagesize = <16>;
+		i2c_id = <15>;
 	};
 };
 
