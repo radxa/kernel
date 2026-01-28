@@ -280,8 +280,12 @@ int msm_dp_panel_read_sink_caps(struct msm_dp_panel *msm_dp_panel,
 
 	drm_edid_connector_update(connector, msm_dp_panel->drm_edid);
 
-	if (!msm_dp_panel->drm_edid) {
+	if (msm_dp_panel->drm_edid) {
+		drm_dp_cec_attach(panel->aux,
+					connector->display_info.source_physical_address);
+	} else {
 		DRM_ERROR("panel edid read failed\n");
+		drm_dp_cec_unset_edid(panel->aux);
 		/* check edid read fail is due to unplug */
 		if (!msm_dp_aux_is_link_connected(panel->aux)) {
 			rc = -ETIMEDOUT;

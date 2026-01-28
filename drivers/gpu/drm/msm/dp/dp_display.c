@@ -234,6 +234,7 @@ static void msm_dp_display_unbind(struct device *dev, struct device *master,
 
 	of_dp_aux_depopulate_bus(dp->aux);
 
+	drm_dp_cec_unregister_connector(dp->aux);
 	msm_dp_aux_unregister(dp->aux);
 	dp->drm_dev = NULL;
 	dp->aux->drm_dev = NULL;
@@ -434,6 +435,7 @@ static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 
 	dp->panel->video_test = false;
 
+	drm_dp_cec_unset_edid(dp->aux);
 	msm_dp_aux_enable_xfers(dp->aux, false);
 
 	drm_dbg_dp(dp->drm_dev, "Before, type=%d sink_count=%d\n",
@@ -501,6 +503,7 @@ static int msm_dp_irq_hpd_handle(struct msm_dp_display_private *dp)
 		else
 			rc = msm_dp_display_handle_irq_hpd(dp);
 	}
+	drm_dp_cec_irq(dp->aux);
 
 	drm_dbg_dp(dp->drm_dev, "After, type=%d, sink_count=%d\n",
 			dp->msm_dp_display.connector_type,
@@ -1392,6 +1395,7 @@ int msm_dp_modeset_init(struct msm_dp *msm_dp_display, struct drm_device *dev,
 	}
 
 	msm_dp_priv->panel->connector = msm_dp_display->connector;
+	drm_dp_cec_register_connector(msm_dp_priv->aux, msm_dp_display->connector);
 
 	return 0;
 }
