@@ -13,7 +13,7 @@
 #include "stmmac.h"
 #include "stmmac_platform.h"
 
-#define EEPROM_STMMAC_READ_BYTE	18
+#define EEPROM_STMMAC_READ_BYTE	6
 #define EEPROM_STMMAC_WRITE_OFFSET_BYTE	2
 
 #define RGMII_IO_MACRO_CONFIG		0x0
@@ -1105,13 +1105,15 @@ static int ethqos_eeprom_readmac(struct plat_stmmacenet_data *plat_dat, struct d
 {
 	static u8 wr_data[EEPROM_STMMAC_WRITE_OFFSET_BYTE] = {0, 0};
 	static u8 rd_data[EEPROM_STMMAC_READ_BYTE];
-	char *temp_mac_addr = NULL, *mac_str = NULL;
-	char *token = NULL, *token_n = NULL;
 	struct i2c_adapter *adapter;
 	struct i2c_msg msg[2];
 	u8 addr[ETH_ALEN];
 	int j = 0, ret;
 	u8 mac_id = 0;
+	struct device_node *np = dev->of_node;
+	struct device_node *eeprom_np;
+	u32 offset;
+	int offset_len = EEPROM_STMMAC_WRITE_OFFSET_BYTE; /* default = 2 */
 
 	adapter = i2c_get_adapter(plat_dat->i2c_id);
 	if (!adapter) {
@@ -1120,8 +1122,30 @@ static int ethqos_eeprom_readmac(struct plat_stmmacenet_data *plat_dat, struct d
 		return -ENODEV;
 	}
 
+	if (!np) {
+		dev_err(dev, "no device tree node\n");
+		return -EINVAL;
+	}
+
+	if (of_property_read_u32(np, "mac-eeprom-offset", &offset)) {
+		dev_err(dev, "missing mac-eeprom-offset\n");
+		return -EINVAL;
+	}
+
+	eeprom_np = of_parse_phandle(np, "eeprom-for-mac", 0);
+
+	if (eeprom_np && of_device_is_compatible(eeprom_np, "atmel,24c16"))
+		offset_len = 1;   /* 24c16:1-byte offset */
+
+	if (offset_len == 1) {
+		wr_data[0] = offset & 0xff;
+	} else {
+		wr_data[0] = (offset >> 8) & 0xff;
+		wr_data[1] = offset & 0xff;
+	}
+
 	msg[0].addr = plat_dat->eeprom_reg;
-	msg[0].len = EEPROM_STMMAC_WRITE_OFFSET_BYTE;
+	msg[0].len = offset_len;
 	msg[0].flags = 0;
 	msg[0].buf = wr_data;
 
@@ -1136,33 +1160,11 @@ static int ethqos_eeprom_readmac(struct plat_stmmacenet_data *plat_dat, struct d
 		return ret;
 	}
 
-	mac_str = kmemdup(rd_data, EEPROM_STMMAC_READ_BYTE, GFP_KERNEL);
-	if (!mac_str)
-		return -ENOMEM;
-
-	temp_mac_addr = mac_str;
-
-	token_n = strsep(&temp_mac_addr, "\n");
-	if (!token_n) {
-		kfree(mac_str);
-		return 0;
-	}
-	token = strsep(&token_n, ":");
-	while (token) {
-		if (kstrtou8(token, 16, &mac_id)) {
-			kfree(mac_str);
-			return 0;
-		}
-		addr[j++] = mac_id;
-		token = strsep(&token_n, ":");
-	}
-
-	if (is_valid_ether_addr(addr))
-		memcpy(mac_addr, addr, ETH_ALEN);
+	if (is_valid_ether_addr(rd_data))
+		memcpy(mac_addr, rd_data, ETH_ALEN);
 	else
 		dev_err(dev, "invalid mac address from EEPROM\n");
 
-	kfree(mac_str);
 	return 0;
 }
 
