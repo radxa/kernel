@@ -214,9 +214,9 @@
 		};
 	};
 
-	pwm_b_z_pins: pwm-b-z {
+	pwm_b_z0_pins: pwm-b-z0 {
 		mux {
-			groups = "pwm_b_z";
+			groups = "pwm_b_z0";
 			function = "pwm_b";
 			bias-disable;
 		};
