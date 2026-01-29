@@ -271,6 +271,7 @@ struct imx214 {
 
 	struct regulator_bulk_data	supplies[IMX214_NUM_SUPPLIES];
 
+	struct gpio_desc *reset_gpio;
 	struct gpio_desc *enable_gpio;
 };
 
@@ -547,6 +548,16 @@ static int __maybe_unused imx214_power_on(struct device *dev)
 		dev_err(imx214->dev, "clk prepare enable failed\n");
 		return ret;
 	}
+
+	if (!IS_ERR(imx214->reset_gpio))
+		gpiod_set_value_cansleep(imx214->reset_gpio, 1);
+
+	usleep_range(500, 1000);
+
+	if (!IS_ERR(imx214->reset_gpio))
+		gpiod_set_value_cansleep(imx214->reset_gpio, 0);
+
+	usleep_range(500, 1000);
 
 	gpiod_set_value_cansleep(imx214->enable_gpio, 1);
 	usleep_range(12000, 15000);
@@ -1404,6 +1415,11 @@ static int imx214_probe(struct i2c_client *client)
 	ret = imx214_get_regulators(dev, imx214);
 	if (ret < 0)
 		return dev_err_probe(dev, ret, "failed to get regulators\n");
+
+	imx214->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
+	if (IS_ERR(imx214->reset_gpio))
+		return dev_err_probe(dev, PTR_ERR(imx214->reset_gpio),
+				     "failed to get reset gpio\n");
 
 	imx214->enable_gpio = devm_gpiod_get(dev, "enable", GPIOD_OUT_LOW);
 	if (IS_ERR(imx214->enable_gpio))
