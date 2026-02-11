@@ -58,6 +58,7 @@
 			next-level-cache = <&l2_cache_l>;
 			#cooling-cells = <2>;
 			clocks = <&clkc CLKID_CPU_CLK>;
+			dynamic-power-coefficient = <140>;
 		};
 
 		cpu1: cpu@1 {
@@ -75,6 +76,7 @@
 			next-level-cache = <&l2_cache_l>;
 			#cooling-cells = <2>;
 			clocks = <&clkc CLKID_CPU_CLK>;
+			dynamic-power-coefficient = <140>;
 		};
 
 		cpu100: cpu@100 {
@@ -92,6 +94,7 @@
 			next-level-cache = <&l2_cache_b>;
 			#cooling-cells = <2>;
 			clocks = <&clkc CLKID_CPUB_CLK>;
+			dynamic-power-coefficient = <430>;
 		};
 
 		cpu101: cpu@101 {
@@ -109,6 +112,7 @@
 			next-level-cache = <&l2_cache_b>;
 			#cooling-cells = <2>;
 			clocks = <&clkc CLKID_CPUB_CLK>;
+			dynamic-power-coefficient = <430>;
 		};
 
 		cpu102: cpu@102 {
@@ -126,6 +130,7 @@
 			next-level-cache = <&l2_cache_b>;
 			#cooling-cells = <2>;
 			clocks = <&clkc CLKID_CPUB_CLK>;
+			dynamic-power-coefficient = <430>;
 		};
 
 		cpu103: cpu@103 {
@@ -144,6 +149,7 @@
 			#cooling-cells = <2>;
 			operating-points-v2 = <&cpub_opp_table_1>;
 			clocks = <&clkc CLKID_CPUB_CLK>;
+			dynamic-power-coefficient = <430>;
 		};
 
 		l2_cache_l: l2-cache-cluster0 {

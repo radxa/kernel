@@ -27,6 +27,7 @@
 			#cooling-cells = <2>;
 			operating-points-v2 = <&cpu_opp_table>;
 			clocks = <&clkc CLKID_CPU_CLK>;
+			dynamic-power-coefficient = <140>;
 		};
 
 		cpu1: cpu@1 {
@@ -44,6 +45,7 @@
 			#cooling-cells = <2>;
 			operating-points-v2 = <&cpu_opp_table>;
 			clocks = <&clkc CLKID_CPU_CLK>;
+			dynamic-power-coefficient = <140>;
 		};
 
 		cpu2: cpu@2 {
@@ -61,6 +63,7 @@
 			#cooling-cells = <2>;
 			operating-points-v2 = <&cpu_opp_table>;
 			clocks = <&clkc CLKID_CPU_CLK>;
+			dynamic-power-coefficient = <140>;
 		};
 
 		cpu3: cpu@3 {
@@ -78,6 +81,7 @@
 			#cooling-cells = <2>;
 			operating-points-v2 = <&cpu_opp_table>;
 			clocks = <&clkc CLKID_CPU_CLK>;
+			dynamic-power-coefficient = <140>;
 		};
 
 		l2: l2-cache0 {

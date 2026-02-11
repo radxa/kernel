@@ -2521,6 +2521,7 @@
 			resets = <&reset RESET_DVALIN_CAPB3>, <&reset RESET_DVALIN>;
 			operating-points-v2 = <&gpu_opp_table>;
 			#cooling-cells = <2>;
+			dynamic-power-coefficient = <400>;
 		};
 	};
 
@@ -2529,6 +2530,7 @@
 			polling-delay = <1000>;
 			polling-delay-passive = <100>;
 			thermal-sensors = <&cpu_temp>;
+			sustainable-power = <3000>; /* 3000mW */
 
 			trips {
 				cpu_passive: cpu-passive {
@@ -2555,6 +2557,7 @@
 			polling-delay = <1000>;
 			polling-delay-passive = <100>;
 			thermal-sensors = <&ddr_temp>;
+			sustainable-power = <2000>; /* 2000mW */
 
 			trips {
 				ddr_passive: ddr-passive {
