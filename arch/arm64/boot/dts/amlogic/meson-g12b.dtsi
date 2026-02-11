@@ -57,6 +57,7 @@
 			i-cache-sets = <32>;
 			next-level-cache = <&l2_cache_l>;
 			#cooling-cells = <2>;
+			dynamic-power-coefficient = <140>;
 		};
 
 		cpu1: cpu@1 {
@@ -73,6 +74,7 @@
 			i-cache-sets = <32>;
 			next-level-cache = <&l2_cache_l>;
 			#cooling-cells = <2>;
+			dynamic-power-coefficient = <140>;
 		};
 
 		cpu100: cpu@100 {
@@ -89,6 +91,7 @@
 			i-cache-sets = <64>;
 			next-level-cache = <&l2_cache_b>;
 			#cooling-cells = <2>;
+			dynamic-power-coefficient = <430>;
 		};
 
 		cpu101: cpu@101 {
@@ -105,6 +108,7 @@
 			i-cache-sets = <64>;
 			next-level-cache = <&l2_cache_b>;
 			#cooling-cells = <2>;
+			dynamic-power-coefficient = <430>;
 		};
 
 		cpu102: cpu@102 {
@@ -121,6 +125,7 @@
 			i-cache-sets = <64>;
 			next-level-cache = <&l2_cache_b>;
 			#cooling-cells = <2>;
+			dynamic-power-coefficient = <430>;
 		};
 
 		cpu103: cpu@103 {
@@ -137,6 +142,7 @@
 			i-cache-sets = <64>;
 			next-level-cache = <&l2_cache_b>;
 			#cooling-cells = <2>;
+			dynamic-power-coefficient = <430>;
 		};
 
 		l2_cache_l: l2-cache-cluster0 {

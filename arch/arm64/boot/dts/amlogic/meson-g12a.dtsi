@@ -25,6 +25,7 @@
 			i-cache-sets = <32>;
 			next-level-cache = <&l2>;
 			#cooling-cells = <2>;
+			dynamic-power-coefficient = <140>;
 		};
 
 		cpu1: cpu@1 {
@@ -40,6 +41,7 @@
 			i-cache-sets = <32>;
 			next-level-cache = <&l2>;
 			#cooling-cells = <2>;
+			dynamic-power-coefficient = <140>;
 		};
 
 		cpu2: cpu@2 {
@@ -55,6 +57,7 @@
 			i-cache-sets = <32>;
 			next-level-cache = <&l2>;
 			#cooling-cells = <2>;
+			dynamic-power-coefficient = <140>;
 		};
 
 		cpu3: cpu@3 {
@@ -70,6 +73,7 @@
 			i-cache-sets = <32>;
 			next-level-cache = <&l2>;
 			#cooling-cells = <2>;
+			dynamic-power-coefficient = <140>;
 		};
 
 		l2: l2-cache0 {
