@@ -45,6 +45,7 @@
 #define MSM_VERSION_PATCHLEVEL	0
 
 static void msm_deinit_vram(struct drm_device *ddev);
+static const char *mdss_with_gpu_name = NULL;
 
 static char *vram = "16m";
 MODULE_PARM_DESC(vram, "Configure VRAM size (for devices without IOMMU/GPUMMU)");
@@ -215,6 +216,8 @@ static int msm_drm_init(struct device *dev, const struct drm_driver *drv)
 	struct msm_drm_private *priv = dev_get_drvdata(dev);
 	struct drm_device *ddev;
 	int ret;
+	const char *dev_name = NULL;
+	static int card_created = 0;
 
 	if (drm_firmware_drivers_only())
 		return -ENODEV;
@@ -282,9 +285,18 @@ static int msm_drm_init(struct device *dev, const struct drm_driver *drv)
 		ddev->driver_features &= ~DRIVER_ATOMIC;
 	}
 
+	dev_name = of_node_full_name(dev->of_node);
+
+	if (!card_created && mdss_with_gpu_name && strcmp(dev_name, mdss_with_gpu_name)) {
+		ret = -EPROBE_DEFER;
+		goto err_msm_uninit;
+	}
+
 	ret = drm_dev_register(ddev, 0);
 	if (ret)
 		goto err_msm_uninit;
+
+	card_created = 1;
 
 	ret = msm_debugfs_late_init(ddev);
 	if (ret)
@@ -1022,6 +1034,7 @@ int msm_drv_probe(struct device *master_dev,
 	struct msm_drm_private *priv;
 	struct component_match *match = NULL;
 	int ret;
+	static int gpu_added = 0;
 
 	priv = devm_kzalloc(master_dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
@@ -1038,9 +1051,13 @@ int msm_drv_probe(struct device *master_dev,
 			return ret;
 	}
 
-	ret = add_gpu_components(master_dev, &match);
-	if (ret)
-		return ret;
+	if (!gpu_added) {
+		ret = add_gpu_components(master_dev, &match);
+		if (ret)
+			return ret;
+		gpu_added++;
+		mdss_with_gpu_name = of_node_full_name(master_dev->of_node);
+	}
 
 	/* on all devices that I am aware of, iommu's which can map
 	 * any address the cpu can see are used:
