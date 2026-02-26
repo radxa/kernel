@@ -224,7 +224,9 @@ static int scmi_match_by_id_table(struct device *dev, void *data)
 	struct scmi_device *sdev = to_scmi_dev(dev);
 	struct scmi_device_id *id_table = data;
 
+	/* Only check scmi protocol devices */
 	return sdev->protocol_id == id_table->protocol_id &&
+		!strncmp(dev->bus->name, "scmi_protocol", 13) &&
 		(id_table->name && !strcmp(sdev->name, id_table->name));
 }
 
