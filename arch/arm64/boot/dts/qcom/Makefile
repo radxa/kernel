@@ -484,3 +484,6 @@ quiet_cmd_cat = CAT     $@
 
 $(obj)/combined-dtb.dtb: $(addprefix $(obj)/, $(filter %-ovl.dtb, $(dtb-y))) FORCE
 	$(call if_changed,cat)
+
+# Enables support for device-tree overlays
+DTC_FLAGS := -@
