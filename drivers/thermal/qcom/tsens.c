@@ -1291,11 +1291,7 @@ static void tsens_thermal_zone_trip_update(struct thermal_zone_device *tz,
 		trip_delta = TSENS_ELEVATE_DELTA;
 
 	trip.temperature += trip_delta;
-	mutex_lock(&tz->lock);
 	tz->trips[trip_id] = trip;
-	mutex_unlock(&tz->lock);
-
-	thermal_zone_device_update(tz, THERMAL_TRIP_CHANGED);
 }
 
 static int tsens_nvmem_trip_update(struct thermal_zone_device *tz)
@@ -1312,6 +1308,8 @@ static int tsens_nvmem_trip_update(struct thermal_zone_device *tz)
 		tsens_thermal_zone_trip_update(tz, i);
 		mutex_unlock(&tz->lock);
 	}
+
+	thermal_zone_device_update(tz, THERMAL_TRIP_CHANGED);
 
 	return 0;
 }
