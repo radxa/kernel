@@ -50,6 +50,10 @@
 			codec {
 				sound-dai = <&bt_sco_codec 1>;
 			};
+
+			platform {
+				sound-dai = <&q6apm>;
+			};
 		};
 
 		lpi-i2s4-capture-dai-link {
@@ -61,6 +65,10 @@
 
 			codec {
 				sound-dai = <&bt_sco_codec 1>;
+			};
+
+			platform {
+				sound-dai = <&q6apm>;
 			};
 		};
 
