@@ -571,6 +571,11 @@
 	status = "okay";
 };
 
+&spi1_clk {
+	rockchip,pins =
+		<1 RK_PB1 2 &pcfg_pull_up_20ma>;
+};
+
 &pinctrl {
 	bt {
 		bt_enable_h: bt-enable-h {
