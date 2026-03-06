@@ -46,6 +46,14 @@
 	status = "disabled";
 };
 
+&spi3 {
+        status = "disabled";
+};
+
+&lt9611_codec {
+        status = "disabled";
+};
+
 &tlmm {
 	edp_vcc_default: edp_edp_vcc_default {
 		pins = "gpio80";
@@ -74,7 +82,7 @@
 
 &mdss_edp {
 	pinctrl-names = "default";
-	pinctrl-0 = <&edp_vcc_default &edp_pwrdn_pin &pmic_edp_bl_en &lvds_i2c_sw_pin>;
+	pinctrl-0 = <&edp_hot_plug_det &edp_vcc_default &edp_pwrdn_pin &pmic_edp_bl_en &lvds_i2c_sw_pin>;
 };
 
 &mdss_edp_out {
