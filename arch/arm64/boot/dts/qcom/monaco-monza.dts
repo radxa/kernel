@@ -23,6 +23,7 @@
 	aliases {
 		ethernet0 = &ethernet0;
 		serial0 = &uart7;
+		serial1 = &uart10;
 		i2c12 = &i2c12;
 	};
 
@@ -668,14 +669,6 @@
 		};
 	};
 
-	wcn_usb_bt_n: wcn-usb-bt-n-state {
-		pins = "gpio55";
-		function = "gpio";
-		drive-strength = <2>;
-		bias-disable;
-		output-high;
-	};
-
 	ethernet0_default: ethernet0-default-state {
 		ethernet0_mdc: ethernet0-mdc-pins {
 			pins = "gpio5";
@@ -712,10 +705,26 @@
 		 drive-strength = <16>;
 		 bias-pull-up;
 	};
+
+	wireless-pcie-ao {
+		gpio-hog;
+		gpios = <56 0>;
+		output-high;
+	};
 };
 
 &uart7 {
 	status = "okay";
+};
+
+&uart10 {
+	status = "okay";
+	bluetooth: bluetooth {
+		compatible = "qcom,qca2066-bt";
+		max-speed = <3200000>;
+		enable-gpios = <&tlmm 55 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
 };
 
 &ufs_mem_hc {
@@ -805,9 +814,6 @@
 	vdda-pll-supply = <&vreg_l7a>;
 	vdda18-supply = <&vreg_l7c>;
 	vdda33-supply = <&vreg_l9a>;
-
-	pinctrl-0 = <&wcn_usb_bt_n>;
-	pinctrl-names = "default";
 
 	status = "okay";
 };
