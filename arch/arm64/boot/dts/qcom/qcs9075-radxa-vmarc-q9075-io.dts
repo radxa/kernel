@@ -150,6 +150,14 @@
 	status = "okay";
 };
 
+&uart12 {
+	qcom,load-firmware;
+	qcom,xfer-mode = <1>;
+	pinctrl-0 = <&qup_uart12_tx>,  <&qup_uart12_rx>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
 &pmm8654au_1_gpios {
 
 	usb20_5v_en: usb20-5v-en-state {
