@@ -1637,15 +1637,11 @@
 		input-enable;
 	};
 };
-
 &msm_stub_codec {
 	pinctrl-names = "default", "mi2s_aud_active", "mi2s_aud_sleep";
-	pinctrl-0 = <&lpass_qua_mi2s_sclk_sleep>, <&lpass_qua_mi2s_ws_sleep>, <&lpass_qua_mi2s_data0_sleep>,
-		    <&lpass_qua_mi2s_data1_sleep>, <&lpass_qua_mi2s_data2_sleep>;
-	pinctrl-1 = <&lpass_qua_mi2s_sclk>, <&lpass_qua_mi2s_ws>, <&lpass_qua_mi2s_data0>,
-		    <&lpass_qua_mi2s_data1>, <&lpass_qua_mi2s_data2>;
-	pinctrl-2 = <&lpass_qua_mi2s_sclk_sleep>, <&lpass_qua_mi2s_ws_sleep>, <&lpass_qua_mi2s_data0_sleep>,
-		    <&lpass_qua_mi2s_data1_sleep>, <&lpass_qua_mi2s_data2_sleep>;
+	pinctrl-0 = <>;
+	pinctrl-1 = <>;
+	pinctrl-2 = <>;
 };
 
 / {
@@ -1656,13 +1652,21 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		pinctrl-names = "default", "mi2s_active", "mi2s_sleep";
+		pinctrl-names = "default", "stub_aif1_active", "stub_aif1_sleep";
 		pinctrl-0 = <&mi2s0_data0_sleep>, <&mi2s0_data1_sleep>, <&mi2s0_mclk>,
-			    <&mi2s0_sclk_sleep>, <&mi2s0_ws_sleep>;
+					<&mi2s0_sclk_sleep>, <&mi2s0_ws_sleep>,
+					<&lpass_qua_mi2s_sclk_sleep>,
+					<&lpass_qua_mi2s_ws_sleep>, <&lpass_qua_mi2s_data0_sleep>,
+					<&lpass_qua_mi2s_data1_sleep>, <&lpass_qua_mi2s_data2_sleep>;
 		pinctrl-1 = <&mi2s0_data0>, <&mi2s0_data1>, <&mi2s0_mclk>,
-			    <&mi2s0_sclk>, <&mi2s0_ws>;
+					<&mi2s0_sclk>, <&mi2s0_ws>, <&lpass_qua_mi2s_sclk>,
+					<&lpass_qua_mi2s_ws>, <&lpass_qua_mi2s_data0>,
+					<&lpass_qua_mi2s_data1>, <&lpass_qua_mi2s_data2>;
 		pinctrl-2 = <&mi2s0_data0_sleep>, <&mi2s0_data1_sleep>, <&mi2s0_mclk>,
-			    <&mi2s0_sclk_sleep>, <&mi2s0_ws_sleep>;
+					<&mi2s0_sclk_sleep>, <&mi2s0_ws_sleep>,
+					<&lpass_qua_mi2s_sclk_sleep>,
+					<&lpass_qua_mi2s_ws_sleep>, <&lpass_qua_mi2s_data0_sleep>,
+					<&lpass_qua_mi2s_data1_sleep>, <&lpass_qua_mi2s_data2_sleep>;
 
 		mi2s-playback-dai-link {
 			link-name = "MI2S-LPAIF-RX-PRIMARY";
@@ -1670,7 +1674,7 @@
 				sound-dai = <&q6apmbedai PRIMARY_MI2S_RX>;
 			};
 			codec {
-				sound-dai = <&es8316>;
+				sound-dai = <&msm_stub_codec 2>, <&es8316>;
 			};
 			platform {
 				sound-dai = <&q6apm>;
@@ -1683,7 +1687,7 @@
 				sound-dai = <&q6apmbedai PRIMARY_MI2S_TX>;
 			};
 			codec {
-				sound-dai = <&es8316>;
+				sound-dai = <&msm_stub_codec 3>, <&es8316>;
 			};
 			platform {
 				sound-dai = <&q6apm>;
