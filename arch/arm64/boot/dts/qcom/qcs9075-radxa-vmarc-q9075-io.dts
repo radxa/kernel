@@ -158,6 +158,16 @@
 	status = "okay";
 };
 
+&uart17 {
+	qcom,load-firmware;
+	qcom,xfer-mode = <1>;
+	pinctrl-0 = <&qup_uart17_rts>, <&qup_uart17_tx>, <&qup_uart17_rx>;
+	pinctrl-names = "default";
+	status = "okay";
+	linux,rs485-enabled-at-boot-time;
+	rs485-rts-active-low;
+};
+
 &pmm8654au_1_gpios {
 
 	usb20_5v_en: usb20-5v-en-state {
