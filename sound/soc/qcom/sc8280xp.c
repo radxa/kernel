@@ -41,20 +41,6 @@ static struct snd_soc_dapm_widget sc8280xp_dapm_widgets[] = {
 	SND_SOC_DAPM_SPK("DP7 Jack", NULL),
 };
 
-static struct snd_soc_dapm_widget qcs6490_rubikpi3_dapm_widgets[] = {
-       SND_SOC_DAPM_HP("Headphone Jack", NULL),
-       SND_SOC_DAPM_MIC("Mic Jack", NULL),
-       SND_SOC_DAPM_PINCTRL("MI2S_PINCTRL", "mi2s_active", "mi2s_sleep"),
-};
-
-static struct snd_soc_dapm_route qcs6490_rubikpi3_dapm_routes[] = {
-       {"HPOL", NULL, "MI2S_PINCTRL"},
-       {"HPOR", NULL, "MI2S_PINCTRL"},
-       {"DMIC", NULL, "MI2S_PINCTRL"},
-       {"MIC1", NULL, "MI2S_PINCTRL"},
-       {"MIC2", NULL, "MI2S_PINCTRL"},
-};
-
 static struct snd_soc_dapm_widget qcs9100_dapm_widgets[] = {
 	SND_SOC_DAPM_PINCTRL("MI2S_PINCTRL", "mi2s_active", "mi2s_sleep"),
 };
@@ -101,15 +87,6 @@ static struct snd_soc_common qcs6490_priv_data = {
 	.driver_name = "qcm6490",
 	.dapm_widgets = sc8280xp_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
-};
-
-static struct snd_soc_common qcs6490_rubikpi3_data = {
-	.driver_name = "qcm6490",
-	.dapm_widgets = qcs6490_rubikpi3_dapm_widgets,
-	.num_dapm_widgets = ARRAY_SIZE(qcs6490_rubikpi3_dapm_widgets),
-	.dapm_routes = qcs6490_rubikpi3_dapm_routes,
-	.num_dapm_routes = ARRAY_SIZE(qcs6490_rubikpi3_dapm_routes),
-	.jack_enable = true,
 };
 
 static struct snd_soc_common qcs8275_priv_data = {
@@ -368,7 +345,6 @@ static const struct of_device_id snd_sc8280xp_dt_match[] = {
 	{.compatible = "qcom,qcm6490-idp-sndcard", .data = &qcm6490_priv_data},
 	{.compatible = "qcom,qcs615-sndcard", .data = &qcs615_priv_data},
 	{.compatible = "qcom,qcs6490-rb3gen2-sndcard", .data = &qcs6490_priv_data},
-	{.compatible = "qcom,qcs6490-rubikpi3-sndcard", .data = &qcs6490_rubikpi3_data},
 	{.compatible = "qcom,qcs8275-sndcard", .data = &qcs8275_priv_data},
 	{.compatible = "qcom,qcs9075-sndcard", .data = &qcs9100_priv_data},
 	{.compatible = "qcom,qcs9100-sndcard", .data = &qcs9100_priv_data},
