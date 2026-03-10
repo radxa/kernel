@@ -745,11 +745,12 @@
 		bias-pull-down;
 	};
 
-	bt_en_state: bt-en-state {
-		pins = "gpio8";
-		function = "normal";
-		output-low;
-		bias-pull-down;
+	bt_en_hog: bt-en-hog {
+		gpio-hog;
+		gpios = <8 GPIO_ACTIVE_HIGH>;
+		output-high;
+		input-disable;
+		line-name = "BT_EN";
 	};
 };
 
@@ -1071,9 +1072,6 @@
 	/* HS UART Instance */
 	bluetooth: bluetooth {
 		compatible = "qcom,wcn6855-bt";
-		pinctrl-names = "default";
-		pinctrl-0 = <&bt_en_state>;
-		enable-gpios = <&pmm8654au_1_gpios 8 GPIO_ACTIVE_HIGH>; /* BT_EN */
 		max-speed = <3200000>;
 	};
 };
