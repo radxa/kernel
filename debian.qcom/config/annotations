@@ -1453,6 +1453,7 @@ CONFIG_QCOM_SMEM                                policy<{'arm64': 'y'}>
 CONFIG_QCOM_SMP2P                               policy<{'arm64': 'y'}>
 CONFIG_QCOM_SMP2P_SLEEPSTATE                    policy<{'arm64': 'm'}>
 CONFIG_QCOM_SMSM                                policy<{'arm64': 'y'}>
+CONFIG_QCOM_SOCINFO                             policy<{'arm64': 'y'}>
 CONFIG_QCOM_SOC_DEBUG                           policy<{'arm64': 'y'}>
 CONFIG_QCOM_SPMI_ADC5_GEN3                      policy<{'arm64': 'm'}>
 CONFIG_QCOM_SPMI_MBG_TM                         policy<{'arm64': 'm'}>
