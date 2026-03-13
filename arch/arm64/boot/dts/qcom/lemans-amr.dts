@@ -752,6 +752,13 @@
 		input-disable;
 		line-name = "BT_EN";
 	};
+
+	usb2_en_state: usb2-en-state {
+		pins = "gpio9";
+		function = "normal";
+		output-high;
+		power-source = <0>;
+	};
 };
 
 &pmm8654au_2_gpios {
@@ -1198,6 +1205,13 @@
 	phys = <&usb_2_hsphy>;
 	phy-names = "usb2-phy";
 	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&usb2_en_state>;
+
+	dr_mode = "host";
+	qcom,enable-rt;
+	wakeup-source;
 };
 
 &usb_2_hsphy {
