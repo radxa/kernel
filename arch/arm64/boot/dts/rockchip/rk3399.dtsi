@@ -2352,6 +2352,9 @@
 		interrupts = <GIC_SPI 20 IRQ_TYPE_LEVEL_HIGH 0>,
 			     <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH 0>,
 			     <GIC_SPI 19 IRQ_TYPE_LEVEL_HIGH 0>;
+
+		dynamic-power-coefficient = <2640>;
+
 		interrupt-names = "job", "mmu", "gpu";
 		clocks = <&cru ACLK_GPU>;
 		#cooling-cells = <2>;
