@@ -271,6 +271,7 @@
 		reg = <0x08>;
 		interrupt-parent = <&tlmm>;
 		interrupts = < 3 IRQ_TYPE_LEVEL_LOW>;
+		wakeup-source;
 
 		#address-cells = <1>;
 		#size-cells = <0>;

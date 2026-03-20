@@ -72,6 +72,8 @@ enum {
 #define   DP_CAP_SIGNALLING_HBR3	1
 #define   DP_CAP_SIGNALLING_UHBR10	2
 #define   DP_CAP_SIGNALLING_UHBR20	3
+#define DP_CAP_DP_SIGNALING             BIT(2) /* Always set */
+#define DP_CAP_GEN2                     BIT(3) /* Reserved after v1.0b */
 #define DP_CAP_RECEPTACLE		BIT(6)
 #define DP_CAP_USB			BIT(7)
 #define DP_CAP_DFP_D_PIN_ASSIGN(_cap_)	FIELD_GET(GENMASK(15, 8), _cap_)
