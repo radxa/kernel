@@ -450,6 +450,9 @@ static int hdmi_codec_startup(struct snd_pcm_substream *substream,
 	if (!((has_playback && tx) || (has_capture && !tx)))
 		return 0;
 
+	if (!hcp->jack_status)
+		return 0;
+
 	mutex_lock(&hcp->lock);
 	if (hcp->busy) {
 		dev_err(dai->dev, "Only one simultaneous stream supported!\n");
@@ -570,6 +573,9 @@ static int hdmi_codec_hw_params(struct snd_pcm_substream *substream,
 	};
 	int ret;
 
+	if (!hcp->jack_status)
+		return 0;
+
 	if (!hcp->hcd.ops->hw_params)
 		return 0;
 
@@ -610,6 +616,9 @@ static int hdmi_codec_prepare(struct snd_pcm_substream *substream,
 	unsigned int rate = runtime->rate;
 	struct hdmi_codec_params hp;
 	int ret;
+
+	if (!hcp->jack_status)
+		return 0;
 
 	if (!hcp->hcd.ops->prepare)
 		return 0;
@@ -712,6 +721,9 @@ static int hdmi_codec_mute(struct snd_soc_dai *dai, int mute, int direction)
 	 * see
 	 *	snd_soc_dai_digital_mute()
 	 */
+	if (!hcp->jack_status)
+		return 0;
+
 	if (hcp->hcd.ops->mute_stream &&
 	    (direction == SNDRV_PCM_STREAM_PLAYBACK ||
 	     !hcp->hcd.ops->no_capture_mute))
