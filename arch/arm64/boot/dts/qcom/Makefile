@@ -420,6 +420,14 @@ qcs9075-addons-iq-9075-evk-ovl-dtbs := \
     qcs9100-graphics.dtbo \
     qcs9075-camera-iq-9075-evk.dtbo
 
+dtb-$(CONFIG_ARCH_QCOM) += qcs9075-addons-iq-9075-evk-mezz-ovl.dtb
+qcs9075-addons-iq-9075-evk-mezz-ovl-dtbs := \
+    qcs9075-addons-iq-9075-evk.dtb \
+    sa8775p-video.dtbo \
+    qcs9100-graphics.dtbo \
+    qcs9075-camera-iq-9075-evk.dtbo \
+    qcs9075-addons-iq-9075-evk-mezz.dtbo
+
 dtb-$(CONFIG_ARCH_QCOM) += lemans-addons-amr-ovl.dtb
 lemans-addons-amr-ovl-dtbs := \
     lemans-addons-amr.dtb \
