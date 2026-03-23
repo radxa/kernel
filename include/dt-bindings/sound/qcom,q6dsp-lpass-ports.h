@@ -139,6 +139,8 @@
 #define DISPLAY_PORT_RX_5	133
 #define DISPLAY_PORT_RX_6	134
 #define DISPLAY_PORT_RX_7	135
+#define USB_RX                  136
+#define LPASS_MAX_PORT         USB_RX
 #define PRIMARY_SDR_MI2S_RX     136
 #define PRIMARY_SDR_MI2S_TX     137
 #define SECONDARY_SDR_MI2S_RX   138
