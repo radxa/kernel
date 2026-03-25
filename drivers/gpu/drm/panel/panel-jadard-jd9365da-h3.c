@@ -382,7 +382,7 @@ static int radxa_display_8hd_ad002_init_cmds(struct jadard *jadard)
 
 static const struct jadard_panel_desc radxa_display_8hd_ad002_desc = {
 	.mode = {
-		.clock		= 70000,
+		.clock		= 71804,
 
 		.hdisplay	= 800,
 		.hsync_start	= 800 + 40,
