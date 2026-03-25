@@ -350,6 +350,42 @@
 	pinctrl-0 = <&pcie0_default_state>;
 
 	status = "okay";
+
+};
+
+&pcieport0 {
+	pci@0,0 {
+		#address-cells = <3>;
+		#size-cells = <2>;
+		device_type = "pci";
+		bus-range = <0x01 0xff>;
+		ranges;
+		reg = <0x010000 0x00 0x00 0x00 0x00>;
+
+		pci@1,0 {
+			#address-cells = <3>;
+			#size-cells = <2>;
+			device_type = "pci";
+			bus-range = <0x00 0xff>;
+			ranges;
+			reg = <0x20800 0x00 0x00 0x00 0x00>;
+		};
+
+		pci@2,0 {
+			#address-cells = <3>;
+			#size-cells = <2>;
+			device_type = "pci";
+			bus-range = <0x00 0xff>;
+			ranges;
+			reg = <0x021000 0x00 0x00 0x00 0x00>;
+
+			usb@0 {
+				compatible = "pci104c,8241";
+				reg = <0 0 0 0 0>;
+				ti,pwron-active-high;
+			};
+		};
+	};
 };
 
 &pcie0_phy {
