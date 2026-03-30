@@ -1,0 +1,209 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) 2024, 2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2026 Radxa Computer (Shenzhen) Co., Ltd.
+ */
+/dts-v1/;
+
+#include "qcs9075-radxa-vmarc-q9075.dtsi"
+
+/ {
+	model = "Radxa VMARC Q9075 IO";
+	compatible = "radxa,vmarc-q9075-io", "qcom,qcs9075", "qcom,sa8775p";
+
+	vcc_usb_hub_regulator: vcc-usb-hub-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_usb_hub";
+		gpio = <&pmm8654au_2_gpios 5 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pme_gpio_5_usb2_pwer_en>;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		regulator-boot-on;
+		enable-active-high;
+		regulator-always-on;
+	};
+
+	vcc_usb_regulator: vcc-usb-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_usb";
+		gpio = <&pmm8654au_2_gpios 6 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pme_gpio_6_usb3_pwr_en>;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		regulator-boot-on;
+		enable-active-high;
+		regulator-always-on;
+	};
+
+	vcc3v3_sys_regulator: vcc3v3-sys-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc3v3_sys";
+		gpio = <&pmm8654au_2_gpios 7 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pme_gpio_7_usb4_pwr_en>;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	usb20_5v_regulator: usb20-5v-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "usb20_5v";
+		gpio = <&pmm8654au_1_gpios 7 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&usb20_5v_en>;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	vcc_3v3_ssd_regulator: vcc-3p3-ssd-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_3v3_ssd";
+		gpio = <&pmm8654au_2_gpios 3 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&vcc_3v3_ssd_en_state>;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		enable-active-high;
+		regulator-always-on;
+	};
+
+	vcc_3v3_key_regulator: vcc-3v3-key-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_3v3_key";
+		gpio = <&pmm8654au_1_gpios 9 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&vcc_3v3_key_en>;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		enable-active-high;
+		regulator-always-on;
+	};
+
+	switch_to_ekey_usb_regulator: switch-to-ekey-usb-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "switch_to_ekey_usb";
+		gpio = <&pmm8654au_2_gpios 11 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&switch_to_ekey_usb>;
+		enable-active-high;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	gpio_keys: gpio-keys {
+		compatible = "gpio-keys";
+		pinctrl-0 = <&gpio_keys_default>;
+		pinctrl-names = "default";
+
+		power-key {
+			label = "Power Off";
+			gpios = <&tlmm 97 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_POWER>;
+			wakeup-source;
+			debounce-interval = <30>;
+		};
+	};
+};
+
+&i2c1 {
+	qcom,load-firmware;
+	qcom,xfer-mode = <1>;
+	status = "okay";
+
+	pca: pca@55 {
+		compatible = "nxp,pca9685-pwm";
+		#pwm-cells = <2>;
+		reg = <0x55>;
+	};
+};
+
+
+&i2c7 {
+	qcom,load-firmware;
+	qcom,xfer-mode = <1>;
+	pinctrl-0 = <&qup_i2c7_default>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	/* RTC RS4C411ZAE */
+	rtc_m41t11: rtc-m41t11@68 {
+		compatible = "st,m41t11";
+		reg = <0x68>;
+	};
+};
+
+&pmm8654au_1_gpios {
+
+	usb20_5v_en: usb20-5v-en-state {
+		pins = "gpio7";
+		function = "normal";
+		output-high;
+		bias-pull-up;
+	};
+
+	vcc_3v3_key_en: vcc-3v3-key-en-state {
+		pins = "gpio9";
+		function = "normal";
+		output-high;
+		bias-pull-up;
+	};
+};
+
+&pmm8654au_2_gpios {
+
+	vcc_3v3_ssd_en_state: vcc-3v3-ssd-en-state {
+		pins = "gpio3";
+		function = "normal";
+		output-high;
+		bias-pull-up;
+	};
+
+	pme_gpio_5_usb2_pwer_en: pme-gpio-5-usb2-pwr-en-state {
+		pins = "gpio5";
+		function = "normal";
+		output-high;
+		bias-pull-up;
+	};
+
+	pme_gpio_6_usb3_pwr_en: pme-gpio-6-usb3-pwr-en-state {
+		pins = "gpio6";
+		function = "normal";
+		output-high;
+		bias-pull-up;
+	};
+
+	pme_gpio_7_usb4_pwr_en: pme-gpio-7-usb4-pwr-en-state {
+		pins = "gpio7";
+		function = "normal";
+		output-high;
+		bias-pull-up;
+	};
+
+	switch_to_ekey_usb: switch-to-ekey-usb-state {
+		pins = "gpio11";
+		function = "normal";
+		output-high;
+		bias-pull-high;
+	};
+};
+
+&tlmm {
+
+	gpio_keys_default: gpio-keys-default-state {
+		pins = "gpio97";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+};
+

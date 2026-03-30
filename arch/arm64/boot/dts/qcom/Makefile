@@ -164,6 +164,7 @@ dtb-$(CONFIG_ARCH_QCOM)	+= qcs9075-addons-ride.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs9075-addons-ride-r3.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs9075-iq-9075-evk.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs9075-radxa-airbox-q900.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= qcs9075-radxa-vmarc-q9075-io.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs9075-ride.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs9075-ride-r3.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs9100-addons-ride.dtb
