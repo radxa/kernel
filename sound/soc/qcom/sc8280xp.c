@@ -43,6 +43,7 @@ static struct snd_soc_dapm_widget sc8280xp_dapm_widgets[] = {
 
 static struct snd_soc_dapm_widget qcs9100_dapm_widgets[] = {
 	SND_SOC_DAPM_PINCTRL("MI2S_PINCTRL", "mi2s_active", "mi2s_sleep"),
+	SND_SOC_DAPM_SPK("DP0 Jack", NULL),
 };
 
 static const struct snd_soc_dapm_route qcs9100_dapm_routes[] = {
