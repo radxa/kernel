@@ -117,6 +117,7 @@ properties:
       - items:
           - enum:
               - belling,bl24c04a
+              - belling,bl24c16f
               - giantec,gt24c04a
               - onnn,cat24c04
               - onnn,cat24c05
