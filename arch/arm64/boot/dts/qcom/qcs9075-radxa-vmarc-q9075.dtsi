@@ -781,6 +781,17 @@
 &spi4 {
 	qcom,load-firmware;
 	qcom,xfer-mode = <1>;
+	status = "okay";
+
+	mcp2518fd_can1: can@0 {
+		compatible = "microchip,mcp2518fd";
+		reg = <0>;
+		clock-frequency = <40000000>;
+		spi-max-frequency = <10000000>;
+		interrupt-names = "can1_irq";
+		interrupts-extended = <&tlmm 11 IRQ_TYPE_LEVEL_LOW>;
+		status = "okay";
+	};
 };
 
 &spi5 {
@@ -821,6 +832,17 @@
 &spi14 {
 	qcom,load-firmware;
 	qcom,xfer-mode = <1>;
+	status = "okay";
+
+	mcp2518fd_can0: can@0 {
+		compatible = "microchip,mcp2518fd";
+		reg = <0>;
+		clock-frequency = <40000000>;
+		spi-max-frequency = <10000000>;
+		interrupt-names = "can0_irq";
+		interrupts-extended = <&tlmm 6 IRQ_TYPE_LEVEL_LOW>;
+		status = "okay";
+	};
 };
 
 &spi15 {
