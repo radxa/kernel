@@ -78,6 +78,10 @@
 			codec {
 				sound-dai = <&mdss0_dp0>;
 			};
+
+			platform {
+				sound-dai = <&q6apm>;
+			};
 		};
 
 	};
