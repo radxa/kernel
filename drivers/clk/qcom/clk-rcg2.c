@@ -783,7 +783,7 @@ static int clk_rcg2_set_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
 	n = (~(notn_m) + m) & mask;
 
 	/* Calculate 2d value */
-	d = DIV_ROUND_CLOSEST(n * duty->num * 2, duty->den);
+	d = DIV_ROUND_CLOSEST_ULL((u64)n * duty->num * 2, duty->den);
 
 	/*
 	 * Check bit widths of 2d. If D is too big reduce duty cycle.
