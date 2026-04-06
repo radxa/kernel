@@ -108,9 +108,27 @@ static u8 clk_rcg2_get_parent(struct clk_hw *hw)
 	return __clk_rcg2_get_parent(hw, cfg);
 }
 
+static int get_update_timeout(const struct clk_rcg2 *rcg)
+{
+	int timeout = 0;
+	unsigned long current_freq;
+
+	/*
+	 * The time it takes an RCG to update is roughly 3 clock cycles of the
+	 * old and new clock rates.
+	 */
+	current_freq = clk_hw_get_rate(&rcg->clkr.hw);
+	if (current_freq)
+		timeout += 3 * (USEC_PER_SEC / current_freq);
+	if (rcg->configured_freq)
+		timeout += 3 * (USEC_PER_SEC / rcg->configured_freq);
+
+	return max(timeout, 500);
+}
+
 static int update_config(struct clk_rcg2 *rcg)
 {
-	int count, ret;
+	int timeout, count, ret;
 	u32 cmd;
 	struct clk_hw *hw = &rcg->clkr.hw;
 	const char *name = clk_hw_get_name(hw);
@@ -120,8 +138,10 @@ static int update_config(struct clk_rcg2 *rcg)
 	if (ret)
 		return ret;
 
+	timeout = get_update_timeout(rcg);
+
 	/* Wait for update to take effect */
-	for (count = 500; count > 0; count--) {
+	for (count = timeout; count > 0; count--) {
 		ret = regmap_read(rcg->clkr.regmap, rcg->cmd_rcgr + CMD_REG, &cmd);
 		if (ret)
 			return ret;
@@ -420,6 +440,28 @@ static int clk_rcg2_configure(struct clk_rcg2 *rcg, const struct freq_tbl *f)
 	if (ret)
 		return ret;
 
+	rcg->configured_freq = f->freq;
+
+	return update_config(rcg);
+}
+
+static int clk_rcg2_configure_gp(struct clk_rcg2 *rcg, const struct freq_tbl *f)
+{
+	u32 cfg;
+	int ret;
+
+	ret = regmap_read(rcg->clkr.regmap, RCG_CFG_OFFSET(rcg), &cfg);
+	if (ret)
+		return ret;
+
+	ret = __clk_rcg2_configure_mnd(rcg, f, &cfg);
+	if (ret)
+		return ret;
+
+	ret = regmap_write(rcg->clkr.regmap, RCG_CFG_OFFSET(rcg), cfg);
+	if (ret)
+		return ret;
+
 	return update_config(rcg);
 }
 
@@ -450,6 +492,23 @@ static int clk_rcg2_set_rate(struct clk_hw *hw, unsigned long rate,
 			    unsigned long parent_rate)
 {
 	return __clk_rcg2_set_rate(hw, rate, CEIL);
+}
+
+static int clk_rcg2_set_gp_rate(struct clk_hw *hw, unsigned long rate,
+			    unsigned long parent_rate)
+{
+	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
+	int mnd_max = BIT(rcg->mnd_width) - 1;
+	int hid_max = BIT(rcg->hid_width) - 1;
+	struct freq_tbl f_tbl = {}, *f = &f_tbl;
+	int ret;
+
+	clk_rcg2_calc_mnd(parent_rate, rate, f, mnd_max, hid_max / 2);
+	convert_to_reg_val(f);
+	rcg->configured_freq = rate;
+	ret = clk_rcg2_configure_gp(rcg, f);
+
+	return ret;
 }
 
 static int clk_rcg2_set_floor_rate(struct clk_hw *hw, unsigned long rate,
