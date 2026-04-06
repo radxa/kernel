@@ -814,9 +814,9 @@ static int clk_rcg2_set_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
 	 */
 	d = clamp_val(d, 1, mask);
 
-	if ((d / 2) > (n - m))
+	if (d > (n - m) * 2)
 		d = (n - m) * 2;
-	else if ((d / 2) < (m / 2))
+	else if (d < m)
 		d = m;
 
 	not2d = ~d & mask;
