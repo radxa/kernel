@@ -35,6 +35,7 @@
 #include <linux/delay.h>
 #include <linux/util_macros.h>
 #include <linux/regmap.h>
+#include <linux/regulator/consumer.h>
 
 #include <linux/platform_data/ina2xx.h>
 
@@ -98,7 +99,7 @@ static struct regmap_config ina2xx_regmap_config = {
 	.val_bits = 16,
 };
 
-enum ina2xx_ids { ina219, ina226 };
+enum ina2xx_ids { ina219, ina226, ina232 };
 
 struct ina2xx_config {
 	u16 config_default;
@@ -140,6 +141,16 @@ static const struct ina2xx_config ina2xx_config[] = {
 		.bus_voltage_shift = 0,
 		.bus_voltage_lsb = 1250,
 		.power_lsb_factor = 25,
+	},
+
+	[ina232] = {
+		.config_default = INA226_CONFIG_DEFAULT,
+		.calibration_value = 2048,
+		.registers = INA226_REGISTERS,
+		.shunt_div = 400,
+		.bus_voltage_shift = 0,
+		.bus_voltage_lsb = 1600,
+		.power_lsb_factor = 32,
 	},
 };
 
@@ -187,7 +198,7 @@ static u16 ina226_interval_to_reg(int interval)
 static int ina2xx_calibrate(struct ina2xx_data *data)
 {
 	return regmap_write(data->regmap, INA2XX_CALIBRATION,
-			    data->config->calibration_value);
+			 data->config->calibration_value);
 }
 
 /*
@@ -196,7 +207,7 @@ static int ina2xx_calibrate(struct ina2xx_data *data)
 static int ina2xx_init(struct ina2xx_data *data)
 {
 	int ret = regmap_write(data->regmap, INA2XX_CONFIG,
-			       data->config->config_default);
+			data->config->config_default);
 	if (ret < 0)
 		return ret;
 
@@ -655,18 +666,19 @@ static int ina2xx_probe(struct i2c_client *client)
 		return PTR_ERR(data->regmap);
 	}
 
-	ret = devm_regulator_get_enable(dev, "vs");
-	if (ret)
+	ret = devm_regulator_get_enable_optional(dev, "vs");
+	if (ret < 0 && ret != -ENODEV) {
 		return dev_err_probe(dev, ret, "failed to enable vs regulator\n");
+	}
 
 	ret = ina2xx_init(data);
 	if (ret < 0) {
 		dev_err(dev, "error configuring the device: %d\n", ret);
-		return -ENODEV;
+		return ret;
 	}
 
 	data->groups[group++] = &ina2xx_group;
-	if (chip == ina226)
+	if (chip == ina226 || chip == ina232 )
 		data->groups[group++] = &ina226_group;
 
 	hwmon_dev = devm_hwmon_device_register_with_groups(dev, client->name,
@@ -686,6 +698,7 @@ static const struct i2c_device_id ina2xx_id[] = {
 	{ "ina226", ina226 },
 	{ "ina230", ina226 },
 	{ "ina231", ina226 },
+	{ "ina232", ina232 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ina2xx_id);
@@ -710,6 +723,10 @@ static const struct of_device_id __maybe_unused ina2xx_of_match[] = {
 	{
 		.compatible = "ti,ina231",
 		.data = (void *)ina226
+	},
+	{
+		.compatible = "ti,ina232",
+		.data = (void *)ina232
 	},
 	{ },
 };

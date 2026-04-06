@@ -28,6 +28,7 @@ properties:
       - ti,ina231
       - ti,ina237
       - ti,ina238
+      - ti,ina232
 
   reg:
     maxItems: 1
