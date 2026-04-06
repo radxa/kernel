@@ -159,6 +159,7 @@ extern const struct clk_ops clk_dyn_rcg_ops;
  * @clkr: regmap clock handle
  * @cfg_off: defines the cfg register offset from the CMD_RCGR + CFG_REG
  * @parked_cfg: cached value of the CFG register for parked RCGs
+ * @configured_freq: last configured frequency, used for timeout calculation
  * @hw_clk_ctrl: whether to enable hardware clock control
  */
 struct clk_rcg2 {
@@ -174,6 +175,7 @@ struct clk_rcg2 {
 	struct clk_regmap	clkr;
 	u8			cfg_off;
 	u32			parked_cfg;
+	unsigned long		configured_freq;
 	bool			hw_clk_ctrl;
 };
 
