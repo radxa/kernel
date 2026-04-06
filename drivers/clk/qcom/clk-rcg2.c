@@ -437,26 +437,34 @@ static void clk_rcg2_calc_mnd(u64 parent_rate, u64 rate, struct freq_tbl *f,
 	int i = 2;
 	unsigned int pre_div = 1;
 	unsigned long rates_gcd, scaled_parent_rate;
-	u16 m, n = 1, n_candidate = 1, n_max;
+	u32 n_max, n_candidate = 1;
+	u16 m, n = 1;
 
 	rates_gcd = gcd(parent_rate, rate);
 	m = div64_u64(rate, rates_gcd);
 	scaled_parent_rate = div64_u64(parent_rate, rates_gcd);
-	while (scaled_parent_rate > (mnd_max + m) * pre_div_max) {
+
+	/*
+	 * Limit n so that the D register can represent the full duty cycle
+	 * range. The D register stores values up to 2*(n-m) using mnd_width
+	 * bits. Since m >= 1, n <= (mnd_max + 1) / 2 guarantees
+	 * 2*(n-m) <= mnd_max - 1.
+	 */
+	n_max = (mnd_max + 1) / 2;
+
+	while (scaled_parent_rate > (unsigned long)n_max * pre_div_max) {
 		// we're exceeding divisor's range, trying lower scale.
 		if (m > 1) {
 			m--;
 			scaled_parent_rate = mult_frac(scaled_parent_rate, m, (m + 1));
 		} else {
 			// cannot lower scale, just set max divisor values.
-			f->n = mnd_max + m;
+			f->n = n_max;
 			f->pre_div = pre_div_max;
 			f->m = m;
 			return;
 		}
 	}
-
-	n_max = m + mnd_max;
 
 	while (scaled_parent_rate > 1) {
 		while (scaled_parent_rate % i == 0) {
@@ -475,7 +483,7 @@ static void clk_rcg2_calc_mnd(u64 parent_rate, u64 rate, struct freq_tbl *f,
 
 	f->m = m;
 	f->n = n;
-	f->pre_div = pre_div > 1 ? pre_div : 0;
+	f->pre_div = pre_div;
 }
 
 static int clk_rcg2_determine_gp_rate(struct clk_hw *hw,
