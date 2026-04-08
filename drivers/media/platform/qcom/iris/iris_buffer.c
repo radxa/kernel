@@ -15,7 +15,9 @@
 #define MAX_WIDTH 4096
 #define MAX_HEIGHT 2304
 #define Y_STRIDE_ALIGN 128
+#define Y_STRIDE_ALIGN_P010 256
 #define UV_STRIDE_ALIGN 128
+#define UV_STRIDE_ALIGN_P010 256
 #define Y_SCANLINE_ALIGN 32
 #define UV_SCANLINE_ALIGN 16
 #define UV_SCANLINE_ALIGN_QC08C 32
@@ -72,6 +74,26 @@ static u32 iris_yuv_buffer_size_nv12(struct iris_inst *inst)
 
 	y_stride = ALIGN(f->fmt.pix_mp.width, Y_STRIDE_ALIGN);
 	uv_stride = ALIGN(f->fmt.pix_mp.width, UV_STRIDE_ALIGN);
+	y_scanlines = ALIGN(f->fmt.pix_mp.height, Y_SCANLINE_ALIGN);
+	uv_scanlines = ALIGN((f->fmt.pix_mp.height + 1) >> 1, UV_SCANLINE_ALIGN);
+	y_plane = y_stride * y_scanlines;
+	uv_plane = uv_stride * uv_scanlines;
+
+	return ALIGN(y_plane + uv_plane, PIXELS_4K);
+}
+
+static u32 iris_yuv_buffer_size_p010(struct iris_inst *inst)
+{
+	u32 y_plane, uv_plane, y_stride, uv_stride, y_scanlines, uv_scanlines;
+	struct v4l2_format *f;
+
+	if (inst->domain == DECODER)
+		f = inst->fmt_dst;
+	else
+		f = inst->fmt_src;
+
+	y_stride = ALIGN(f->fmt.pix_mp.width * 2, Y_STRIDE_ALIGN_P010);
+	uv_stride = ALIGN(f->fmt.pix_mp.width * 2, UV_STRIDE_ALIGN_P010);
 	y_scanlines = ALIGN(f->fmt.pix_mp.height, Y_SCANLINE_ALIGN);
 	uv_scanlines = ALIGN((f->fmt.pix_mp.height + 1) >> 1, UV_SCANLINE_ALIGN);
 	y_plane = y_stride * y_scanlines;
@@ -204,6 +226,55 @@ static u32 iris_yuv_buffer_size_qc08c(struct iris_inst *inst)
 	return ALIGN(y_meta_plane + y_plane + uv_meta_plane + uv_plane, PIXELS_4K);
 }
 
+/*
+ * QC10C:
+ * Compressed Macro-tile format for TP10.
+ */
+static u32 iris_yuv_buffer_size_qc10c(struct iris_inst *inst)
+{
+	u32 y_stride, y_buf_height;
+	u32 uv_stride, uv_buf_height;
+	u32 y_md_stride, y_md_height;
+	u32 uv_md_stride, uv_md_height;
+	u32 y_data_size, uv_data_size;
+	u32 y_md_size, uv_md_size;
+	struct v4l2_format *f = NULL;
+
+	if (inst->domain == DECODER)
+		f = inst->fmt_dst;
+	else
+		f = inst->fmt_src;
+
+	y_stride = ALIGN(ALIGN(f->fmt.pix_mp.width, 192) * 4 / 3,
+			 Y_STRIDE_ALIGN_P010);
+	y_buf_height = ALIGN(f->fmt.pix_mp.height, UV_SCANLINE_ALIGN);
+
+	y_data_size = ALIGN(y_stride * y_buf_height, PIXELS_4K);
+
+	uv_stride = ALIGN(ALIGN(f->fmt.pix_mp.width, 192) * 4 / 3,
+			  UV_STRIDE_ALIGN_P010);
+	uv_buf_height = ALIGN((f->fmt.pix_mp.height + 1) / 2,
+			      UV_SCANLINE_ALIGN);
+
+	uv_data_size = ALIGN(uv_stride * uv_buf_height, PIXELS_4K);
+
+	y_md_stride = ALIGN(DIV_ROUND_UP(f->fmt.pix_mp.width, 48),
+			    META_STRIDE_ALIGNED);
+	y_md_height = ALIGN(DIV_ROUND_UP(f->fmt.pix_mp.height, 4),
+			    META_SCANLINE_ALIGNED);
+
+	y_md_size = ALIGN(y_md_stride * y_md_height, PIXELS_4K);
+
+	uv_md_stride = ALIGN(DIV_ROUND_UP((f->fmt.pix_mp.width + 1) / 2, 24),
+			     META_STRIDE_ALIGNED);
+	uv_md_height = ALIGN(DIV_ROUND_UP((f->fmt.pix_mp.height + 1) / 2, 4),
+			     META_SCANLINE_ALIGNED);
+
+	uv_md_size = ALIGN(uv_md_stride * uv_md_height, PIXELS_4K);
+
+	return y_data_size + uv_data_size + y_md_size + uv_md_size;
+}
+
 static u32 iris_dec_bitstream_buffer_size(struct iris_inst *inst)
 {
 	struct platform_inst_caps *caps = inst->core->iris_platform_data->inst_caps;
@@ -268,10 +339,18 @@ int iris_get_buffer_size(struct iris_inst *inst,
 		case BUF_OUTPUT:
 			if (inst->fmt_dst->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_QC08C)
 				return iris_yuv_buffer_size_qc08c(inst);
+			else if (inst->fmt_dst->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_QC10C)
+				return iris_yuv_buffer_size_qc10c(inst);
+			else if (inst->fmt_dst->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_P010)
+				return iris_yuv_buffer_size_p010(inst);
 			else
 				return iris_yuv_buffer_size_nv12(inst);
 		case BUF_DPB:
-			return iris_yuv_buffer_size_qc08c(inst);
+			if (inst->fmt_dst->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_QC10C ||
+			    inst->fmt_dst->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_P010)
+				return iris_yuv_buffer_size_qc10c(inst);
+			else
+				return iris_yuv_buffer_size_qc08c(inst);
 		default:
 			return 0;
 		}
