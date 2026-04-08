@@ -361,11 +361,19 @@ static int iris_g_fmt_vid_mplane(struct file *filp, void *fh, struct v4l2_format
 	int ret = 0;
 
 	mutex_lock(&inst->lock);
+
 	if (V4L2_TYPE_IS_OUTPUT(f->type))
 		*f = *inst->fmt_src;
-	else if (V4L2_TYPE_IS_CAPTURE(f->type))
-		*f = *inst->fmt_dst;
-	else
+	else if (V4L2_TYPE_IS_CAPTURE(f->type)) {
+		/*
+		 * Do not return any format when waiting for the firmware
+		 * to send an initial source change
+		 */
+		if (iris_ipsc_pending(inst))
+			ret = -EINVAL;
+		else
+			*f = *inst->fmt_dst;
+	} else
 		ret = -EINVAL;
 
 	mutex_unlock(&inst->lock);

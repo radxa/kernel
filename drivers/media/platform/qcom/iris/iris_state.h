@@ -142,5 +142,6 @@ int iris_inst_sub_state_change_pause(struct iris_inst *inst, u32 plane);
 bool iris_allow_cmd(struct iris_inst *inst, u32 cmd);
 bool iris_drc_pending(struct iris_inst *inst);
 bool iris_drain_pending(struct iris_inst *inst);
+bool iris_ipsc_pending(struct iris_inst *inst);
 
 #endif

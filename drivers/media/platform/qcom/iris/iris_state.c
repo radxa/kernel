@@ -258,6 +258,12 @@ bool iris_drain_pending(struct iris_inst *inst)
 		inst->sub_state & IRIS_INST_SUB_DRAIN_LAST;
 }
 
+bool iris_ipsc_pending(struct iris_inst *inst)
+{
+	return inst->state == IRIS_INST_INPUT_STREAMING &&
+		(inst->sub_state & IRIS_INST_SUB_FIRST_IPSC) == 0;
+}
+
 bool iris_allow_cmd(struct iris_inst *inst, u32 cmd)
 {
 	struct vb2_queue *src_q = v4l2_m2m_get_src_vq(inst->m2m_ctx);
