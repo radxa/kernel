@@ -105,6 +105,16 @@ find_format(struct iris_inst *inst, u32 pixfmt, u32 type)
 	if (i == size || fmt[i].type != type)
 		return NULL;
 
+	if (type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+		if (iris_fmt_is_8bit(fmt[i].pixfmt) &&
+		    inst->fw_caps[BIT_DEPTH].value == BIT_DEPTH_8)
+			return NULL;
+
+		if (iris_fmt_is_10bit(fmt[i].pixfmt) &&
+		    inst->fw_caps[BIT_DEPTH].value != BIT_DEPTH_10)
+			return NULL;
+	}
+
 	return &fmt[i];
 }
 
@@ -113,6 +123,7 @@ find_format_by_index(struct iris_inst *inst, u32 index, u32 type)
 {
 	const struct iris_fmt *fmt = NULL;
 	unsigned int size = 0;
+	unsigned int i, k = 0;
 
 	switch (type) {
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE:
@@ -127,10 +138,36 @@ find_format_by_index(struct iris_inst *inst, u32 index, u32 type)
 		return NULL;
 	}
 
-	if (index >= size || fmt[index].type != type)
+	if (index >= size)
 		return NULL;
 
-	return &fmt[index];
+	if (type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
+		if (fmt[index].type != type)
+			return NULL;
+
+		return &fmt[index];
+	}
+
+	/* Loop over the valid capture formats and return the index */
+	for (i = 0; i < size; i++) {
+		if (fmt[i].type != type)
+			continue;
+
+		if (iris_fmt_is_8bit(fmt[i].pixfmt) &&
+		    inst->fw_caps[BIT_DEPTH].value == BIT_DEPTH_10)
+			continue;
+
+		if (iris_fmt_is_10bit(fmt[i].pixfmt) &&
+		    inst->fw_caps[BIT_DEPTH].value != BIT_DEPTH_10)
+			continue;
+
+		if (k == index)
+			return &fmt[i];
+
+		k++;
+	}
+
+	return NULL;
 }
 
 int iris_vdec_enum_fmt(struct iris_inst *inst, struct v4l2_fmtdesc *f)
