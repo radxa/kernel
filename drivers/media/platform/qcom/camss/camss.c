@@ -4271,7 +4271,8 @@ struct media_pad *camss_find_sensor_pad(struct media_entity *entity)
 
 		entity = pad->entity;
 
-		if (entity->function == MEDIA_ENT_F_CAM_SENSOR)
+		if (entity->function == MEDIA_ENT_F_CAM_SENSOR ||
+		    entity->function == MEDIA_ENT_F_VID_IF_BRIDGE)
 			return pad;
 	}
 }
