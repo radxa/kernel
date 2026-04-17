@@ -13,6 +13,7 @@
 #include <linux/rational.h>
 #include <linux/regmap.h>
 #include <linux/math64.h>
+#include <linux/gcd.h>
 #include <linux/minmax.h>
 #include <linux/slab.h>
 
@@ -308,82 +309,7 @@ static int clk_rcg2_determine_floor_rate(struct clk_hw *hw,
 static int __clk_rcg2_configure(struct clk_rcg2 *rcg, const struct freq_tbl *f,
 				u32 *_cfg)
 {
-	int i = 2;
-	unsigned int pre_div = 1;
-	unsigned long rates_gcd, scaled_parent_rate;
-	u32 n_max, n_candidate = 1;
-	u16 m, n = 1;
-
-	rates_gcd = gcd(parent_rate, rate);
-	m = div64_u64(rate, rates_gcd);
-	scaled_parent_rate = div64_u64(parent_rate, rates_gcd);
-
-	/*
-	 * Limit n so that the D register can represent the full duty cycle
-	 * range. The D register stores values up to 2*(n-m) using mnd_width
-	 * bits. Since m >= 1, n <= (mnd_max + 1) / 2 guarantees
-	 * 2*(n-m) <= mnd_max - 1.
-	 */
-	n_max = (mnd_max + 1) / 2;
-
-	while (scaled_parent_rate > (unsigned long)n_max * pre_div_max) {
-		// we're exceeding divisor's range, trying lower scale.
-		if (m > 1) {
-			m--;
-			scaled_parent_rate = mult_frac(scaled_parent_rate, m, (m + 1));
-		} else {
-			// cannot lower scale, just set max divisor values.
-			f->n = n_max;
-			f->pre_div = pre_div_max;
-			f->m = m;
-			return;
-		}
-	}
-
-	while (scaled_parent_rate > 1) {
-		while (scaled_parent_rate % i == 0) {
-			n_candidate *= i;
-			if (n_candidate < n_max)
-				n = n_candidate;
-			else if (pre_div * i < pre_div_max)
-				pre_div *= i;
-			else
-				clk_rcg2_split_div(i, &pre_div, &n, pre_div_max);
-
-			scaled_parent_rate /= i;
-		}
-		i++;
-	}
-
-	f->m = m;
-	f->n = n;
-	f->pre_div = pre_div;
-}
-
-static int clk_rcg2_determine_gp_rate(struct clk_hw *hw,
-				   struct clk_rate_request *req)
-{
-	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
-	struct freq_tbl f_tbl = {}, *f = &f_tbl;
-	int mnd_max = BIT(rcg->mnd_width) - 1;
-	int hid_max = BIT(rcg->hid_width) - 1;
-	struct clk_hw *parent;
-	u64 parent_rate;
-
-	parent = clk_hw_get_parent(hw);
-	parent_rate = clk_get_rate(parent->clk);
-	if (!parent_rate)
-		return -EINVAL;
-
-	clk_rcg2_calc_mnd(parent_rate, req->rate, f, mnd_max, hid_max / 2);
-	convert_to_reg_val(f);
-	req->rate = calc_rate(parent_rate, f->m, f->n, f->n, f->pre_div);
-
-	return 0;
-}
-
-static int __clk_rcg2_configure_parent(struct clk_rcg2 *rcg, u8 src, u32 *_cfg)
-{
+	u32 cfg, mask, d_val, not2d_val, n_minus_m;
 	struct clk_hw *hw = &rcg->clkr.hw;
 	int ret, index = qcom_find_src_index(hw, rcg->parent_map, f->src);
 
@@ -423,11 +349,139 @@ static int __clk_rcg2_configure_parent(struct clk_rcg2 *rcg, u8 src, u32 *_cfg)
 	cfg |= rcg->parent_map[index].cfg << CFG_SRC_SEL_SHIFT;
 	if (rcg->mnd_width && f->n && (f->m != f->n))
 		cfg |= CFG_MODE_DUAL_EDGE;
-	if (rcg->hw_clk_ctrl)
-		cfg |= CFG_HW_CLK_CTRL_MASK;
 
 	*_cfg &= ~mask;
 	*_cfg |= cfg;
+
+	return 0;
+}
+
+static void convert_to_reg_val(struct freq_tbl *f)
+{
+	if (f->pre_div)
+		f->pre_div = 2 * f->pre_div - 1;
+}
+
+static inline void clk_rcg2_split_div(int multiplier, unsigned int *pre_div,
+			      u16 *n, unsigned int pre_div_max)
+{
+	*n = mult_frac(multiplier * *n, *pre_div, pre_div_max);
+	*pre_div = pre_div_max;
+}
+
+static void clk_rcg2_calc_mnd(u64 parent_rate, u64 rate, struct freq_tbl *f,
+			      unsigned int mnd_max, unsigned int pre_div_max)
+{
+	int i = 2;
+	unsigned int pre_div = 1;
+	unsigned long rates_gcd, scaled_parent_rate;
+	u16 m, n = 1, n_candidate = 1, n_max;
+
+	if (!parent_rate || !rate)
+		return;
+
+	rates_gcd = gcd(parent_rate, rate);
+	m = div64_u64(rate, rates_gcd);
+	scaled_parent_rate = div64_u64(parent_rate, rates_gcd);
+	while (scaled_parent_rate > (mnd_max + m) * pre_div_max) {
+		if (m > 1) {
+			m--;
+			scaled_parent_rate = mult_frac(scaled_parent_rate, m, (m + 1));
+		} else {
+			f->n = mnd_max + m;
+			f->pre_div = pre_div_max;
+			f->m = m;
+			return;
+		}
+	}
+
+	n_max = m + mnd_max;
+
+	while (scaled_parent_rate > 1) {
+		while (scaled_parent_rate % i == 0) {
+			n_candidate *= i;
+			if (n_candidate < n_max)
+				n = n_candidate;
+			else if (pre_div * i < pre_div_max)
+				pre_div *= i;
+			else
+				clk_rcg2_split_div(i, &pre_div, &n, pre_div_max);
+
+			scaled_parent_rate /= i;
+		}
+		i++;
+	}
+
+	f->m = m;
+	f->n = n;
+	f->pre_div = pre_div;
+}
+
+static int clk_rcg2_determine_gp_rate(struct clk_hw *hw,
+				   struct clk_rate_request *req)
+{
+	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
+	int mnd_max = BIT(rcg->mnd_width) - 1;
+	int hid_max = BIT(rcg->hid_width) - 1;
+	int num_parents = clk_hw_get_num_parents(hw);
+	struct clk_hw *best_parent = NULL, *best_over_parent = NULL;
+	u64 best_parent_rate = 0, best_over_parent_rate = 0;
+	unsigned long best_rate = 0, best_over_rate = ULONG_MAX;
+	int i;
+
+	/*
+	 * Iterate over all candidate parents and pick the closest achievable
+	 * rate. Prefer the best rate at or below the request. If no parent can
+	 * satisfy the request without overshooting, fall back to the smallest
+	 * achievable rate above the request.
+	 */
+	for (i = 0; i < num_parents; i++) {
+		struct freq_tbl f_tbl = {}, *f = &f_tbl;
+		struct clk_hw *parent = clk_hw_get_parent_by_index(hw, i);
+		u64 prate;
+		unsigned long achieved;
+
+		if (!parent)
+			continue;
+		prate = clk_hw_get_rate(parent);
+		if (!prate || req->rate > prate)
+			continue;
+
+		clk_rcg2_calc_mnd(prate, req->rate, f, mnd_max, hid_max / 2);
+		if (!f->m || !f->n || f->m > f->n)
+			continue;
+		convert_to_reg_val(f);
+		achieved = calc_rate(prate, f->m, f->n, f->n, f->pre_div);
+		if (!achieved || achieved > prate)
+			continue;
+
+		if (achieved <= req->rate) {
+			if (!best_parent || achieved > best_rate ||
+			    (achieved == best_rate && prate < best_parent_rate)) {
+				best_parent = parent;
+				best_parent_rate = prate;
+				best_rate = achieved;
+			}
+		} else if (!best_over_parent || achieved < best_over_rate ||
+			   (achieved == best_over_rate && prate < best_over_parent_rate)) {
+			best_over_parent = parent;
+			best_over_parent_rate = prate;
+			best_over_rate = achieved;
+		}
+	}
+
+	if (!best_parent) {
+		best_parent = best_over_parent;
+		best_parent_rate = best_over_parent_rate;
+		best_rate = best_over_rate;
+	}
+
+	if (!best_parent)
+		return -EINVAL;
+
+	req->best_parent_hw = best_parent;
+	req->best_parent_rate = best_parent_rate;
+	req->rate = best_rate;
 
 	return 0;
 }
@@ -463,7 +517,7 @@ static int clk_rcg2_configure_gp(struct clk_rcg2 *rcg, const struct freq_tbl *f)
 	if (ret)
 		return ret;
 
-	ret = __clk_rcg2_configure_mnd(rcg, f, &cfg);
+	ret = __clk_rcg2_configure(rcg, f, &cfg);
 	if (ret)
 		return ret;
 
@@ -510,9 +564,46 @@ static int clk_rcg2_set_gp_rate(struct clk_hw *hw, unsigned long rate,
 	int mnd_max = BIT(rcg->mnd_width) - 1;
 	int hid_max = BIT(rcg->hid_width) - 1;
 	struct freq_tbl f_tbl = {}, *f = &f_tbl;
+	u8 index;
 	int ret;
 
+	if (!parent_rate || rate > parent_rate)
+		return -EINVAL;
+
 	clk_rcg2_calc_mnd(parent_rate, rate, f, mnd_max, hid_max / 2);
+	if (!f->m || !f->n || f->m > f->n)
+		return -EINVAL;
+
+	index = clk_rcg2_get_parent(hw);
+	if (index >= clk_hw_get_num_parents(hw))
+		return -EINVAL;
+	f->src = rcg->parent_map[index].src;
+	convert_to_reg_val(f);
+	rcg->configured_freq = rate;
+	ret = clk_rcg2_configure_gp(rcg, f);
+
+	return ret;
+}
+
+static int clk_rcg2_set_gp_rate_and_parent(struct clk_hw *hw,
+		unsigned long rate, unsigned long parent_rate, u8 index)
+{
+	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
+	int mnd_max = BIT(rcg->mnd_width) - 1;
+	int hid_max = BIT(rcg->hid_width) - 1;
+	struct freq_tbl f_tbl = {}, *f = &f_tbl;
+	int ret;
+
+	if (!parent_rate || rate > parent_rate)
+		return -EINVAL;
+	if (index >= clk_hw_get_num_parents(hw))
+		return -EINVAL;
+
+	clk_rcg2_calc_mnd(parent_rate, rate, f, mnd_max, hid_max / 2);
+	if (!f->m || !f->n || f->m > f->n)
+		return -EINVAL;
+
+	f->src = rcg->parent_map[index].src;
 	convert_to_reg_val(f);
 	rcg->configured_freq = rate;
 	ret = clk_rcg2_configure_gp(rcg, f);
@@ -577,7 +668,7 @@ static int clk_rcg2_get_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
 static int clk_rcg2_set_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
 {
 	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
-	u32 notn_m, n, m, d, not2d, mask, duty_per, cfg;
+	u32 notn_m, n, m, d, not2d, mask, cfg;
 	int ret;
 
 	/* Duty-cycle cannot be modified for non-MND RCGs */
@@ -596,8 +687,6 @@ static int clk_rcg2_set_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
 
 	n = (~(notn_m) + m) & mask;
 
-	duty_per = (duty->num * 100) / duty->den;
-
 	/* Calculate 2d value */
 	d = DIV_ROUND_CLOSEST_ULL((u64)n * duty->num * 2, duty->den);
 
@@ -607,9 +696,9 @@ static int clk_rcg2_set_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
 	 */
 	d = clamp_val(d, 1, mask);
 
-	if (d > (n - m) * 2)
+	if ((d / 2) > (n - m))
 		d = (n - m) * 2;
-	else if (d < m)
+	else if ((d / 2) < (m / 2))
 		d = m;
 
 	not2d = ~d & mask;
@@ -634,6 +723,19 @@ const struct clk_ops clk_rcg2_ops = {
 	.set_duty_cycle = clk_rcg2_set_duty_cycle,
 };
 EXPORT_SYMBOL_GPL(clk_rcg2_ops);
+
+const struct clk_ops clk_rcg2_gp_ops = {
+	.is_enabled = clk_rcg2_is_enabled,
+	.get_parent = clk_rcg2_get_parent,
+	.set_parent = clk_rcg2_set_parent,
+	.recalc_rate = clk_rcg2_recalc_rate,
+	.determine_rate = clk_rcg2_determine_gp_rate,
+	.set_rate = clk_rcg2_set_gp_rate,
+	.set_rate_and_parent = clk_rcg2_set_gp_rate_and_parent,
+	.get_duty_cycle = clk_rcg2_get_duty_cycle,
+	.set_duty_cycle = clk_rcg2_set_duty_cycle,
+};
+EXPORT_SYMBOL_GPL(clk_rcg2_gp_ops);
 
 const struct clk_ops clk_rcg2_floor_ops = {
 	.is_enabled = clk_rcg2_is_enabled,
