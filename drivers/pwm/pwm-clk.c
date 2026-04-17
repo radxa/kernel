@@ -39,30 +39,30 @@ static int pwm_clk_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 			 const struct pwm_state *state)
 {
 	struct pwm_clk_chip *pcchip = to_pwm_clk_chip(chip);
+	bool was_enabled = pwm->state.enabled;
+	bool needs_duty_program;
 	int ret;
 	u32 rate;
 	u64 period = state->period;
 	u64 duty_cycle = state->duty_cycle;
 
 	if (!state->enabled) {
-		if (pwm->state.enabled) {
+		if (was_enabled) {
 			clk_disable(pcchip->clk);
 			pcchip->clk_enabled = false;
 		}
 		return 0;
-	} else if (!pwm->state.enabled) {
-		ret = clk_enable(pcchip->clk);
-		if (ret)
-			return ret;
-		pcchip->clk_enabled = true;
 	}
 
 	/*
-	 * We have to enable the clk before setting the rate and duty_cycle,
-	 * that however results in a window where the clk is on with a
-	 * (potentially) different setting. Also setting period and duty_cycle
-	 * are two separate calls, so that probably isn't atomic either.
+	 * Some clock providers cannot safely update their rate while the output
+	 * is running. Quiesce the clock first, program rate and duty cycle, and
+	 * then re-enable it with the new settings.
 	 */
+	if (was_enabled) {
+		clk_disable(pcchip->clk);
+		pcchip->clk_enabled = false;
+	}
 
 	rate = DIV64_U64_ROUND_UP(NSEC_PER_SEC, period);
 	ret = clk_set_rate(pcchip->clk, rate);
@@ -72,7 +72,24 @@ static int pwm_clk_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 	if (state->polarity == PWM_POLARITY_INVERSED)
 		duty_cycle = period - duty_cycle;
 
-	return clk_set_duty_cycle(pcchip->clk, duty_cycle, period);
+	/*
+	 * clk_set_rate() programs Qualcomm GP RCGs with a default 50% duty
+	 * cycle. Avoid a redundant second update when the request is already
+	 * exactly 50%, because some instances time out on that extra reprogram.
+	 */
+	needs_duty_program = duty_cycle != period - duty_cycle;
+	if (needs_duty_program) {
+		ret = clk_set_duty_cycle(pcchip->clk, duty_cycle, period);
+		if (ret)
+			return ret;
+	}
+
+	ret = clk_enable(pcchip->clk);
+	if (ret)
+		return ret;
+
+	pcchip->clk_enabled = true;
+	return 0;
 }
 
 static const struct pwm_ops pwm_clk_ops = {
