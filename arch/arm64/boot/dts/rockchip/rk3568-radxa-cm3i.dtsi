@@ -598,7 +598,7 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart8m0_xfer &uart8m0_ctsn>;
 
-	bluetooth {
+	bluetooth: bluetooth {
 		compatible = "brcm,bcm4345c5";
 		clocks = <&rk809 1>;
 		clock-names = "lpo";
