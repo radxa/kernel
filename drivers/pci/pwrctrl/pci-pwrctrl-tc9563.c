@@ -112,6 +112,7 @@ struct tc9563_pwrctrl {
 	struct gpio_desc *reset_gpio;
 	struct i2c_adapter *adapter;
 	struct i2c_client *client;
+	bool powered_on;
 };
 
 /*
@@ -455,9 +456,13 @@ static int tc9563_pwrctrl_power_off(struct pci_pwrctrl *pwrctrl)
 	struct tc9563_pwrctrl *tc9563 = container_of(pwrctrl,
 					    struct tc9563_pwrctrl, pwrctrl);
 
+	if (!tc9563->powered_on)
+		return 0;
+
 	gpiod_set_value(tc9563->reset_gpio, 1);
 
 	regulator_bulk_disable(ARRAY_SIZE(tc9563->supplies), tc9563->supplies);
+	tc9563->powered_on = false;
 
 	return 0;
 }
@@ -470,11 +475,15 @@ static int tc9563_pwrctrl_power_on(struct pci_pwrctrl *pwrctrl)
 	struct tc9563_pwrctrl_cfg *cfg;
 	int ret, i;
 
+	if (tc9563->powered_on)
+		return 0;
+
 	ret = regulator_bulk_enable(ARRAY_SIZE(tc9563->supplies),
 				    tc9563->supplies);
 	if (ret < 0)
 		return dev_err_probe(dev, ret, "cannot enable regulators\n");
 
+	tc9563->powered_on = true;
 	gpiod_set_value(tc9563->reset_gpio, 0);
 
 	fsleep(TC9563_OSC_STAB_DELAY_US);
@@ -531,6 +540,13 @@ power_off:
 	return ret;
 }
 
+static void tc9563_pwrctrl_put_adapter(void *data)
+{
+	struct i2c_adapter *adapter = data;
+
+	put_device(&adapter->dev);
+}
+
 static int tc9563_pwrctrl_probe(struct platform_device *pdev)
 {
 	struct device_node *node = pdev->dev.of_node;
@@ -554,12 +570,15 @@ static int tc9563_pwrctrl_probe(struct platform_device *pdev)
 	if (!tc9563->adapter)
 		return dev_err_probe(dev, -EPROBE_DEFER, "Failed to find I2C adapter\n");
 
-	tc9563->client = i2c_new_dummy_device(tc9563->adapter, addr);
-	if (IS_ERR(tc9563->client)) {
-		dev_err(dev, "Failed to create I2C client\n");
-		put_device(&tc9563->adapter->dev);
-		return PTR_ERR(tc9563->client);
-	}
+	ret = devm_add_action_or_reset(dev, tc9563_pwrctrl_put_adapter,
+				       tc9563->adapter);
+	if (ret)
+		return ret;
+
+	tc9563->client = devm_i2c_new_dummy_device(dev, tc9563->adapter, addr);
+	if (IS_ERR(tc9563->client))
+		return dev_err_probe(dev, PTR_ERR(tc9563->client),
+				     "Failed to create I2C client\n");
 
 	for (int i = 0; i < ARRAY_SIZE(tc9563_supply_names); i++)
 		tc9563->supplies[i].supply = tc9563_supply_names[i];
@@ -568,13 +587,13 @@ static int tc9563_pwrctrl_probe(struct platform_device *pdev)
 				      tc9563->supplies);
 	if (ret) {
 		dev_err_probe(dev, ret, "failed to get supply regulator\n");
-		goto remove_i2c;
+		return ret;
 	}
 
 	tc9563->reset_gpio = devm_gpiod_get(dev, "resx", GPIOD_OUT_HIGH);
 	if (IS_ERR(tc9563->reset_gpio)) {
-		ret = dev_err_probe(dev, PTR_ERR(tc9563->reset_gpio), "failed to get resx GPIO\n");
-		goto remove_i2c;
+		return dev_err_probe(dev, PTR_ERR(tc9563->reset_gpio),
+				     "failed to get resx GPIO\n");
 	}
 
 	pci_pwrctrl_init(&tc9563->pwrctrl, dev);
@@ -583,7 +602,7 @@ static int tc9563_pwrctrl_probe(struct platform_device *pdev)
 	ret = tc9563_pwrctrl_parse_device_dt(tc9563, node, port);
 	if (ret) {
 		dev_err(dev, "failed to parse device tree properties: %d\n", ret);
-		goto remove_i2c;
+		return ret;
 	}
 
 	/*
@@ -609,7 +628,7 @@ static int tc9563_pwrctrl_probe(struct platform_device *pdev)
 	}
 	if (ret) {
 		dev_err(dev, "failed to parse device tree properties: %d\n", ret);
-		goto remove_i2c;
+		return ret;
 	}
 
 	tc9563->pwrctrl.power_on = tc9563_pwrctrl_power_on;
@@ -617,16 +636,9 @@ static int tc9563_pwrctrl_probe(struct platform_device *pdev)
 
 	ret = devm_pci_pwrctrl_device_set_ready(dev, &tc9563->pwrctrl);
 	if (ret)
-		goto power_off;
+		return ret;
 
 	return 0;
-
-power_off:
-	tc9563_pwrctrl_power_off(&tc9563->pwrctrl);
-remove_i2c:
-	i2c_unregister_device(tc9563->client);
-	put_device(&tc9563->adapter->dev);
-	return ret;
 }
 
 static void tc9563_pwrctrl_remove(struct platform_device *pdev)
@@ -636,8 +648,6 @@ static void tc9563_pwrctrl_remove(struct platform_device *pdev)
 					struct tc9563_pwrctrl, pwrctrl);
 
 	tc9563_pwrctrl_power_off(&tc9563->pwrctrl);
-	i2c_unregister_device(tc9563->client);
-	put_device(&tc9563->adapter->dev);
 }
 
 static const struct of_device_id tc9563_pwrctrl_of_match[] = {
