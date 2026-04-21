@@ -301,6 +301,9 @@
 	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart5m1_xfer>;
+	linux,rs485-enabled-at-boot-time;
+	rs485-rts-active-low;
+	rs485-de-gpios = <&gpio3 RK_PC5 GPIO_ACTIVE_HIGH>;
 };
 
 &can1 {
