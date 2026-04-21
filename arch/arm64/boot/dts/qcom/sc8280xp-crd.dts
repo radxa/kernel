@@ -772,7 +772,7 @@
 };
 
 &uart2 {
-	pinctrl-0 = <&uart2_default>;
+	pinctrl-0 = <&qup_uart2_default>;
 	pinctrl-names = "default";
 
 	status = "okay";
@@ -939,6 +939,24 @@
 		pins = "gpio1";
 		function = "normal";
 	};
+};
+
+&qup_uart2_cts {
+	bias-bus-hold;
+};
+
+&qup_uart2_rts {
+	drive-strength = <2>;
+	bias-disable;
+};
+
+&qup_uart2_rx {
+	bias-pull-up;
+};
+
+&qup_uart2_tx {
+	drive-strength = <2>;
+	bias-disable;
 };
 
 &tlmm {
@@ -1140,34 +1158,6 @@
 		reset-n-pins {
 			pins = "gpio99";
 			function = "gpio";
-			bias-disable;
-		};
-	};
-
-	uart2_default: uart2-default-state {
-		cts-pins {
-			pins = "gpio121";
-			function = "qup2";
-			bias-bus-hold;
-		};
-
-		rts-pins {
-			pins = "gpio122";
-			function = "qup2";
-			drive-strength = <2>;
-			bias-disable;
-		};
-
-		rx-pins {
-			pins = "gpio124";
-			function = "qup2";
-			bias-pull-up;
-		};
-
-		tx-pins {
-			pins = "gpio123";
-			function = "qup2";
-			drive-strength = <2>;
 			bias-disable;
 		};
 	};
