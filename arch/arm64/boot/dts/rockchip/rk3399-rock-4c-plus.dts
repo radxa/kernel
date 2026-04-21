@@ -54,8 +54,6 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&vcc5v0_host_en>;
 		regulator-name = "vbus_host";
-		regulator-always-on;
-		regulator-boot-on;
 		vin-supply = <&vcc5v0_usb2>;
 	};
 
@@ -66,8 +64,6 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&vcc5v0_typec_en>;
 		regulator-name = "vcc5v0_typec_en";
-		regulator-always-on;
-		regulator-boot-on;
 		vin-supply = <&vcc5v0_sys>;
 	};
 
@@ -717,6 +713,7 @@
 	wakeup-source;
 
 	u2phy0_otg: otg-port {
+		vbus-supply = <&vcc5v0_typec>; 
 		status = "okay";
 	};
 
@@ -762,6 +759,7 @@
 
 &usbdrd_dwc3_0 {
 	dr_mode = "host";
+	extcon = <&u2phy0>;
 	status = "okay";
 };
 
