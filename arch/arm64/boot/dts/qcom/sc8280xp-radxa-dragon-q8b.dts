@@ -6,6 +6,7 @@
 /dts-v1/;
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 
 #include "sc8280xp.dtsi"
@@ -426,6 +427,19 @@
 
 		regulator-always-on;
 		regulator-boot-on;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		pinctrl-0 = <&user_led>;
+		pinctrl-names = "default";
+
+		user-led {
+			color = <LED_COLOR_ID_BLUE>;
+			function = LED_FUNCTION_STATUS;
+			gpios = <&tlmm 4 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "heartbeat";
+		};
 	};
 };
 
@@ -1876,5 +1890,11 @@
 			function = "gpio";
 			bias-disable;
 		};
+	};
+
+	user_led: user-led-state {
+		pins = "gpio4";
+		function = "gpio";
+		bias-pull-up;
 	};
 };
