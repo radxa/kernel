@@ -924,6 +924,7 @@
 					qps615_phy0: ethernet-phy@1c {
 						compatible = "ethernet-phy-id004d.d101";
 						reg = <0x1c>;
+						qca,led-mode = <2>;
 
 						leds {
 							#address-cells = <1>;
@@ -962,6 +963,7 @@
 					qps615_phy1: ethernet-phy@1c {
 						compatible = "ethernet-phy-id004d.d101";
 						reg = <0x1c>;
+						qca,led-mode = <2>;
 
 						leds {
 							#address-cells = <1>;
