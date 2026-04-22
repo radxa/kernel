@@ -25,6 +25,17 @@ properties:
     enum:
       - ethernet-phy-id004d.d101
 
+  qca,led-mode:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description: |
+      Select one of the vendor-defined LED preset modes described in the
+      datasheet. The selected mode programs the MMD7 LED control registers for
+      all three PHY LED outputs during PHY initialization.
+    enum:
+      - 1
+      - 2
+      - 3
+
 unevaluatedProperties: false
 
 examples:
@@ -38,6 +49,7 @@ examples:
         ethernet-phy@0 {
             compatible = "ethernet-phy-id004d.d101";
             reg = <0>;
+            qca,led-mode = <2>;
 
             leds {
                 #address-cells = <1>;
