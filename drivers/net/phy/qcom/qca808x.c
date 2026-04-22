@@ -2,6 +2,7 @@
 
 #include <linux/phy.h>
 #include <linux/module.h>
+#include <linux/property.h>
 
 #include "qcom.h"
 
@@ -86,15 +87,75 @@
 #define QCA8081_PHY_FIFO_RSTN			BIT(11)
 
 #define QCA8081_PHY_ID				0x004dd101
+#define QCA808X_LED_MODE_MAX			3
 
 MODULE_DESCRIPTION("Qualcomm Atheros QCA808X PHY driver");
 MODULE_AUTHOR("Matus Ujhelyi");
 MODULE_LICENSE("GPL");
 
+struct qca808x_led_mode_cfg {
+	u16 led_ctrl[3];
+};
+
 struct qca808x_priv {
+	int led_mode;
 	int led_polarity_mode;
 	struct qcom_phy_hw_stats hw_stats;
 };
+
+static const struct qca808x_led_mode_cfg qca808x_led_mode_cfg[] = {
+	[1] = {
+		.led_ctrl = { 0x8000, 0x8670, 0x0040 },
+	},
+	[2] = {
+		.led_ctrl = { 0x8040, 0x8670, 0x0020 },
+	},
+	[3] = {
+		.led_ctrl = { 0x8670, 0x0000, 0x0000 },
+	},
+};
+
+static void qca808x_parse_dt(struct phy_device *phydev)
+{
+	struct device *dev = &phydev->mdio.dev;
+	struct qca808x_priv *priv = phydev->priv;
+	u32 led_mode;
+	int ret;
+
+	ret = device_property_read_u32(dev, "qca,led-mode", &led_mode);
+	if (ret)
+		return;
+
+	if (!led_mode || led_mode > QCA808X_LED_MODE_MAX) {
+		phydev_warn(phydev, "ignoring invalid qca,led-mode %u\n",
+			    led_mode);
+		return;
+	}
+
+	priv->led_mode = led_mode;
+}
+
+static int qca808x_apply_led_mode(struct phy_device *phydev)
+{
+	const struct qca808x_led_mode_cfg *cfg;
+	struct qca808x_priv *priv = phydev->priv;
+	int i, ret;
+
+	if (priv->led_mode < 0)
+		return 0;
+
+	cfg = &qca808x_led_mode_cfg[priv->led_mode];
+
+	for (i = 0; i < ARRAY_SIZE(cfg->led_ctrl); i++) {
+		ret = phy_write_mmd(phydev, MDIO_MMD_AN,
+				    QCA808X_MMD7_LED_CTRL(i),
+				    cfg->led_ctrl[i]);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
 
 static int qca808x_phy_fast_retrain_config(struct phy_device *phydev)
 {
@@ -187,10 +248,13 @@ static int qca808x_probe(struct phy_device *phydev)
 	if (!priv)
 		return -ENOMEM;
 
+	/* Keep LED preset mode disabled unless configured in firmware. */
+	priv->led_mode = -1;
 	/* Init LED polarity mode to -1 */
 	priv->led_polarity_mode = -1;
 
 	phydev->priv = priv;
+	qca808x_parse_dt(phydev);
 
 	return 0;
 }
@@ -208,6 +272,10 @@ static int qca808x_config_init(struct phy_device *phydev)
 		if (ret)
 			return ret;
 	}
+
+	ret = qca808x_apply_led_mode(phydev);
+	if (ret)
+		return ret;
 
 	/* Active adc&vga on 802.3az for the link 1000M and 100M */
 	ret = phy_modify_mmd(phydev, MDIO_MMD_PCS, QCA808X_PHY_MMD3_ADDR_CLD_CTRL7,
