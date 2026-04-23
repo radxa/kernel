@@ -8,6 +8,7 @@
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include <dt-bindings/spmi/spmi.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pwm/pwm.h>
 #include "qcs8300.dtsi"
 #include "qcs8300-thermal.dtsi"
 #include "qcs8300-pmics.dtsi"
@@ -645,6 +646,24 @@
 	phy-supply = <&vreg_l5a>;
 	status = "okay";
 };
+&thermal_zones {
+	cpuss-0-0-thermal {
+		trips {
+			cpuss0_active: cpuss-active {
+				temperature = <38000>;
+				hysteresis = <3000>;
+				type = "active";
+			};
+		};
+
+		cooling-maps {
+			map-active {
+				trip = <&cpuss0_active>;
+				cooling-device = <&fan 4 THERMAL_NO_LIMIT>;
+			};
+		};
+	};
+};
 
 &tlmm {
 	dp_hot_plug_det: dp-hot-plug-det-state {
@@ -762,6 +781,28 @@
 		enable-gpios = <&tlmm 55 GPIO_ACTIVE_HIGH>;
 		status = "okay";
 	};
+};
+
+&cci1 {
+        status = "okay";
+};
+&cci1_i2c1 {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        fan_controller: fan-controller@2f {
+                compatible = "microchip,emc2305";
+                reg = <0x2f>;
+                #address-cells = <1>;
+                #size-cells = <0>;
+                #pwm-cells = <3>;
+
+                fan: fan@0 {
+                        reg = <0x0>;
+                        pwms = <&fan_controller 26000 PWM_POLARITY_INVERTED 1>;
+                        #cooling-cells = <2>;
+                };
+        };
 };
 
 &ufs_mem_hc {
