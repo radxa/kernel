@@ -656,8 +656,8 @@
 	hdmi_conv_int_pins: hdmi-conv-int-pins {
 		pins = "gpio93";
 		function = "gpio";
-		drive-strength = <2>;
-		bias-disable;
+		input-enable;
+		bias-pull-up;
 	};
 
 	pcie0_default_state: pcie0-default-state {
