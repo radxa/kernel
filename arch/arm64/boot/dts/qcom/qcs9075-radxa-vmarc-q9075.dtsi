@@ -607,6 +607,16 @@
 &i2c7 {
 	qcom,load-firmware;
 	qcom,xfer-mode = <1>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&qup_i2c7_default>;
+	status = "okay";
+
+	eeprom: eeprom@50 {
+		compatible = "atmel,24c16";
+		reg = <0x50>;
+		pagesize = <16>;
+		i2c_id = <7>;
+	};
 };
 
 &i2c8 {
@@ -647,16 +657,6 @@
 &i2c15 {
 	qcom,load-firmware;
 	qcom,xfer-mode = <1>;
-	pinctrl-names = "default";
-	pinctrl-0 = <&qup_i2c15_default>;
-	status = "okay";
-
-	eeprom: eeprom@50 {
-		compatible = "atmel,24c16";
-		reg = <0x50>;
-		pagesize = <16>;
-		i2c_id = <15>;
-	};
 };
 
 &i2c16 {
