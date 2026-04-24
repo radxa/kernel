@@ -168,8 +168,6 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&vcc5v0_otg_en>;
 		regulator-name = "vcc5v0_otg";
-		regulator-always-on;
-		regulator-boot-on;
 	};
 
 	pcie30_avdd0v9: pcie30-avdd0v9 {
