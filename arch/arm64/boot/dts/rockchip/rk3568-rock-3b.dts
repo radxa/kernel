@@ -219,18 +219,6 @@
 		reset-gpios = <&gpio3 RK_PD4 GPIO_ACTIVE_LOW>;
 	};
 
-	wireless_wlan: wireless-wlan {
-		compatible = "wlan-platdata";
-		clocks = <&rk809 1>;
-		clock-names = "clk_wifi";
-		rockchip,grf = <&grf>;
-		wifi_chip_type = "ap6275s";
-		pinctrl-names = "default";
-		pinctrl-0 = <&wifi_host_wake_irq>;
-		WIFI,host_wake_irq = <&gpio3 RK_PD5 GPIO_ACTIVE_HIGH>;
-		status = "okay";
-	};
-
 	gpio_leds: gpio-leds {
 		compatible = "gpio-leds";
 		status = "okay";
@@ -806,6 +794,16 @@
 	pinctrl-0 = <&sdmmc2m0_bus4 &sdmmc2m0_cmd &sdmmc2m0_clk>;
 	sd-uhs-sdr104;
 	status = "okay";
+
+	brcmf: wifi@1 {
+		compatible = "brcm,bcm4329-fmac";
+		reg = <1>;
+		interrupt-parent = <&gpio3>;
+		interrupts = <RK_PD5 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "host-wake";
+		pinctrl-names = "default";
+		pinctrl-0 = <&wifi_host_wake_l>;
+	};
 };
 
 &sfc {
@@ -1147,9 +1145,9 @@
 		};
 	};
 
-	wireless-wlan {
-		wifi_host_wake_irq: wifi-host-wake-irq {
-			rockchip,pins = <3 RK_PD5 RK_FUNC_GPIO &pcfg_pull_down>;
+	wifi {
+		wifi_host_wake_l: wifi-host-wake-irq {
+			rockchip,pins = <3 RK_PD5 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
 
