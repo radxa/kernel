@@ -142,8 +142,6 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&vcc5v0_otg_en>;
 		regulator-name = "vcc5v0_otg";
-		regulator-always-on;
-		regulator-boot-on;
 	};
 
 	vcc5v0_usbhub: vcc5v0-usbhub-regulator {
