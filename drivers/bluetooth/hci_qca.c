@@ -2477,13 +2477,6 @@ static int qca_serdev_probe(struct serdev_device *serdev)
 	if (power_ctrl_enabled) {
 		set_bit(HCI_QUIRK_NON_PERSISTENT_SETUP, &hdev->quirks);
 		hdev->shutdown = qca_power_off;
-	} else {
-	/* host not respond to controller's IBS command
-	 * when BT close hci and no close uart,
-	 * causing controller to enter an abnormal state.
-	 * Therefore, disable HCI_AUTO_OFF
-	 */
-		hci_dev_clear_flag(hdev, HCI_AUTO_OFF);
 	}
 
 	if (data) {
