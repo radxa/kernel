@@ -1,4 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
+
+config PLATFORM_PROFILE
+	tristate
+
 source "drivers/platform/mips/Kconfig"
 
 source "drivers/platform/loongarch/Kconfig"

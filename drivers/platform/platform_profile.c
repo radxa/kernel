@@ -4,13 +4,16 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/acpi.h>
 #include <linux/bits.h>
 #include <linux/cleanup.h>
 #include <linux/init.h>
 #include <linux/mutex.h>
 #include <linux/platform_profile.h>
 #include <linux/sysfs.h>
+
+#if IS_ENABLED(CONFIG_ACPI)
+#include <linux/acpi.h>
+#endif
 
 #define to_pprof_handler(d)	(container_of(d, struct platform_profile_handler, dev))
 
@@ -45,11 +48,17 @@ static_assert(ARRAY_SIZE(profile_names) == PLATFORM_PROFILE_LAST);
 
 static DEFINE_IDA(platform_profile_ida);
 
+#if IS_ENABLED(CONFIG_ACPI)
 static void platform_profile_legacy_notify(void)
 {
 	if (acpi_kobj)
 		sysfs_notify(acpi_kobj, NULL, "platform_profile");
 }
+#else
+static void platform_profile_legacy_notify(void)
+{
+}
+#endif
 
 /**
  * _commmon_choices_show - Show the available profile choices
@@ -480,6 +489,15 @@ static const struct attribute_group platform_profile_group = {
 	.is_visible = profile_class_is_visible,
 };
 
+#if IS_ENABLED(CONFIG_ACPI)
+static int platform_profile_legacy_create_group(void)
+{
+	if (!acpi_kobj)
+		return 0;
+
+	return sysfs_create_group(acpi_kobj, &platform_profile_group);
+}
+
 static int platform_profile_legacy_update_group(void)
 {
 	if (!acpi_kobj)
@@ -487,6 +505,27 @@ static int platform_profile_legacy_update_group(void)
 
 	return sysfs_update_group(acpi_kobj, &platform_profile_group);
 }
+
+static void platform_profile_legacy_remove_group(void)
+{
+	if (acpi_kobj)
+		sysfs_remove_group(acpi_kobj, &platform_profile_group);
+}
+#else
+static int platform_profile_legacy_create_group(void)
+{
+	return 0;
+}
+
+static int platform_profile_legacy_update_group(void)
+{
+	return 0;
+}
+
+static void platform_profile_legacy_remove_group(void)
+{
+}
+#endif
 
 /**
  * platform_profile_notify - Notify class device and legacy sysfs interface
@@ -709,10 +748,7 @@ static int __init platform_profile_init(void)
 	if (err)
 		return err;
 
-	if (!acpi_kobj)
-		return 0;
-
-	err = sysfs_create_group(acpi_kobj, &platform_profile_group);
+	err = platform_profile_legacy_create_group();
 	if (err)
 		class_unregister(&platform_profile_class);
 
@@ -721,13 +757,12 @@ static int __init platform_profile_init(void)
 
 static void __exit platform_profile_exit(void)
 {
-	if (acpi_kobj)
-		sysfs_remove_group(acpi_kobj, &platform_profile_group);
+	platform_profile_legacy_remove_group();
 	class_unregister(&platform_profile_class);
 }
 module_init(platform_profile_init);
 module_exit(platform_profile_exit);
 
 MODULE_AUTHOR("Mark Pearson <markpearson@lenovo.com>");
-MODULE_DESCRIPTION("ACPI platform profile sysfs interface");
+MODULE_DESCRIPTION("Platform profile sysfs interface");
 MODULE_LICENSE("GPL");
