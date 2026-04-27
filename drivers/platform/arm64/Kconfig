@@ -90,4 +90,15 @@ config EC_LENOVO_THINKPAD_T14S
 
 	  Say M or Y here to include this support.
 
+config RADXA_SVC_GLINK
+	tristate "Radxa SVC GLINK driver"
+	depends on ARCH_QCOM || COMPILE_TEST
+	depends on RPMSG
+	depends on HWMON
+	select PLATFORM_PROFILE
+	help
+	  Say M or Y here to enable the Radxa SVC GLINK driver. This driver
+	  talks to the RADXA_SVC_ADSP_APPS rpmsg service and exposes fan
+	  control through hwmon and platform-profile interfaces.
+
 endif # ARM64_PLATFORM_DEVICES
