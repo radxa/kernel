@@ -1,6 +1,6 @@
-=====================================================================
-Platform Profile Selection (e.g. /sys/firmware/acpi/platform_profile)
-=====================================================================
+==========================
+Platform Profile Selection
+==========================
 
 On modern systems the platform performance, temperature, fan and other
 hardware related characteristics are often dynamically configurable. The
@@ -12,8 +12,8 @@ These auto platform adjustment mechanisms often can be configured with
 one of several platform profiles, with either a bias towards low power
 operation or towards performance.
 
-The purpose of the platform_profile attribute is to offer a generic sysfs
-API for selecting the platform profile of these automatic mechanisms.
+The purpose of the platform profile sysfs API is to offer a generic interface
+for selecting the platform profile of these automatic mechanisms.
 
 Note that this API is only for selecting the platform profile, it is
 NOT a goal of this API to allow monitoring the resulting performance
@@ -50,15 +50,8 @@ the current state.
 
 Multiple driver support
 =======================
-When multiple drivers on a system advertise a platform profile handler, the
-platform profile handler core will only advertise the profiles that are
-common between all drivers to the ``/sys/firmware/acpi`` interfaces.
-
-This is to ensure there is no ambiguity on what the profile names mean when
-all handlers don't support a profile.
-
-Individual drivers will register a 'platform_profile' class device that has
-similar semantics as the ``/sys/firmware/acpi/platform_profile`` interface.
+Individual drivers will register a 'platform_profile' class device under
+``/sys/class/platform-profile/``.
 
 To discover which driver is associated with a platform profile handler the
 user can read the ``name`` attribute of the class device.
@@ -69,6 +62,15 @@ To discover available profiles from the class interface the user can read the
 If a user wants to select a profile for a specific driver, they can do so
 by writing to the ``profile`` attribute of the driver's class device.
 
+When multiple drivers on a system advertise a platform profile handler, the
+platform profile handler core also provides a legacy aggregate interface under
+``/sys/firmware/acpi`` when the ACPI firmware sysfs hierarchy is available.
+That aggregate interface will only advertise the profiles that are common
+between all drivers.
+
+This is to ensure there is no ambiguity on what the profile names mean when
+all handlers don't support a profile.
+
 This will allow users to set different profiles for different drivers on the
 same system. If the selected profile by individual drivers differs the
 platform profile handler core will display the profile 'custom' to indicate
@@ -76,5 +78,5 @@ that the profiles are not the same.
 
 While the ``platform_profile`` attribute has the value ``custom``, writing a
 common profile from ``platform_profile_choices`` to the platform_profile
-attribute of the platform profile handler core will set the profile for all
+attribute of the legacy aggregate interface will set the profile for all
 drivers.

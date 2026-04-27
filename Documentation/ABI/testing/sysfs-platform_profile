@@ -1,7 +1,10 @@
 What:		/sys/firmware/acpi/platform_profile_choices
 Date:		October 2020
 Contact:	Hans de Goede <hdegoede@redhat.com>
-Description:	This file contains a space-separated list of profiles supported for this device.
+Description:	This legacy ACPI aggregate file contains a space-separated list
+		of profiles common to all registered platform profile handlers.
+		It is present only when the ACPI firmware sysfs hierarchy is
+		available.
 
 		Drivers must use the following standard profile-names:
 
@@ -23,9 +26,13 @@ Description:	This file contains a space-separated list of profiles supported for
 What:		/sys/firmware/acpi/platform_profile
 Date:		October 2020
 Contact:	Hans de Goede <hdegoede@redhat.com>
-Description:	Reading this file gives the current selected profile for this
-		device. Writing this file with one of the strings from
-		platform_profile_choices changes the profile to the new value.
+Description:	Reading this legacy ACPI aggregate file gives the current
+		selected profile common to all registered platform profile
+		handlers. Writing this file with one of the strings from
+		platform_profile_choices changes all handlers to the new value.
+
+		This file is present only when the ACPI firmware sysfs hierarchy
+		is available.
 
 		This file can be monitored for changes by polling for POLLPRI,
 		POLLPRI will be signalled on any changes, independent of those
