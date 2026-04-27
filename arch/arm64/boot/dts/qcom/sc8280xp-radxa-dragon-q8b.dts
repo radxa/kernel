@@ -1228,6 +1228,10 @@
 	status = "okay";
 };
 
+&iris {
+	status = "okay";
+};
+
 &rxmacro {
 	status = "okay";
 };
