@@ -149,15 +149,11 @@
 		status = "okay";
 		compatible = "microchip,emc2301";
 		reg = <0x2f>;
-		#address-cells = <1>;
-		#size-cells = <0>;
 		#cooling-cells = <2>;
-		microchip,pwm-separate;
-		microchip,cooling-levels = <10>;
-		channel@0 {
-			reg = <0>;
-			pwm-min = <0>;
-		};
+		emc2305,pwm-min = /bits/ 8 <0>;
+		emc2305,pwm-max = /bits/ 8 <255>;
+		emc2305,pwm-channel = /bits/ 8 <0>;
+		emc2305,cooling-levels = /bits/ 8 <10>;
 	};
 
 	pcf85063: pcf85063@51 {
