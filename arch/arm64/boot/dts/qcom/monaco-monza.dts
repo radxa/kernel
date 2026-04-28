@@ -15,7 +15,7 @@
 /delete-node/ &usb_1_dwc3;
 / {
 	model = "Qualcomm Technologies, Inc. Monaco Monza";
-	compatible = "qcom,monaco-monza", "qcom,qcs8300";
+	compatible = "arduino,monza", "qcom,monaco-monza", "qcom,qcs8300";
 
 	qcom,msm-id = <675 0x10000>;
 	qcom,board-id = <0x00010020 4>, <0x00010019 4>;
