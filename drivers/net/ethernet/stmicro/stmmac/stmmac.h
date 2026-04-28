@@ -263,6 +263,7 @@ struct stmmac_priv {
 	void __iomem *ioaddr;
 	struct net_device *dev;
 	struct device *device;
+	struct device *dma_device;
 	struct mac_device_info *hw;
 	int (*hwif_quirks)(struct stmmac_priv *priv);
 	struct mutex lock;
