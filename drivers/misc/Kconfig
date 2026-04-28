@@ -643,6 +643,16 @@ config MCHP_LAN966X_PCI
 	    - lan966x-miim (MDIO_MSCC_MIIM)
 	    - lan966x-switch (LAN966X_SWITCH)
 
+config TOSHIBA_TC956X_PCI
+	tristate "Toshiba TC956X PCI function support"
+	depends on PCI
+	select AUXILIARY_BUS
+	help
+	  This enables support for the two PCI functions implemented by
+	  the embedded PCIe endpoint in the Toshiba TC956X.  This driver
+	  creates auxiliary devices and requires drivers for these devices
+	  to function.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
