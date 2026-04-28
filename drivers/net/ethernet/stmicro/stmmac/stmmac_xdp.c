@@ -25,7 +25,7 @@ static int stmmac_xdp_enable_pool(struct stmmac_priv *priv,
 	if (frame_size < ETH_FRAME_LEN + VLAN_HLEN * 2)
 		return -EOPNOTSUPP;
 
-	err = xsk_pool_dma_map(pool, priv->device, STMMAC_RX_DMA_ATTR);
+	err = xsk_pool_dma_map(pool, priv->dma_device, STMMAC_RX_DMA_ATTR);
 	if (err) {
 		netdev_err(priv->dev, "Failed to map xsk pool\n");
 		return err;
