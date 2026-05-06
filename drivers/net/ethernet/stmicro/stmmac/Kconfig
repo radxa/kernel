@@ -389,6 +389,7 @@ config DWMAC_TC956X
 	depends on COMMON_CLK
 	depends on TOSHIBA_TC956X_PCI
 	default m if TOSHIBA_TC956X_PCI
+	select GENERIC_IRQ_CHIP
 	help
 	  This selects the Toshiba TC956X (and Qualcomm QPS615) support in the
 	  stmmac driver.
