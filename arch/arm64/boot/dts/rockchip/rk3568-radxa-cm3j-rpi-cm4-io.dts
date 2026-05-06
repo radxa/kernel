@@ -6,6 +6,7 @@
 
 /dts-v1/;
 
+#include <dt-bindings/display/rockchip_vop.h>
 #include "rk3568-radxa-cm3j.dtsi"
 
 / {
@@ -99,6 +100,14 @@
 	status = "okay";
 	connect = <&vp0_out_hdmi>;
 };
+
+&vp0 {
+	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER0 | 1 << ROCKCHIP_VOP2_ESMART0 |
+				1 << ROCKCHIP_VOP2_SMART0)>;
+	rockchip,primary-plane = <ROCKCHIP_VOP2_CLUSTER0>;
+	cursor-win-id = <ROCKCHIP_VOP2_ESMART0>;
+};
+
 
 &i2s0_8ch {
 	status = "okay";
