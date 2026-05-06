@@ -641,10 +641,24 @@
 };
 
 &pm7325_gpios {
-	pm7325_adc_default: adc-default-state {
-		pins = "gpio2";
+	pinctrl-0 = <&hardware_version_sel>;
+	pinctrl-names = "default";
+	gpio-line-names = "",	/* GPIO_01 */
+			  "UFS_THERM",
+			  "Version_ADC",
+			  "",
+			  "",
+			  "KYPD_VOL_UP_N",
+			  "Version_SEL",
+			  "",
+			  "MICRO USB DET",
+			  "";
+
+	hardware_version_sel: hardware-version-sel-state {
+		pins = "gpio7";
 		function = PMIC_GPIO_FUNC_NORMAL;
 		bias-high-impedance;
+		power-source = <1>;
 	};
 };
 
@@ -686,9 +700,6 @@
 };
 
 &pmk8350_vadc {
-	pinctrl-0 = <&pm7325_adc_default>;
-	pinctrl-names = "default";
-
 	channel@3 {
 		reg = <PMK8350_ADC7_DIE_TEMP>;
 		label = "pmk7325_die_temp";
@@ -707,6 +718,13 @@
 		reg = <PM7325_ADC7_DIE_TEMP>;
 		label = "pm7325_die_temp";
 		qcom,pre-scaling = <1 1>;
+	};
+
+	channel@10b {
+		reg = <PM7325_ADC7_GPIO2>;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+		label = "hardware_version_adc";
 	};
 
 	channel@144 {
