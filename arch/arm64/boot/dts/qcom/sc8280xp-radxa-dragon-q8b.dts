@@ -260,6 +260,8 @@
 
 		gpio = <&pmc8280c_gpios 4 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
+		regulator-always-on;
+		regulator-boot-on;
 		startup-delay-us = <1000>;
 
 		pinctrl-0 = <&eth_phy_pwr_en>;
@@ -293,6 +295,8 @@
 
 		gpio = <&pmc8280c_gpios 4 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
+		regulator-always-on;
+		regulator-boot-on;
 		startup-delay-us = <1000>;
 
 		/* shared enable GPIO, pinctrl is set by vcc_1v05 */
@@ -896,35 +900,38 @@
 			ranges;
 			bus-range = <0x5 0xff>;
 
-			/*
-			 * PF0: also acts as the QPS615 GPIO controller.
-			 * gpio-controller / #gpio-cells expose the TC956X
-			 * internal GPIO lines (hardware numbers 0-13) so that
-			 * phy-reset-gpios can reference them.
-			 */
-			qps615: pci@0,0 {
+			tc956x_emac0: pci@0,0 {
+				compatible = "pci1179,0220";
 				reg = <0x50000 0x0 0x0 0x0 0x0>;
-				interrupts-extended = <&tlmm 182 IRQ_TYPE_EDGE_FALLING>;
-				interrupt-names = "wol_irq";
-				phy-handle = <&qps615_phy0>;
-				phy-supply = <&vcc_1v05>;
-				phy-reset-gpios = <&qps615 0 GPIO_ACTIVE_LOW>;
-				reset-deassert-us = <70000>;
-
-				pinctrl-0 = <&eth_phy0_wol_default>;
-				pinctrl-names = "default";
+				#address-cells = <3>;
+				#size-cells = <2>;
+				device_type = "pci";
+				ranges;
 
 				gpio-controller;
 				#gpio-cells = <2>;
 
+				phy-mode = "sgmii";
+				phy-handle = <&tc956x_emac0_phy>;
+
 				mdio {
+					compatible = "snps,dwmac-mdio";
 					#address-cells = <1>;
 					#size-cells = <0>;
 
-					qps615_phy0: ethernet-phy@1c {
+					tc956x_emac0_phy: ethernet-phy@1c {
 						compatible = "ethernet-phy-id004d.d101";
 						reg = <0x1c>;
+
+						wakeup-gpios = <&tlmm 182 GPIO_ACTIVE_LOW>;
+						reset-gpios = <&tc956x_emac0 0 GPIO_ACTIVE_LOW>;
+						reset-assert-us = <11000>;
+						reset-deassert-us = <70000>;
+
 						qca,led-mode = <2>;
+
+						pinctrl-0 = <&eth_phy0_wol_default>;
+						pinctrl-names = "default";
 
 						leds {
 							#address-cells = <1>;
@@ -945,25 +952,33 @@
 			};
 
 			pci@0,1 {
+				compatible = "pci1179,0220";
 				reg = <0x50100 0x0 0x0 0x0 0x0>;
-				interrupts-extended = <&tlmm 181 IRQ_TYPE_EDGE_FALLING>;
-				interrupt-names = "wol_irq";
-				phy-handle = <&qps615_phy1>;
-				phy-supply = <&vcc_1v05>;
-				phy-reset-gpios = <&qps615 1 GPIO_ACTIVE_LOW>;
-				reset-deassert-us = <70000>;
+				#address-cells = <3>;
+				#size-cells = <2>;
+				device_type = "pci";
+				ranges;
 
-				pinctrl-0 = <&eth_phy1_wol_default>;
-				pinctrl-names = "default";
+				phy-mode = "sgmii";
+				phy-handle = <&tc956x_emac1_phy>;
 
 				mdio {
+					compatible = "snps,dwmac-mdio";
 					#address-cells = <1>;
 					#size-cells = <0>;
 
-					qps615_phy1: ethernet-phy@1c {
+					tc956x_emac1_phy: ethernet-phy@1c {
 						compatible = "ethernet-phy-id004d.d101";
 						reg = <0x1c>;
+						wakeup-gpios = <&tlmm 181 GPIO_ACTIVE_LOW>;
+						reset-gpios = <&tc956x_emac0 1 GPIO_ACTIVE_LOW>;
+						reset-assert-us = <11000>;
+						reset-deassert-us = <70000>;
+
 						qca,led-mode = <2>;
+
+						pinctrl-0 = <&eth_phy1_wol_default>;
+						pinctrl-names = "default";
 
 						leds {
 							#address-cells = <1>;
