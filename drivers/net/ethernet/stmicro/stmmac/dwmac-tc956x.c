@@ -669,7 +669,12 @@ static int tc956x_plat_dat_init(struct tc956x_data *td)
 	plat->axi = axi;
 
 	plat->mac_port_sel_speed = speed;
-	plat->flags = STMMAC_FLAG_MULTI_MSI_EN | STMMAC_FLAG_TSO_EN;
+	/*
+	 * TC956x clocks down the MAC/PMA/XPCS in its suspend hook, so let the
+	 * external PHY handle WoL instead of using stmmac MAC PMT wake.
+	 */
+	plat->flags = STMMAC_FLAG_MULTI_MSI_EN | STMMAC_FLAG_TSO_EN |
+		      STMMAC_FLAG_USE_PHY_WOL;
 
 	td->plat = plat;
 
