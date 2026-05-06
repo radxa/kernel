@@ -503,8 +503,7 @@ static struct phylink_pcs *tc956x_select_pcs(struct stmmac_priv *priv,
 	return priv->hw->phylink_pcs;
 }
 
-static void tc956x_fix_mac_speed(void *bsp_priv, phy_interface_t interface,
-				 int speed, unsigned int mode)
+static void tc956x_fix_mac_speed(void *bsp_priv, int speed, unsigned int mode)
 {
 	struct tc956x_data *td = bsp_priv;
 
