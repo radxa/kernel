@@ -103,6 +103,7 @@ struct qca808x_priv {
 	int led_mode;
 	int led_polarity_mode;
 	int wake_irq;
+	u32 wolopts;
 	bool wake_irq_enabled;
 	struct qcom_phy_hw_stats hw_stats;
 };
@@ -537,13 +538,35 @@ static int qca808x_config_aneg(struct phy_device *phydev)
 static int qca808x_set_wol(struct phy_device *phydev,
 			   struct ethtool_wolinfo *wol)
 {
+	struct qca808x_priv *priv = phydev->priv;
 	int ret;
 
 	ret = at8031_set_wol(phydev, wol);
 	if (ret)
 		return ret;
 
-	return qca808x_set_wake_irq(phydev, !!(wol->wolopts & WAKE_MAGIC));
+	ret = qca808x_set_wake_irq(phydev, !!(wol->wolopts & WAKE_MAGIC));
+	if (ret)
+		return ret;
+
+	priv->wolopts = wol->wolopts & WAKE_MAGIC;
+
+	return 0;
+}
+
+static int qca808x_resume(struct phy_device *phydev)
+{
+	struct qca808x_priv *priv = phydev->priv;
+	struct ethtool_wolinfo wol = {
+		.wolopts = priv->wolopts,
+	};
+	int ret;
+
+	ret = genphy_resume(phydev);
+	if (ret || !(priv->wolopts & WAKE_MAGIC))
+		return ret;
+
+	return at8031_set_wol(phydev, &wol);
 }
 
 static void qca808x_link_change_notify(struct phy_device *phydev)
@@ -796,7 +819,7 @@ static struct phy_driver qca808x_driver[] = {
 	.get_features		= qca808x_get_features,
 	.config_aneg		= qca808x_config_aneg,
 	.suspend		= genphy_suspend,
-	.resume			= genphy_resume,
+	.resume			= qca808x_resume,
 	.read_status		= qca808x_read_status,
 	.config_init		= qca808x_config_init,
 	.soft_reset		= qca808x_soft_reset,
