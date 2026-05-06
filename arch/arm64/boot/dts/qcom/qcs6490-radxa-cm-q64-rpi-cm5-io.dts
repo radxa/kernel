@@ -1,0 +1,194 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) 2025 Radxa Computer (Shenzhen) Co., Ltd.
+ */
+
+/dts-v1/;
+
+#include "qcs6490-radxa-cm-q64.dtsi"
+
+/ {
+	model = "Radxa CM-Q64 Raspberry Pi Compute Module 5 IO Board";
+	compatible = "radxa,cm-q64-rpi-cm5-io", "radxa,cm-q64", "qcom,qcm6490";
+
+	pm8350c_gpio9_pwm: pm8350c-gpio9-pwm {
+		compatible = "pwm-gpio";
+		gpios = <&pm8350c_gpios 9 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&fan_ctr_pwm>;
+		pinctrl-names = "default";
+		#pwm-cells = <3>;
+	};
+
+	pm8350c_gpio9_pwm_fan: pwm-fan {
+		pinctrl-0 = <&fan_tacho>;
+		pinctrl-names = "default";
+		compatible = "pwm-fan";
+		pwms = <&pm8350c_gpio9_pwm 0 50000000 0>;
+		fan-supply = <&vcc_3v3>;
+		interrupt-parent = <&pm8350c_gpios>;
+		interrupts = <5 IRQ_TYPE_EDGE_FALLING>;
+		#cooling-cells = <2>;
+		cooling-levels = <0 120 150 180 210 240 255>;
+    };
+};
+
+&pm8350c_gpios {
+	gpio-line-names = "",		/* 1 */
+			  "",
+			  "",
+			  "",
+			  "FAN_TACHO_IN",
+			  "",
+			  "LCD_BLEN",
+			  "LCD_BLPWM",
+			  "FAN_CTR_PWM";
+
+	fan_tacho: fan-tacho-state {
+		pins = "gpio5";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		bias-disable;
+		power-source = <1>;
+	};
+
+	fan_ctr_pwm: fan-ctr-pwm-state {
+		pins = "gpio9";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		bias-disable;
+		qcom,drive-strength = <PMIC_GPIO_STRENGTH_LOW>;
+		output-low;
+		power-source = <1>;
+	};
+};
+
+
+&thermal_zones {
+	cpuss0-thermal {
+		trips {
+			cpuss0_active: trip-point2 {
+				temperature = <60000>;
+				hysteresis = <2000>;
+				type = "active";
+			};
+		};
+
+		cooling-maps {
+			map2 {
+				trip = <&cpuss0_active>;
+				cooling-device = <&pm8350c_gpio9_pwm_fan THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+			};
+		};
+	};
+
+	cpuss1-thermal {
+		trips {
+			cpuss1_active: trip-point2 {
+				temperature = <60000>;
+				hysteresis = <2000>;
+				type = "active";
+			};
+		};
+
+		cooling-maps {
+			map2 {
+				trip = <&cpuss1_active>;
+				cooling-device = <&pm8350c_gpio9_pwm_fan THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+			};
+		};
+	};
+};
+
+&tlmm {
+	/*
+	 * 12-17: reserved for QSPI flash
+	 */
+	gpio-reserved-ranges = <12 6>;
+	gpio-line-names =
+		/* GPIO_0 ~ GPIO_3 */
+		"PIN_13", "PIN_15", "", "",
+		/* GPIO_4 ~ GPIO_7 */
+		"", "", "", "",
+		/* GPIO_8 ~ GPIO_11 */
+		"PIN_27", "PIN_28", "", "",
+		/* GPIO_12 ~ GPIO_15 */
+		"", "", "", "",
+		/* GPIO_16 ~ GPIO_19 */
+		"", "", "", "",
+		/* GPIO_20 ~ GPIO_23 */
+		"", "", "PIN_8", "PIN_10",
+		/* GPIO_24 ~ GPIO_27 */
+		"PIN_3", "PIN_5", "PIN_16", "PIN_18",
+		/* GPIO_28 ~ GPIO_31 */
+		"PIN_31", "PIN_11", "PIN_32", "PIN_29",
+		/* GPIO_32 ~ GPIO_35 */
+		"", "", "", "",
+		/* GPIO_36 ~ GPIO_39 */
+		"", "", "", "",
+		/* GPIO_40 ~ GPIO_43 */
+		"", "", "", "",
+		/* GPIO_44 ~ GPIO_47 */
+		"", "", "", "",
+		/* GPIO_48 ~ GPIO_51 */
+		"PIN_21", "PIN_19", "PIN_23", "PIN_24",
+		/* GPIO_52 ~ GPIO_55 */
+		"", "", "", "PIN_26",
+		/* GPIO_56 ~ GPIO_59 */
+		"PIN_33", "PIN_22", "PIN_37", "PIN_36",
+		/* GPIO_60 ~ GPIO_63 */
+		"", "", "", "",
+		/* GPIO_64 ~ GPIO_67 */
+		"", "", "", "",
+		/* GPIO_68 ~ GPIO_71 */
+		"", "", "", "",
+		/* GPIO_72 ~ GPIO_75 */
+		"", "", "", "",
+		/* GPIO_76 ~ GPIO_79 */
+		"", "", "", "",
+		/* GPIO_80 ~ GPIO_83 */
+		"", "", "", "",
+		/* GPIO_84 ~ GPIO_87 */
+		"", "", "", "",
+		/* GPIO_88 ~ GPIO_91 */
+		"", "", "", "",
+		/* GPIO_92 ~ GPIO_95 */
+		"", "", "", "",
+		/* GPIO_96 ~ GPIO_99 */
+		"PIN_7", "PIN_12", "PIN_38", "PIN_40",
+		/* GPIO_100 ~ GPIO_103 */
+		"PIN_35", "", "", "",
+		/* GPIO_104 ~ GPIO_107 */
+		"", "", "", "",
+		/* GPIO_108 ~ GPIO_111 */
+		"", "", "", "",
+		/* GPIO_112 ~ GPIO_115 */
+		"", "", "", "",
+		/* GPIO_116 ~ GPIO_119 */
+		"", "", "", "",
+		/* GPIO_120 ~ GPIO_123 */
+		"", "", "", "",
+		/* GPIO_124 ~ GPIO_127 */
+		"", "", "", "",
+		/* GPIO_128 ~ GPIO_131 */
+		"", "", "", "",
+		/* GPIO_132 ~ GPIO_135 */
+		"", "", "", "",
+		/* GPIO_136 ~ GPIO_139 */
+		"", "", "", "",
+		/* GPIO_140 ~ GPIO_143 */
+		"", "", "", "",
+		/* GPIO_144 ~ GPIO_147 */
+		"", "", "", "",
+		/* GPIO_148 ~ GPIO_151 */
+		"", "", "", "",
+		/* GPIO_152 ~ GPIO_155 */
+		"", "", "", "",
+		/* GPIO_156 ~ GPIO_159 */
+		"", "", "", "",
+		/* GPIO_160 ~ GPIO_163 */
+		"", "", "", "",
+		/* GPIO_164 ~ GPIO_167 */
+		"", "", "", "",
+		/* GPIO_168 ~ GPIO_171 */
+		"", "", "", "",
+		/* GPIO_172 ~ GPIO_174 */
+		"", "", "";
+};
