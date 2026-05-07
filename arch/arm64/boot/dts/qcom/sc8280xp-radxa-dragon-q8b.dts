@@ -797,16 +797,17 @@
 		 <0x02000000 0x0 0x3c300000 0x0 0x3c300000 0x0 0x1d00000>,
 		 <0x03000000 0x5 0x00000000 0x5 0x00000000 0x1 0x00000000>;
 
-	/* TODO: move these GPIOs to the PCIe port node */
-	perst-gpios = <&tlmm 143 GPIO_ACTIVE_LOW>;
-	wake-gpios = <&tlmm 145 GPIO_ACTIVE_LOW>;
-
 	vddpe-3v3-supply = <&vcc_nvme_3v3>;
 
 	pinctrl-0 = <&pcie2a_default>;
 	pinctrl-names = "default";
 
 	status = "okay";
+};
+
+&pcie2a_port0 {
+	reset-gpios = <&tlmm 143 GPIO_ACTIVE_LOW>;
+	wake-gpios = <&tlmm 145 GPIO_ACTIVE_LOW>;
 };
 
 &pcie2a_phy {
@@ -824,9 +825,6 @@
 
 	num-lanes = <2>;
 
-	perst-gpios = <&tlmm 151 GPIO_ACTIVE_LOW>;
-	wake-gpios = <&tlmm 148 GPIO_ACTIVE_LOW>; // for two downstream devices
-
 	pinctrl-0 = <&pcie3a_default>;
 	pinctrl-names = "default";
 
@@ -841,6 +839,9 @@
 };
 
 &pcie3a_port0 {
+	reset-gpios = <&tlmm 151 GPIO_ACTIVE_LOW>;
+	wake-gpios = <&tlmm 148 GPIO_ACTIVE_LOW>;
+
 	pcie@0,0 {
 		compatible = "pci1179,0623";
 		reg = <0x10000 0x0 0x0 0x0 0x0>;
@@ -998,15 +999,17 @@
 
 /* M-key Gen3 x2 */
 &pcie3b {
-	perst-gpios = <&tlmm 153 GPIO_ACTIVE_LOW>;
-	wake-gpios = <&tlmm 149 GPIO_ACTIVE_LOW>;
-
 	vddpe-3v3-supply = <&vcc_nvme2_3v3>;
 
 	pinctrl-0 = <&pcie3b_default>;
 	pinctrl-names = "default";
 
 	status = "okay";
+};
+
+&pcie3b_port0 {
+	reset-gpios = <&tlmm 153 GPIO_ACTIVE_LOW>;
+	wake-gpios = <&tlmm 149 GPIO_ACTIVE_LOW>;
 };
 
 &pcie3b_phy {
@@ -1020,15 +1023,17 @@
 &pcie4 {
 	max-link-speed = <2>;
 
-	perst-gpios = <&tlmm 141 GPIO_ACTIVE_LOW>;
-	wake-gpios = <&tlmm 139 GPIO_ACTIVE_LOW>;
-
 	vddpe-3v3-supply = <&vcc_3v3_ekey>;
 
 	pinctrl-0 = <&pcie4_default>;
 	pinctrl-names = "default";
 
 	status = "okay";
+};
+
+&pcie4_port0 {
+	reset-gpios = <&tlmm 141 GPIO_ACTIVE_LOW>;
+	wake-gpios = <&tlmm 139 GPIO_ACTIVE_LOW>;
 };
 
 &pcie4_phy {
