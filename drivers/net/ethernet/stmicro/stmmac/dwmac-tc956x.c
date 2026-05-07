@@ -767,6 +767,17 @@ static void tc956x_dwmac_remove(struct auxiliary_device *adev)
 	tc956x_mac_disable(td);
 }
 
+static void tc956x_dwmac_shutdown(struct auxiliary_device *adev)
+{
+	struct device *dev = &adev->dev;
+	int ret;
+
+	ret = stmmac_suspend(dev);
+	if (ret)
+		dev_warn(dev, "failed to suspend MAC during shutdown: %d\n",
+			 ret);
+}
+
 static const struct auxiliary_device_id tc956x_dwmac_ids[] = {
 	{ .name = TC956X_PCIE_DRIVER_NAME "." TC956X_XGMAC_DEV_NAME, },
 	{ },
@@ -777,6 +788,7 @@ static struct auxiliary_driver tc956x_dwmac_driver = {
 	.name		= DRIVER_NAME,
 	.probe		= tc956x_dwmac_probe,
 	.remove		= tc956x_dwmac_remove,
+	.shutdown	= tc956x_dwmac_shutdown,
 	.id_table	= tc956x_dwmac_ids,
 	.driver = {
 		.name	= DRIVER_NAME,
