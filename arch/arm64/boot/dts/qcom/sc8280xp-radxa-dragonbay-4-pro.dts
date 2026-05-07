@@ -1060,9 +1060,6 @@
 
 &usb_0 {
 	status = "okay";
-};
-
-&usb_0_dwc3 {
 	dr_mode = "host";
 };
 
@@ -1090,9 +1087,6 @@
 
 &usb_1 {
 	status = "okay";
-};
-
-&usb_1_dwc3 {
 	dr_mode = "host";
 };
 
@@ -1115,9 +1109,6 @@
 
 &usb_2 {
 	status = "okay";
-};
-
-&usb_2_dwc3 {
 	#address-cells = <1>;
 	#size-cells = <0>;
 
