@@ -1688,7 +1688,16 @@ static const struct pci_ecam_ops pci_qcom_ecam_ops = {
 	}
 };
 
-/* Parse PERST# from all nodes in depth first manner starting from @np */
+static bool qcom_pcie_is_bridge_node(struct device_node *np)
+{
+	if (!of_node_is_type(np, "pci"))
+		return false;
+
+	return of_property_present(np, "bus-range") ||
+	       of_device_is_compatible(np, "pciclass,0604");
+}
+
+/* Parse PERST# from all PCIe bridge nodes starting from @np */
 static int qcom_pcie_parse_perst(struct qcom_pcie *pcie,
 				 struct qcom_pcie_port *port,
 				 struct device_node *np)
@@ -1726,6 +1735,9 @@ static int qcom_pcie_parse_perst(struct qcom_pcie *pcie,
 
 parse_child_node:
 	for_each_available_child_of_node_scoped(np, child) {
+		if (!qcom_pcie_is_bridge_node(child))
+			continue;
+
 		ret = qcom_pcie_parse_perst(pcie, port, child);
 		if (ret)
 			return ret;
