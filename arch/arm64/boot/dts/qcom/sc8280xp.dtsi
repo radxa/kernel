@@ -2216,15 +2216,14 @@
 			power-domains = <&gcc PCIE_4_GDSC>;
 			required-opps = <&rpmhpd_opp_nom>;
 
-			phys = <&pcie4_phy>;
-			phy-names = "pciephy";
-
 			status = "disabled";
 
 			pcie4_port0: pcie@0 {
 				device_type = "pci";
 				reg = <0x0 0x0 0x0 0x0 0x0>;
 				bus-range = <0x01 0xff>;
+
+				phys = <&pcie4_phy>;
 
 				#address-cells = <3>;
 				#size-cells = <2>;
@@ -2327,15 +2326,14 @@
 			power-domains = <&gcc PCIE_3B_GDSC>;
 			required-opps = <&rpmhpd_opp_nom>;
 
-			phys = <&pcie3b_phy>;
-			phy-names = "pciephy";
-
 			status = "disabled";
 
 			pcie3b_port0: pcie@0 {
 				device_type = "pci";
 				reg = <0x0 0x0 0x0 0x0 0x0>;
 				bus-range = <0x01 0xff>;
+
+				phys = <&pcie3b_phy>;
 
 				#address-cells = <3>;
 				#size-cells = <2>;
@@ -2438,15 +2436,14 @@
 			power-domains = <&gcc PCIE_3A_GDSC>;
 			required-opps = <&rpmhpd_opp_nom>;
 
-			phys = <&pcie3a_phy>;
-			phy-names = "pciephy";
-
 			status = "disabled";
 
 			pcie3a_port0: pcie@0 {
 				device_type = "pci";
 				reg = <0x0 0x0 0x0 0x0 0x0>;
 				bus-range = <0x01 0xff>;
+
+				phys = <&pcie3a_phy>;
 
 				#address-cells = <3>;
 				#size-cells = <2>;
@@ -2552,15 +2549,14 @@
 			power-domains = <&gcc PCIE_2B_GDSC>;
 			required-opps = <&rpmhpd_opp_nom>;
 
-			phys = <&pcie2b_phy>;
-			phy-names = "pciephy";
-
 			status = "disabled";
 
 			pcie2b_port0: pcie@0 {
 				device_type = "pci";
 				reg = <0x0 0x0 0x0 0x0 0x0>;
 				bus-range = <0x01 0xff>;
+
+				phys = <&pcie2b_phy>;
 
 				#address-cells = <3>;
 				#size-cells = <2>;
@@ -2663,15 +2659,14 @@
 			power-domains = <&gcc PCIE_2A_GDSC>;
 			required-opps = <&rpmhpd_opp_nom>;
 
-			phys = <&pcie2a_phy>;
-			phy-names = "pciephy";
-
 			status = "disabled";
 
 			pcie2a_port0: pcie@0 {
 				device_type = "pci";
 				reg = <0x0 0x0 0x0 0x0 0x0>;
 				bus-range = <0x01 0xff>;
+
+				phys = <&pcie2a_phy>;
 
 				#address-cells = <3>;
 				#size-cells = <2>;
