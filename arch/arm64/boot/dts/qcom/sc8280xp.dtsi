@@ -313,74 +313,14 @@
 		};
 	};
 
-	aggre1_noc: interconnect-aggre1-noc {
-		compatible = "qcom,sc8280xp-aggre1-noc";
-		#interconnect-cells = <2>;
-		qcom,bcm-voters = <&apps_bcm_voter>;
-	};
-
-	aggre2_noc: interconnect-aggre2-noc {
-		compatible = "qcom,sc8280xp-aggre2-noc";
-		#interconnect-cells = <2>;
-		qcom,bcm-voters = <&apps_bcm_voter>;
-	};
-
 	clk_virt: interconnect-clk-virt {
 		compatible = "qcom,sc8280xp-clk-virt";
 		#interconnect-cells = <2>;
 		qcom,bcm-voters = <&apps_bcm_voter>;
 	};
 
-	config_noc: interconnect-config-noc {
-		compatible = "qcom,sc8280xp-config-noc";
-		#interconnect-cells = <2>;
-		qcom,bcm-voters = <&apps_bcm_voter>;
-	};
-
-	dc_noc: interconnect-dc-noc {
-		compatible = "qcom,sc8280xp-dc-noc";
-		#interconnect-cells = <2>;
-		qcom,bcm-voters = <&apps_bcm_voter>;
-	};
-
-	gem_noc: interconnect-gem-noc {
-		compatible = "qcom,sc8280xp-gem-noc";
-		#interconnect-cells = <2>;
-		qcom,bcm-voters = <&apps_bcm_voter>;
-	};
-
-	lpass_noc: interconnect-lpass-ag-noc {
-		compatible = "qcom,sc8280xp-lpass-ag-noc";
-		#interconnect-cells = <2>;
-		qcom,bcm-voters = <&apps_bcm_voter>;
-	};
-
 	mc_virt: interconnect-mc-virt {
 		compatible = "qcom,sc8280xp-mc-virt";
-		#interconnect-cells = <2>;
-		qcom,bcm-voters = <&apps_bcm_voter>;
-	};
-
-	mmss_noc: interconnect-mmss-noc {
-		compatible = "qcom,sc8280xp-mmss-noc";
-		#interconnect-cells = <2>;
-		qcom,bcm-voters = <&apps_bcm_voter>;
-	};
-
-	nspa_noc: interconnect-nspa-noc {
-		compatible = "qcom,sc8280xp-nspa-noc";
-		#interconnect-cells = <2>;
-		qcom,bcm-voters = <&apps_bcm_voter>;
-	};
-
-	nspb_noc: interconnect-nspb-noc {
-		compatible = "qcom,sc8280xp-nspb-noc";
-		#interconnect-cells = <2>;
-		qcom,bcm-voters = <&apps_bcm_voter>;
-	};
-
-	system_noc: interconnect-system-noc {
-		compatible = "qcom,sc8280xp-system-noc";
 		#interconnect-cells = <2>;
 		qcom,bcm-voters = <&apps_bcm_voter>;
 	};
@@ -2151,6 +2091,63 @@
 			clock-names = "core";
 		};
 
+		config_noc: interconnect@1500000 {
+			compatible = "qcom,sc8280xp-config-noc";
+			reg = <0 0x01500000 0 0x2c000>;
+
+			#interconnect-cells = <2>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
+		system_noc: interconnect@1680000 {
+			compatible = "qcom,sc8280xp-system-noc";
+			reg = <0 0x01680000 0 0x1a400>;
+
+			#interconnect-cells = <2>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
+		aggre1_noc: interconnect@16c0000 {
+			compatible = "qcom,sc8280xp-aggre1-noc";
+			reg = <0 0x016c0000 0 0x3af80>;
+
+			clocks = <&gcc GCC_AGGRE_UFS_PHY_AXI_CLK>,
+				 <&gcc GCC_AGGRE_USB3_PRIM_AXI_CLK>,
+				 <&gcc GCC_AGGRE_USB3_SEC_AXI_CLK>,
+				 <&gcc GCC_AGGRE_USB3_MP_AXI_CLK>,
+				 <&gcc GCC_AGGRE_USB4_AXI_CLK>,
+				 <&gcc GCC_AGGRE_USB4_1_AXI_CLK>,
+				 <&gcc GCC_AGGRE_USB_NOC_SOUTH_AXI_CLK>,
+				 <&rpmhcc RPMH_IPA_CLK>;
+
+			#interconnect-cells = <2>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
+		aggre2_noc: interconnect@1700000 {
+			compatible = "qcom,sc8280xp-aggre2-noc";
+			reg = <0 0x01700000 0 0x3af80>;
+
+			clocks = <&gcc GCC_AGGRE_NOC_PCIE0_TUNNEL_AXI_CLK>,
+				 <&gcc GCC_AGGRE_NOC_PCIE1_TUNNEL_AXI_CLK>,
+				 <&gcc GCC_AGGRE_NOC_PCIE_4_AXI_CLK>,
+				 <&gcc GCC_AGGRE_NOC_PCIE_SOUTH_SF_AXI_CLK>,
+				 <&gcc GCC_AGGRE_UFS_CARD_AXI_CLK>,
+				 <&gcc GCC_DDRSS_GPU_AXI_CLK>,
+				 <&gcc GCC_DDRSS_PCIE_SF_TBU_CLK>;
+
+			#interconnect-cells = <2>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
+		mmss_noc: interconnect@1740000 {
+			compatible = "qcom,sc8280xp-mmss-noc";
+			reg = <0 0x01740000 0 0x1fa80>;
+
+			#interconnect-cells = <2>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
 		pcie4: pcie@1c00000 {
 			device_type = "pci";
 			compatible = "qcom,pcie-sc8280xp";
@@ -3354,6 +3351,14 @@
 			#reset-cells = <1>;
 		};
 
+		lpass_noc: interconnect@3c40000 {
+			compatible = "qcom,sc8280xp-lpass-ag-noc";
+			reg = <0 0x03c40000 0 0xf080>;
+
+			#interconnect-cells = <2>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
 		gpu: gpu@3d00000 {
 			compatible = "qcom,adreno-690.0", "qcom,adreno";
 
@@ -3927,6 +3932,22 @@
 					opp-peak-kBps = <15258001>;
 				};
 			};
+		};
+
+		dc_noc: interconnect@90e0000 {
+			compatible = "qcom,sc8280xp-dc-noc";
+			reg = <0 0x090e0000 0 0x5080>;
+
+			#interconnect-cells = <2>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
+		gem_noc: interconnect@9100000 {
+			compatible = "qcom,sc8280xp-gem-noc";
+			reg = <0 0x09100000 0 0xb8400>;
+
+			#interconnect-cells = <2>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
 		};
 
 		system-cache-controller@9200000 {
@@ -6664,6 +6685,14 @@
 			#clock-cells = <1>;
 		};
 
+		nspa_noc: interconnect@1b0c0000 {
+			compatible = "qcom,sc8280xp-nspa-noc";
+			reg = <0 0x1b0c0000 0 0x10000>;
+
+			#interconnect-cells = <2>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
 		remoteproc_nsp0: remoteproc@1b300000 {
 			compatible = "qcom,sc8280xp-nsp0-pas";
 			reg = <0 0x1b300000 0 0x10000>;
@@ -6812,6 +6841,14 @@
 					};
 				};
 			};
+		};
+
+		nspb_noc: interconnect@210c0000 {
+			compatible = "qcom,sc8280xp-nspb-noc";
+			reg = <0 0x210c0000 0 0x10000>;
+
+			#interconnect-cells = <2>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
 		};
 
 		remoteproc_nsp1: remoteproc@21300000 {
