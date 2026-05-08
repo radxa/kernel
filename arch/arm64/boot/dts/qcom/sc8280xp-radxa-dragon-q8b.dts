@@ -875,8 +875,7 @@
 			ranges;
 			bus-range = <0x3 0xff>;
 
-			// TODO: disabling DSP1 and DSP2 causes the system to reset
-			// status = "disabled";
+			status = "disabled";
 		};
 
 		pcie@2,0 {
@@ -888,7 +887,7 @@
 			ranges;
 			bus-range = <0x4 0xff>;
 
-			// status = "disabled";
+			status = "disabled";
 		};
 
 		pcie@3,0 {
