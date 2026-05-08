@@ -22,8 +22,8 @@
  * pci_set_of_node - Find and set device's DT device_node
  * @dev: the PCI device structure to fill
  *
- * Returns 0 on success with of_node set or when no device is described in the
- * DT. Returns -ENODEV if the device is present, but disabled in the DT.
+ * Return 0 on success with of_node set or when no device is described in the
+ * DT.
  */
 int pci_set_of_node(struct pci_dev *dev)
 {
@@ -42,6 +42,30 @@ int pci_set_of_node(struct pci_dev *dev)
 
 	device_set_node(&dev->dev, of_fwnode_handle(no_free_ptr(node)));
 	return 0;
+}
+
+/**
+ * pci_of_device_skip_config_read - check whether to skip probing a PCI device
+ * @bus: PCI bus to scan
+ * @devfn: device/function number to check
+ *
+ * Return true only when firmware explicitly describes an unavailable PCI
+ * bridge/port node. Disabled endpoints remain discoverable so fixups still run,
+ * while driver binding is suppressed later in pci_bus_add_device().
+ */
+bool pci_of_device_skip_config_read(struct pci_bus *bus, unsigned int devfn)
+{
+	if (!bus->dev.of_node)
+		return false;
+
+	struct device_node *node __free(device_node) =
+		of_pci_find_child_device(bus->dev.of_node, devfn);
+
+	if (!node || of_device_is_available(node))
+		return false;
+
+	return of_node_is_type(node, "pci") &&
+	       of_property_present(node, "bus-range");
 }
 
 void pci_release_of_node(struct pci_dev *dev)

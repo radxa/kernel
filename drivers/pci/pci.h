@@ -1191,6 +1191,7 @@ u32 of_pci_get_slot_power_limit(struct device_node *node,
 				u8 *slot_power_limit_scale);
 bool of_pci_preserve_config(struct device_node *node);
 int pci_set_of_node(struct pci_dev *dev);
+bool pci_of_device_skip_config_read(struct pci_bus *bus, unsigned int devfn);
 void pci_release_of_node(struct pci_dev *dev);
 void pci_set_bus_of_node(struct pci_bus *bus);
 void pci_release_bus_of_node(struct pci_bus *bus);
@@ -1231,6 +1232,10 @@ static inline bool of_pci_preserve_config(struct device_node *node)
 }
 
 static inline int pci_set_of_node(struct pci_dev *dev) { return 0; }
+static inline bool pci_of_device_skip_config_read(struct pci_bus *bus, unsigned int devfn)
+{
+	return false;
+}
 static inline void pci_release_of_node(struct pci_dev *dev) { }
 static inline void pci_set_bus_of_node(struct pci_bus *bus) { }
 static inline void pci_release_bus_of_node(struct pci_bus *bus) { }
