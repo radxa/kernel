@@ -207,7 +207,7 @@ static const struct drm_mode_config_funcs mi0283qt_mode_config_funcs = {
 };
 
 static const struct drm_display_mode mi0283qt_mode = {
-	DRM_SIMPLE_MODE(320, 240, 58, 43),
+	DRM_MODE_INIT(1, 320, 240, 58, 43),
 };
 
 DEFINE_DRM_GEM_DMA_FOPS(mi0283qt_fops);
