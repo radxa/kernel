@@ -143,7 +143,7 @@ static const struct drm_simple_display_pipe_funcs ili9341_pipe_funcs = {
 };
 
 static const struct drm_display_mode yx240qv29_mode = {
-	DRM_SIMPLE_MODE(240, 320, 37, 49),
+	DRM_MODE_INIT(1, 240, 320, 37, 49),
 };
 
 DEFINE_DRM_GEM_DMA_FOPS(ili9341_fops);

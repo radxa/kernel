@@ -385,39 +385,39 @@ static const struct drm_mode_config_funcs sharp_memory_mode_config_funcs = {
 };
 
 static const struct drm_display_mode sharp_memory_ls010b7dh04_mode = {
-	DRM_SIMPLE_MODE(128, 128, 18, 18),
+	DRM_MODE_INIT(1, 128, 128, 18, 18),
 };
 
 static const struct drm_display_mode sharp_memory_ls011b7dh03_mode = {
-	DRM_SIMPLE_MODE(160, 68, 25, 10),
+	DRM_MODE_INIT(1, 160, 68, 25, 10),
 };
 
 static const struct drm_display_mode sharp_memory_ls012b7dd01_mode = {
-	DRM_SIMPLE_MODE(184, 38, 29, 6),
+	DRM_MODE_INIT(1, 184, 38, 29, 6),
 };
 
 static const struct drm_display_mode sharp_memory_ls013b7dh03_mode = {
-	DRM_SIMPLE_MODE(128, 128, 23, 23),
+	DRM_MODE_INIT(1, 128, 128, 23, 23),
 };
 
 static const struct drm_display_mode sharp_memory_ls013b7dh05_mode = {
-	DRM_SIMPLE_MODE(144, 168, 20, 24),
+	DRM_MODE_INIT(1, 144, 168, 20, 24),
 };
 
 static const struct drm_display_mode sharp_memory_ls018b7dh02_mode = {
-	DRM_SIMPLE_MODE(230, 303, 27, 36),
+	DRM_MODE_INIT(1, 230, 303, 27, 36),
 };
 
 static const struct drm_display_mode sharp_memory_ls027b7dh01_mode = {
-	DRM_SIMPLE_MODE(400, 240, 58, 35),
+	DRM_MODE_INIT(1, 400, 240, 58, 35),
 };
 
 static const struct drm_display_mode sharp_memory_ls032b7dd02_mode = {
-	DRM_SIMPLE_MODE(336, 536, 42, 68),
+	DRM_MODE_INIT(1, 336, 536, 42, 68),
 };
 
 static const struct drm_display_mode sharp_memory_ls044q7dh01_mode = {
-	DRM_SIMPLE_MODE(320, 240, 89, 67),
+	DRM_MODE_INIT(1, 320, 240, 89, 67),
 };
 
 static const struct spi_device_id sharp_memory_ids[] = {

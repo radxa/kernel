@@ -177,7 +177,7 @@ static const struct drm_simple_display_pipe_funcs waveshare_pipe_funcs = {
 };
 
 static const struct drm_display_mode waveshare_mode = {
-	DRM_SIMPLE_MODE(480, 320, 73, 49),
+	DRM_MODE_INIT(1, 480, 320, 73, 49),
 };
 
 DEFINE_DRM_GEM_DMA_FOPS(ili9486_fops);
