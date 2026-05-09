@@ -24,6 +24,9 @@
 
 #include "../pci.h"
 
+#define TC9563_NBUSCTRL		0x801014
+#define TC9563_NBUSCTRL_FREQ_HALF	BIT(16)
+
 #define TC9563_GPIO_CONFIG		0x801208
 #define TC9563_RESET_GPIO		0x801210
 
@@ -112,6 +115,7 @@ struct tc9563_pwrctrl {
 	struct gpio_desc *reset_gpio;
 	struct i2c_adapter *adapter;
 	struct i2c_client *client;
+	bool axi_bus_frequency_half;
 	bool powered_on;
 };
 
@@ -417,6 +421,15 @@ static int tc9563_pwrctrl_assert_deassert_reset(struct tc9563_pwrctrl *tc9563,
 	return tc9563_pwrctrl_i2c_write(tc9563->client, TC9563_RESET_GPIO, val);
 }
 
+static int tc9563_pwrctrl_set_axi_bus_frequency(struct tc9563_pwrctrl *tc9563)
+{
+	if (!tc9563->axi_bus_frequency_half)
+		return 0;
+
+	return tc9563_pwrctrl_i2c_write(tc9563->client, TC9563_NBUSCTRL,
+					TC9563_NBUSCTRL_FREQ_HALF);
+}
+
 static int tc9563_pwrctrl_parse_device_dt(struct tc9563_pwrctrl *tc9563,
 					  struct device_node *node,
 					  enum tc9563_pwrctrl_ports port)
@@ -491,6 +504,12 @@ static int tc9563_pwrctrl_power_on(struct pci_pwrctrl *pwrctrl)
 	ret = tc9563_pwrctrl_assert_deassert_reset(tc9563, false);
 	if (ret)
 		goto power_off;
+
+	ret = tc9563_pwrctrl_set_axi_bus_frequency(tc9563);
+	if (ret) {
+		dev_err(dev, "Setting AXI bus frequency failed\n");
+		goto power_off;
+	}
 
 	for (i = 0; i < TC9563_MAX; i++) {
 		cfg = &tc9563->cfg[i];
@@ -597,6 +616,9 @@ static int tc9563_pwrctrl_probe(struct platform_device *pdev)
 	}
 
 	pci_pwrctrl_init(&tc9563->pwrctrl, dev);
+
+	tc9563->axi_bus_frequency_half =
+		of_property_read_bool(node, "toshiba,axi-bus-frequency-half");
 
 	port = TC9563_USP;
 	ret = tc9563_pwrctrl_parse_device_dt(tc9563, node, port);
