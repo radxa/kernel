@@ -863,6 +863,8 @@
 
 		resx-gpios = <&tlmm 108 GPIO_ACTIVE_LOW>;
 
+		toshiba,axi-bus-frequency-half;
+
 		pinctrl-0 = <&tc9563_resx_n>;
 		pinctrl-names = "default";
 
