@@ -232,6 +232,16 @@ static u32 msm_dp_panel_get_supported_bpp(struct msm_dp_panel *msm_dp_panel,
 	return min_supported_bpp;
 }
 
+static void msm_dp_panel_clear_sink_caps(struct msm_dp_panel *msm_dp_panel,
+					 struct drm_connector *connector,
+					 struct drm_dp_aux *aux)
+{
+	drm_edid_connector_update(connector, NULL);
+	drm_edid_free(msm_dp_panel->drm_edid);
+	msm_dp_panel->drm_edid = NULL;
+	drm_dp_cec_unset_edid(aux);
+}
+
 int msm_dp_panel_read_sink_caps(struct msm_dp_panel *msm_dp_panel,
 	struct drm_connector *connector)
 {
@@ -265,14 +275,17 @@ int msm_dp_panel_read_sink_caps(struct msm_dp_panel *msm_dp_panel,
 		count = drm_dp_read_sink_count(panel->aux);
 		if (!count) {
 			panel->link->sink_count = 0;
+			msm_dp_panel_clear_sink_caps(msm_dp_panel, connector, panel->aux);
 			return -ENOTCONN;
 		}
 	}
 
 	rc = drm_dp_read_downstream_info(panel->aux, msm_dp_panel->dpcd,
 					 msm_dp_panel->downstream_ports);
-	if (rc)
+	if (rc) {
+		msm_dp_panel_clear_sink_caps(msm_dp_panel, connector, panel->aux);
 		return rc;
+	}
 
 	drm_edid_free(msm_dp_panel->drm_edid);
 
@@ -285,7 +298,7 @@ int msm_dp_panel_read_sink_caps(struct msm_dp_panel *msm_dp_panel,
 					connector->display_info.source_physical_address);
 	} else {
 		DRM_ERROR("panel edid read failed\n");
-		drm_dp_cec_unset_edid(panel->aux);
+		msm_dp_panel_clear_sink_caps(msm_dp_panel, connector, panel->aux);
 		/* check edid read fail is due to unplug */
 		if (!msm_dp_aux_is_link_connected(panel->aux)) {
 			rc = -ETIMEDOUT;
