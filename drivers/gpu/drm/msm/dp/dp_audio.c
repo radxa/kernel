@@ -277,17 +277,12 @@ int msm_dp_audio_prepare(struct drm_bridge *bridge,
 	msm_dp_display = to_dp_bridge(bridge)->msm_dp_display;
 
 	/*
-	 * there could be cases where sound card can be opened even
-	 * before OR even when DP is not connected . This can cause
-	 * unclocked access as the audio subsystem relies on the DP
-	 * driver to maintain the correct state of clocks. To protect
-	 * such cases check for connection status and bail out if not
-	 * connected.
+	 * Userspace can probe DP PCMs while the connector is unplugged or
+	 * disabled. The controller clocks are off then, so skip register
+	 * programming; jack and ELD state still report sink availability.
 	 */
-	if (!msm_dp_display->power_on) {
-		rc = -EINVAL;
-		goto end;
-	}
+	if (!msm_dp_display->power_on)
+		return 0;
 
 	audio = msm_dp_audio_get_data(msm_dp_display);
 	if (IS_ERR(audio)) {
