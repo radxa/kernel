@@ -1454,6 +1454,7 @@ static int __maybe_unused dpu_runtime_resume(struct device *dev)
 	struct dpu_kms *dpu_kms = to_dpu_kms(priv->kms);
 	struct drm_encoder *encoder;
 	struct drm_device *ddev;
+	unsigned long core_rate;
 
 	ddev = dpu_kms->dev;
 
@@ -1461,6 +1462,24 @@ static int __maybe_unused dpu_runtime_resume(struct device *dev)
 	if (rc) {
 		DPU_ERROR("clock enable failed rc:%d\n", rc);
 		return rc;
+	}
+
+	/*
+	 * Runtime suspend can drop the power-domain performance state even when
+	 * the clock framework still reports the previously programmed rate.
+	 * Re-assert the current core clock rate so OPP required-opps are restored
+	 * before touching DPU registers.
+	 */
+	core_rate = dpu_kms_get_clk_rate(dpu_kms, "core");
+	if (core_rate) {
+		core_rate = min_t(unsigned long, core_rate, dpu_kms->perf.max_core_clk_rate);
+		rc = dev_pm_opp_set_rate(&dpu_kms->pdev->dev, core_rate);
+		if (rc) {
+			DPU_ERROR("failed to restore core clock rate %lu: %d\n",
+				  core_rate, rc);
+			return rc;
+		}
+		dpu_kms->perf.core_clk_rate = core_rate;
 	}
 
 	dpu_vbif_init_memtypes(dpu_kms);
