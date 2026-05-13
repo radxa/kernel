@@ -11,19 +11,19 @@
 	model = "Radxa CM-Q64 Raspberry Pi Compute Module 5 IO Board";
 	compatible = "radxa,cm-q64-rpi-cm5-io", "radxa,cm-q64", "qcom,qcm6490";
 
-	pm8350c_gpio9_pwm: pm8350c-gpio9-pwm {
+	fan_pwm: fan-pwm {
 		compatible = "pwm-gpio";
-		gpios = <&pm8350c_gpios 9 GPIO_ACTIVE_HIGH>;
-		pinctrl-0 = <&fan_ctr_pwm>;
+		gpios = <&tlmm 106 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&fan_pwm_cpu>;
 		pinctrl-names = "default";
 		#pwm-cells = <3>;
 	};
 
-	pm8350c_gpio9_pwm_fan: pwm-fan {
+	pwm_fan: pwm-fan {
 		pinctrl-0 = <&fan_tacho>;
 		pinctrl-names = "default";
 		compatible = "pwm-fan";
-		pwms = <&pm8350c_gpio9_pwm 0 50000000 0>;
+		pwms = <&fan_pwm 0 20000 0>;
 		fan-supply = <&vcc_3v3>;
 		interrupt-parent = <&pm8350c_gpios>;
 		interrupts = <5 IRQ_TYPE_EDGE_FALLING>;
@@ -41,21 +41,12 @@
 			  "",
 			  "LCD_BLEN",
 			  "LCD_BLPWM",
-			  "FAN_CTR_PWM";
+			  "";
 
 	fan_tacho: fan-tacho-state {
 		pins = "gpio5";
 		function = PMIC_GPIO_FUNC_NORMAL;
 		bias-disable;
-		power-source = <1>;
-	};
-
-	fan_ctr_pwm: fan-ctr-pwm-state {
-		pins = "gpio9";
-		function = PMIC_GPIO_FUNC_NORMAL;
-		bias-disable;
-		qcom,drive-strength = <PMIC_GPIO_STRENGTH_LOW>;
-		output-low;
 		power-source = <1>;
 	};
 };
@@ -74,7 +65,7 @@
 		cooling-maps {
 			map2 {
 				trip = <&cpuss0_active>;
-				cooling-device = <&pm8350c_gpio9_pwm_fan THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				cooling-device = <&pwm_fan THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 			};
 		};
 	};
@@ -91,7 +82,7 @@
 		cooling-maps {
 			map2 {
 				trip = <&cpuss1_active>;
-				cooling-device = <&pm8350c_gpio9_pwm_fan THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				cooling-device = <&pwm_fan THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 			};
 		};
 	};
@@ -191,4 +182,11 @@
 		"", "", "", "",
 		/* GPIO_172 ~ GPIO_174 */
 		"", "", "";
+
+	fan_pwm_cpu: fan-ctr-pwm-state {
+		pins = "gpio106";
+		function = "gpio";
+		bias-disable;
+		drive-strength = <16>;
+	};
 };
