@@ -67,6 +67,19 @@ void msm_dp_panel_handle_sink_request(struct msm_dp_panel *msm_dp_panel);
 void msm_dp_panel_tpg_config(struct msm_dp_panel *msm_dp_panel, bool enable);
 
 void msm_dp_panel_clear_dsc_dto(struct msm_dp_panel *msm_dp_panel);
+bool msm_dp_panel_dsc_available(const struct msm_dp_panel *msm_dp_panel);
+bool msm_dp_panel_dsc_enabled(const struct msm_dp_panel *msm_dp_panel);
+bool msm_dp_panel_fec_enabled(const struct msm_dp_panel *msm_dp_panel);
+bool msm_dp_panel_dsc_mode_valid(struct msm_dp_panel *msm_dp_panel,
+				 const struct drm_display_mode *mode,
+				 u32 mode_bpp, u32 mode_pclk_khz);
+bool msm_dp_panel_dsc_needed(struct msm_dp_panel *msm_dp_panel,
+			     const struct drm_display_mode *mode,
+			     u32 mode_bpp, u32 mode_pclk_khz);
+int msm_dp_panel_prepare_dsc(struct msm_dp_panel *msm_dp_panel,
+			     const struct drm_display_mode *mode,
+			     u32 mode_bpp, u32 mode_pclk_khz);
+struct drm_dsc_config *msm_dp_panel_get_dsc_config(struct msm_dp_panel *msm_dp_panel);
 
 void msm_dp_panel_enable_vsc_sdp(struct msm_dp_panel *msm_dp_panel, struct dp_sdp *vsc_sdp);
 void msm_dp_panel_disable_vsc_sdp(struct msm_dp_panel *msm_dp_panel);
