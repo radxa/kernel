@@ -15,6 +15,7 @@
 #include <drm/drm_of.h>
 #include <drm/drm_print.h>
 
+#include <linux/align.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/types.h>
@@ -24,6 +25,8 @@
 #define MSM_DP_DSC_TARGET_BPP		10
 /* sc8280xp DP DSC is currently validated up to 10bpc. */
 #define MSM_DP_DSC_MAX_BPC		10
+#define MSM_DP_DSC_PPS_SIZE		88
+#define MSM_DP_DSC_BE_IN_LANE		10
 
 struct msm_dp_panel_private {
 	struct device *dev;
@@ -818,7 +821,9 @@ void msm_dp_panel_clear_dsc_dto(struct msm_dp_panel *msm_dp_panel)
 	struct msm_dp_panel_private *panel =
 		container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
 
+	msm_dp_write_p0(panel, MMSS_DP_DSC_DTO_COUNT, 0x0);
 	msm_dp_write_p0(panel, MMSS_DP_DSC_DTO, 0x0);
+	msm_dp_write_link(panel, REG_DP_COMPRESSION_MODE_CTRL, 0x0);
 }
 
 static void msm_dp_panel_send_vsc_sdp(struct msm_dp_panel_private *panel, struct dp_sdp *vsc_sdp)
@@ -848,6 +853,128 @@ static void msm_dp_panel_update_sdp(struct msm_dp_panel_private *panel)
 		msm_dp_write_link(panel, MMSS_DP_SDP_CFG3, UPDATE_SDP);
 		msm_dp_write_link(panel, MMSS_DP_SDP_CFG3, 0x0);
 	}
+}
+
+static u32 msm_dp_panel_pack_bytes(const u8 *bytes)
+{
+	return bytes[0] | bytes[1] << 8 | bytes[2] << 16 | bytes[3] << 24;
+}
+
+static void msm_dp_panel_pack_dto_ratio(u32 target_bpp, u32 *dto_n, u32 *dto_d)
+{
+	*dto_n = target_bpp;
+	*dto_d = 24;
+
+	while (!(*dto_n & 1) && !(*dto_d & 1)) {
+		*dto_n >>= 1;
+		*dto_d >>= 1;
+	}
+}
+
+static void msm_dp_panel_write_pps(struct msm_dp_panel_private *panel,
+				   const struct drm_dsc_config *dsc)
+{
+	struct drm_dsc_picture_parameter_set pps;
+	struct dp_sdp_header pps_header;
+	u8 pps_parity[MSM_DP_DSC_PPS_SIZE / 4] = { 0 };
+	u8 header[4];
+	u8 header_parity[4];
+	u8 *pps_payload = (u8 *)&pps;
+	u32 word;
+	int i;
+
+	drm_dsc_pps_payload_pack(&pps, dsc);
+	drm_dsc_dp_pps_header_init(&pps_header);
+
+	header[0] = pps_header.HB0;
+	header[1] = pps_header.HB1;
+	header[2] = pps_header.HB2;
+	header[3] = pps_header.HB3;
+
+	for (i = 0; i < ARRAY_SIZE(header); i++)
+		header_parity[i] = msm_dp_utils_calculate_parity(header[i]);
+
+	msm_dp_write_link(panel, DP_PPS_HB_0_3, msm_dp_panel_pack_bytes(header));
+	msm_dp_write_link(panel, DP_PPS_PB_0_3, msm_dp_panel_pack_bytes(header_parity));
+
+	for (i = 0; i < ARRAY_SIZE(pps_parity); i++) {
+		word = msm_dp_panel_pack_bytes(&pps_payload[i * 4]);
+		pps_parity[i] = msm_dp_utils_calculate_parity(word);
+		msm_dp_write_link(panel, DP_PPS_PPS_0_3 + i * 4, word);
+	}
+
+	for (i = 0; i < DIV_ROUND_UP(ARRAY_SIZE(pps_parity), 4); i++) {
+		u8 parity[4] = { 0 };
+		int j;
+
+		for (j = 0; j < ARRAY_SIZE(parity); j++) {
+			int index = i * 4 + j;
+
+			if (index < ARRAY_SIZE(pps_parity))
+				parity[j] = pps_parity[index];
+		}
+
+		msm_dp_write_link(panel, DP_PPS_PB_4_7 + i * 4,
+				  msm_dp_panel_pack_bytes(parity));
+	}
+}
+
+static void msm_dp_panel_flush_pps(struct msm_dp_panel_private *panel)
+{
+	u32 flush;
+
+	flush = msm_dp_read_link(panel, MMSS_DP_FLUSH);
+	flush &= ~BIT(2);
+	flush |= BIT(0);
+	msm_dp_write_link(panel, MMSS_DP_FLUSH, flush);
+
+	msm_dp_panel_update_sdp(panel);
+}
+
+void msm_dp_panel_config_dsc(struct msm_dp_panel *msm_dp_panel, bool enable)
+{
+	struct msm_dp_panel_private *panel =
+		container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
+	const struct drm_dsc_config *dsc = &msm_dp_panel->dsc;
+	u32 dto_count, dto_n, dto_d, bytes_per_line, eol_byte_num;
+	u32 compression = 0;
+	u32 dto = 0;
+
+	if (!enable || !msm_dp_panel_dsc_enabled(msm_dp_panel)) {
+		msm_dp_panel_clear_dsc_dto(msm_dp_panel);
+		msm_dp_write_p0(panel, MMSS_DP_DSC_DTO,
+				MMSS_DP_DSC_DTO_ACK_OVERRIDE);
+		drm_dbg_dp(panel->drm_dev, "DSC ctrl disabled\n");
+		return;
+	}
+
+	bytes_per_line = msm_dsc_get_bytes_per_line(dsc);
+	eol_byte_num = ALIGN(bytes_per_line, 3) - bytes_per_line;
+	dto_count = max_t(u32, DIV_ROUND_UP(bytes_per_line, 6), 1) - 1;
+	msm_dp_panel_pack_dto_ratio(drm_dsc_get_bpp_int(dsc), &dto_n, &dto_d);
+
+	dto = MMSS_DP_DSC_DTO_EN |
+	      MMSS_DP_DSC_DTO_OUT_EN |
+	      FIELD_PREP(MMSS_DP_DSC_DTO_N, dto_n) |
+	      FIELD_PREP(MMSS_DP_DSC_DTO_D, dto_d);
+
+	compression = DP_COMPRESSION_MODE_DSC_EN |
+		      FIELD_PREP(DP_COMPRESSION_MODE_EOL_BYTE_NUM, eol_byte_num) |
+		      FIELD_PREP(DP_COMPRESSION_MODE_SLICE_PER_PKT, dsc->slice_count - 1) |
+		      FIELD_PREP(DP_COMPRESSION_MODE_BE_IN_LANE, MSM_DP_DSC_BE_IN_LANE) |
+		      FIELD_PREP(DP_COMPRESSION_MODE_BYTES_PER_PKT, dsc->slice_chunk_size);
+
+	msm_dp_write_p0(panel, MMSS_DP_DSC_DTO_COUNT, dto_count);
+	msm_dp_write_p0(panel, MMSS_DP_DSC_DTO, dto);
+	msm_dp_write_link(panel, REG_DP_COMPRESSION_MODE_CTRL, compression);
+
+	drm_dbg_dp(panel->drm_dev,
+		   "DSC ctrl: bytes_per_line=%u chunk=%u eol=%u dto_count=%u dto=%u/%u compression=0x%x\n",
+		   bytes_per_line, dsc->slice_chunk_size, eol_byte_num,
+		   dto_count, dto_n, dto_d, compression);
+
+	msm_dp_panel_write_pps(panel, dsc);
+	msm_dp_panel_flush_pps(panel);
 }
 
 void msm_dp_panel_enable_vsc_sdp(struct msm_dp_panel *msm_dp_panel, struct dp_sdp *vsc_sdp)

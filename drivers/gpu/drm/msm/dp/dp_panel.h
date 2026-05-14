@@ -67,6 +67,7 @@ void msm_dp_panel_handle_sink_request(struct msm_dp_panel *msm_dp_panel);
 void msm_dp_panel_tpg_config(struct msm_dp_panel *msm_dp_panel, bool enable);
 
 void msm_dp_panel_clear_dsc_dto(struct msm_dp_panel *msm_dp_panel);
+void msm_dp_panel_config_dsc(struct msm_dp_panel *msm_dp_panel, bool enable);
 bool msm_dp_panel_dsc_available(const struct msm_dp_panel *msm_dp_panel);
 bool msm_dp_panel_dsc_enabled(const struct msm_dp_panel *msm_dp_panel);
 bool msm_dp_panel_fec_enabled(const struct msm_dp_panel *msm_dp_panel);
