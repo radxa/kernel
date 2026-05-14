@@ -384,12 +384,14 @@ static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
 {
 	int ret;
 	struct platform_device *pdev = dp->msm_dp_display.pdev;
+	bool was_plugged;
 
 	drm_dbg_dp(dp->drm_dev, "Before, type=%d sink_count=%d\n",
 			dp->msm_dp_display.connector_type,
 			dp->link->sink_count);
 
 	mutex_lock(&dp->plugged_lock);
+	was_plugged = dp->plugged;
 
 	ret = pm_runtime_resume_and_get(&pdev->dev);
 	if (ret) {
@@ -403,6 +405,10 @@ static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
 	msm_dp_display_host_phy_init(dp);
 
 	ret = msm_dp_display_process_hpd_high(dp);
+
+	if (!ret && dp->msm_dp_display.power_on && !was_plugged)
+		drm_connector_set_link_status_property(dp->msm_dp_display.connector,
+						       DRM_MODE_LINK_STATUS_BAD);
 
 	drm_dbg_dp(dp->drm_dev, "After, type=%d sink_count=%d\n",
 			dp->msm_dp_display.connector_type,
