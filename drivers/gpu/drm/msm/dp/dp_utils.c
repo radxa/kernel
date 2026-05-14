@@ -59,7 +59,7 @@ u8 msm_dp_utils_calculate_parity(u32 data)
 	u8 iData = 0;
 	u8 i = 0;
 	u8 parity_byte;
-	u8 num_byte = (data & 0xFF00) > 0 ? 8 : 2;
+	u8 num_byte = data > 0xFF ? 8 : 2;
 
 	for (i = 0; i < num_byte; i++) {
 		iData = (data >> i * 4) & 0xF;
