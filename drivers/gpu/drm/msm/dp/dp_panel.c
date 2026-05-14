@@ -10,6 +10,7 @@
 
 #include <drm/display/drm_dp_helper.h>
 #include <drm/display/drm_dsc_helper.h>
+#include <drm/display/drm_hdmi_helper.h>
 #include <drm/drm_connector.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_of.h>
@@ -38,6 +39,8 @@ struct msm_dp_panel_private {
 	void __iomem *p0_base;
 	bool panel_on;
 	enum drm_colorspace colorspace;
+	struct dp_sdp hdr_sdp;
+	bool hdr_sdp_valid;
 };
 
 static inline u32 msm_dp_read_link(struct msm_dp_panel_private *panel, u32 offset)
@@ -852,6 +855,12 @@ static void msm_dp_panel_send_vsc_sdp(struct msm_dp_panel_private *panel,
 	msm_dp_panel_send_sdp(panel, vsc_sdp, MMSS_DP_GENERIC0_0);
 }
 
+static void msm_dp_panel_send_hdr_sdp(struct msm_dp_panel_private *panel,
+				      const struct dp_sdp *hdr_sdp)
+{
+	msm_dp_panel_send_sdp(panel, hdr_sdp, MMSS_DP_GENERIC2_0);
+}
+
 static void msm_dp_panel_update_sdp(struct msm_dp_panel_private *panel)
 {
 	u32 hw_revision = panel->msm_dp_panel.hw_revision;
@@ -1130,6 +1139,106 @@ static int msm_dp_panel_setup_vsc_sdp(struct msm_dp_panel *msm_dp_panel)
 	return 0;
 }
 
+static int msm_dp_panel_pack_hdr_metadata_sdp(struct msm_dp_panel_private *panel,
+					      const struct drm_connector_state *conn_state)
+{
+	const int infoframe_size = HDMI_INFOFRAME_HEADER_SIZE + HDMI_DRM_INFOFRAME_SIZE;
+	struct hdmi_drm_infoframe drm_infoframe;
+	unsigned char buf[HDMI_INFOFRAME_HEADER_SIZE + HDMI_DRM_INFOFRAME_SIZE];
+	struct dp_sdp *hdr_sdp = &panel->hdr_sdp;
+	ssize_t len;
+	int ret;
+
+	ret = drm_hdmi_infoframe_set_hdr_metadata(&drm_infoframe, conn_state);
+	if (ret)
+		return ret;
+
+	len = hdmi_drm_infoframe_pack_only(&drm_infoframe, buf, sizeof(buf));
+	if (len < 0)
+		return len;
+
+	if (len != infoframe_size)
+		return -EINVAL;
+
+	memset(hdr_sdp, 0, sizeof(*hdr_sdp));
+
+	hdr_sdp->sdp_header.HB0 = 0;
+	hdr_sdp->sdp_header.HB1 = drm_infoframe.type;
+	hdr_sdp->sdp_header.HB2 = 0x1d;
+	hdr_sdp->sdp_header.HB3 = 0x13 << 2;
+	hdr_sdp->db[0] = drm_infoframe.version;
+	hdr_sdp->db[1] = drm_infoframe.length;
+
+	BUILD_BUG_ON(sizeof(hdr_sdp->db) < HDMI_DRM_INFOFRAME_SIZE + 2);
+	memcpy(&hdr_sdp->db[2], &buf[HDMI_INFOFRAME_HEADER_SIZE],
+	       HDMI_DRM_INFOFRAME_SIZE);
+
+	panel->hdr_sdp_valid = true;
+
+	return 0;
+}
+
+int msm_dp_panel_set_hdr_metadata(struct msm_dp_panel *msm_dp_panel,
+				  const struct drm_connector_state *conn_state)
+{
+	struct msm_dp_panel_private *panel =
+		container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
+
+	panel->hdr_sdp_valid = false;
+
+	if (!conn_state || !conn_state->hdr_output_metadata)
+		return 0;
+
+	return msm_dp_panel_pack_hdr_metadata_sdp(panel, conn_state);
+}
+
+static void msm_dp_panel_enable_hdr_sdp(struct msm_dp_panel *msm_dp_panel)
+{
+	struct msm_dp_panel_private *panel =
+		container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
+	u32 cfg, cfg2;
+
+	if (!panel->hdr_sdp_valid)
+		return;
+
+	cfg = msm_dp_read_link(panel, MMSS_DP_SDP_CFG);
+	cfg2 = msm_dp_read_link(panel, MMSS_DP_SDP_CFG2);
+
+	cfg |= GEN2_SDP_EN;
+	msm_dp_write_link(panel, MMSS_DP_SDP_CFG, cfg);
+
+	cfg2 |= GENERIC2_SDPSIZE_VALID;
+	msm_dp_write_link(panel, MMSS_DP_SDP_CFG2, cfg2);
+
+	msm_dp_panel_send_hdr_sdp(panel, &panel->hdr_sdp);
+
+	drm_dbg_dp(panel->drm_dev, "hdr sdp enable=1\n");
+
+	msm_dp_panel_update_sdp(panel);
+}
+
+void msm_dp_panel_disable_hdr_sdp(struct msm_dp_panel *msm_dp_panel)
+{
+	struct msm_dp_panel_private *panel =
+		container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
+	u32 cfg, cfg2;
+
+	cfg = msm_dp_read_link(panel, MMSS_DP_SDP_CFG);
+	cfg2 = msm_dp_read_link(panel, MMSS_DP_SDP_CFG2);
+
+	cfg &= ~GEN2_SDP_EN;
+	msm_dp_write_link(panel, MMSS_DP_SDP_CFG, cfg);
+
+	cfg2 &= ~GENERIC2_SDPSIZE_VALID;
+	msm_dp_write_link(panel, MMSS_DP_SDP_CFG2, cfg2);
+
+	panel->hdr_sdp_valid = false;
+
+	drm_dbg_dp(panel->drm_dev, "hdr sdp enable=0\n");
+
+	msm_dp_panel_update_sdp(panel);
+}
+
 int msm_dp_panel_timing_cfg(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en)
 {
 	u32 data, total_ver, total_hor;
@@ -1202,6 +1311,8 @@ int msm_dp_panel_timing_cfg(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en)
 	if (msm_dp_panel->msm_dp_mode.out_fmt_is_yuv_420 ||
 	    msm_dp_panel_colorspace_needs_vsc_sdp(panel->colorspace))
 		msm_dp_panel_setup_vsc_sdp(msm_dp_panel);
+
+	msm_dp_panel_enable_hdr_sdp(msm_dp_panel);
 
 	panel->panel_on = true;
 

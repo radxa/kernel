@@ -2698,6 +2698,7 @@ void msm_dp_ctrl_off_link_stream(struct msm_dp_ctrl *msm_dp_ctrl)
 	phy = ctrl->phy;
 
 	msm_dp_panel_disable_vsc_sdp(ctrl->panel);
+	msm_dp_panel_disable_hdr_sdp(ctrl->panel);
 
 	if (msm_dp_panel_dsc_enabled(ctrl->panel)) {
 		msm_dp_ctrl_host_fec_stop(ctrl);
@@ -2736,6 +2737,7 @@ void msm_dp_ctrl_off(struct msm_dp_ctrl *msm_dp_ctrl)
 	phy = ctrl->phy;
 
 	msm_dp_panel_disable_vsc_sdp(ctrl->panel);
+	msm_dp_panel_disable_hdr_sdp(ctrl->panel);
 
 	if (msm_dp_panel_dsc_enabled(ctrl->panel)) {
 		msm_dp_ctrl_sink_dsc_enable(ctrl, false);

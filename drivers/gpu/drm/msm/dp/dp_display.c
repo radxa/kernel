@@ -1478,8 +1478,14 @@ void msm_dp_bridge_atomic_enable(struct drm_bridge *drm_bridge,
 	if (!conn_state && !dp->is_edp && dp->connector)
 		conn_state = dp->connector->state;
 
-	if (conn_state)
+	if (conn_state) {
 		msm_dp_panel_set_colorspace(msm_dp_display->panel, conn_state->colorspace);
+		rc = msm_dp_panel_set_hdr_metadata(msm_dp_display->panel, conn_state);
+		if (rc) {
+			DRM_ERROR("failed to set HDR metadata, rc=%d\n", rc);
+			return;
+		}
+	}
 
 	if (!msm_dp_display->msm_dp_mode.drm_mode.clock) {
 		DRM_ERROR("invalid params\n");

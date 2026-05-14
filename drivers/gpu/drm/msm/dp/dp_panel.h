@@ -68,6 +68,9 @@ void msm_dp_panel_handle_sink_request(struct msm_dp_panel *msm_dp_panel);
 void msm_dp_panel_tpg_config(struct msm_dp_panel *msm_dp_panel, bool enable);
 void msm_dp_panel_set_colorspace(struct msm_dp_panel *msm_dp_panel,
 				 enum drm_colorspace colorspace);
+int msm_dp_panel_set_hdr_metadata(struct msm_dp_panel *msm_dp_panel,
+				  const struct drm_connector_state *conn_state);
+void msm_dp_panel_disable_hdr_sdp(struct msm_dp_panel *msm_dp_panel);
 
 void msm_dp_panel_clear_dsc_dto(struct msm_dp_panel *msm_dp_panel);
 void msm_dp_panel_config_dsc(struct msm_dp_panel *msm_dp_panel, bool enable);
