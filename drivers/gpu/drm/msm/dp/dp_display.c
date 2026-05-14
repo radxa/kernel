@@ -981,9 +981,11 @@ static irqreturn_t msm_dp_display_irq_handler(int irq, void *dev_id)
 static irqreturn_t msm_dp_display_irq_thread(int irq, void *dev_id)
 {
 	struct msm_dp_display_private *dp = dev_id;
+	struct platform_device *pdev = dp->msm_dp_display.pdev;
 	irqreturn_t ret = IRQ_NONE;
 	unsigned long flags;
 	u32 hpd_isr_status;
+	int rc;
 
 	spin_lock_irqsave(&dp->irq_thread_lock, flags);
 	hpd_isr_status = dp->hpd_isr_status;
@@ -998,10 +1000,15 @@ static irqreturn_t msm_dp_display_irq_thread(int irq, void *dev_id)
 		drm_bridge_hpd_notify(dp->msm_dp_display.bridge,
 				      connector_status_connected);
 
-	/* Send HPD as connected and distinguish it in the notifier */
-	if (hpd_isr_status & DP_DP_IRQ_HPD_INT_MASK)
-		drm_bridge_hpd_notify(dp->msm_dp_display.bridge,
-				      connector_status_connected);
+	if (hpd_isr_status & DP_DP_IRQ_HPD_INT_MASK) {
+		rc = pm_runtime_resume_and_get(&pdev->dev);
+		if (rc)
+			DRM_ERROR("failed to pm_runtime_resume\n");
+		else
+			msm_dp_irq_hpd_handle(dp);
+		if (!rc)
+			pm_runtime_put_sync(&pdev->dev);
+	}
 
 	ret = IRQ_HANDLED;
 

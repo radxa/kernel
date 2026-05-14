@@ -2326,6 +2326,18 @@ void msm_dp_ctrl_handle_sink_request(struct msm_dp_ctrl *msm_dp_ctrl)
 	ctrl = container_of(msm_dp_ctrl, struct msm_dp_ctrl_private, msm_dp_ctrl);
 	sink_request = ctrl->link->sink_request;
 
+	if (sink_request & (DP_TEST_LINK_PHY_TEST_PATTERN |
+			    DP_LINK_STATUS_UPDATED |
+			    DP_TEST_LINK_TRAINING)) {
+		if (!ctrl->link_clks_on || !ctrl->stream_clks_on) {
+			drm_dbg_dp(ctrl->drm_dev,
+				   "skip sink request %#x with link_clks=%d stream_clks=%d\n",
+				   sink_request, ctrl->link_clks_on,
+				   ctrl->stream_clks_on);
+			return;
+		}
+	}
+
 	if (sink_request & DP_TEST_LINK_PHY_TEST_PATTERN) {
 		drm_dbg_dp(ctrl->drm_dev, "PHY_TEST_PATTERN request\n");
 		if (msm_dp_ctrl_process_phy_test_request(ctrl)) {
