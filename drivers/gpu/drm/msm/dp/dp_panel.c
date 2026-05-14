@@ -7,6 +7,7 @@
 #include "dp_reg.h"
 #include "dp_utils.h"
 
+#include <drm/display/drm_dp_helper.h>
 #include <drm/drm_connector.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_of.h>
@@ -83,6 +84,65 @@ static void msm_dp_panel_read_psr_cap(struct msm_dp_panel_private *panel)
 		} else
 			DRM_ERROR("failed to read psr info, rlen=%zd\n", rlen);
 	}
+}
+
+static void msm_dp_panel_reset_dsc_caps(struct msm_dp_panel *msm_dp_panel)
+{
+	msm_dp_panel->dsc_capable = false;
+	msm_dp_panel->fec_capable = false;
+	msm_dp_panel->fec_cap = 0;
+	memset(msm_dp_panel->dsc_dpcd, 0, sizeof(msm_dp_panel->dsc_dpcd));
+}
+
+static void msm_dp_panel_reset_dsc_state(struct msm_dp_panel *msm_dp_panel)
+{
+	msm_dp_panel->dsc_en = false;
+	msm_dp_panel->fec_en = false;
+	memset(&msm_dp_panel->dsc, 0, sizeof(msm_dp_panel->dsc));
+}
+
+static void msm_dp_panel_reset_dsc(struct msm_dp_panel *msm_dp_panel)
+{
+	msm_dp_panel_reset_dsc_caps(msm_dp_panel);
+	msm_dp_panel_reset_dsc_state(msm_dp_panel);
+}
+
+static void msm_dp_panel_read_dsc_caps(struct msm_dp_panel_private *panel)
+{
+	struct msm_dp_panel *msm_dp_panel = &panel->msm_dp_panel;
+	ssize_t rlen;
+
+	msm_dp_panel_reset_dsc_caps(msm_dp_panel);
+
+	if (msm_dp_panel->dpcd[DP_DPCD_REV] < DP_DPCD_REV_14 ||
+	    msm_dp_panel->dpcd[DP_EDP_CONFIGURATION_CAP])
+		return;
+
+	rlen = drm_dp_dpcd_readb(panel->aux, DP_FEC_CAPABILITY,
+				 &msm_dp_panel->fec_cap);
+	if (rlen != 1) {
+		drm_dbg_dp(panel->drm_dev, "failed to read FEC capability: %zd\n", rlen);
+		return;
+	}
+
+	msm_dp_panel->fec_capable = drm_dp_sink_supports_fec(msm_dp_panel->fec_cap);
+	if (!msm_dp_panel->fec_capable)
+		return;
+
+	rlen = drm_dp_dpcd_read(panel->aux, DP_DSC_SUPPORT,
+				msm_dp_panel->dsc_dpcd,
+				sizeof(msm_dp_panel->dsc_dpcd));
+	if (rlen != sizeof(msm_dp_panel->dsc_dpcd)) {
+		drm_dbg_dp(panel->drm_dev, "failed to read DSC capability: %zd\n", rlen);
+		return;
+	}
+
+	msm_dp_panel->dsc_capable =
+		drm_dp_sink_supports_dsc(msm_dp_panel->dsc_dpcd) &&
+		drm_dp_dsc_sink_supports_format(msm_dp_panel->dsc_dpcd, DP_DSC_RGB);
+
+	drm_dbg_dp(panel->drm_dev, "fec=%d dsc=%d\n",
+		   msm_dp_panel->fec_capable, msm_dp_panel->dsc_capable);
 }
 
 static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel)
@@ -207,6 +267,7 @@ static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel)
 		link_info->capabilities |= DP_LINK_CAP_ENHANCED_FRAMING;
 
 	msm_dp_panel_read_psr_cap(panel);
+	msm_dp_panel_read_dsc_caps(panel);
 
 	return rc;
 }
@@ -240,6 +301,7 @@ static void msm_dp_panel_clear_sink_caps(struct msm_dp_panel *msm_dp_panel,
 	drm_edid_free(msm_dp_panel->drm_edid);
 	msm_dp_panel->drm_edid = NULL;
 	drm_dp_cec_unset_edid(aux);
+	msm_dp_panel_reset_dsc(msm_dp_panel);
 }
 
 int msm_dp_panel_read_sink_caps(struct msm_dp_panel *msm_dp_panel,
@@ -319,6 +381,7 @@ void msm_dp_panel_unplugged(struct msm_dp_panel *msm_dp_panel,
 	drm_edid_connector_update(connector, NULL);
 	drm_edid_free(msm_dp_panel->drm_edid);
 	msm_dp_panel->drm_edid = NULL;
+	msm_dp_panel_reset_dsc(msm_dp_panel);
 }
 
 u32 msm_dp_panel_get_mode_bpp(struct msm_dp_panel *msm_dp_panel,

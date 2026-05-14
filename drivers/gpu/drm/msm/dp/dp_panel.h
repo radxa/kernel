@@ -6,6 +6,7 @@
 #ifndef _DP_PANEL_H_
 #define _DP_PANEL_H_
 
+#include <drm/display/drm_dsc.h>
 #include <drm/drm_modes.h>
 #include <drm/msm_drm.h>
 
@@ -31,14 +32,21 @@ struct msm_dp_panel {
 	/* dpcd raw data */
 	u8 dpcd[DP_RECEIVER_CAP_SIZE];
 	u8 downstream_ports[DP_MAX_DOWNSTREAM_PORTS];
+	u8 dsc_dpcd[DP_DSC_RECEIVER_CAP_SIZE];
+	u8 fec_cap;
 
 	struct msm_dp_link_info link_info;
 	const struct drm_edid *drm_edid;
 	struct drm_connector *connector;
 	struct msm_dp_display_mode msm_dp_mode;
 	struct msm_dp_panel_psr psr_cap;
+	struct drm_dsc_config dsc;
 	bool video_test;
 	bool vsc_sdp_supported;
+	bool dsc_capable;
+	bool fec_capable;
+	bool dsc_en;
+	bool fec_en;
 	u32 hw_revision;
 
 	u32 max_bw_code;
