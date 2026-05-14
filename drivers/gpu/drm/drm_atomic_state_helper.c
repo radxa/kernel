@@ -480,6 +480,11 @@ void drm_atomic_helper_connector_reset(struct drm_connector *connector)
 
 	kfree(connector->state);
 	__drm_atomic_helper_connector_reset(connector, conn_state);
+
+	if (connector->state && connector->max_bpc_property) {
+		connector->state->max_requested_bpc = connector->max_bpc;
+		connector->state->max_bpc = connector->max_bpc;
+	}
 }
 EXPORT_SYMBOL(drm_atomic_helper_connector_reset);
 

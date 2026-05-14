@@ -2843,9 +2843,12 @@ int drm_connector_attach_max_bpc_property(struct drm_connector *connector,
 		connector->max_bpc_property = prop;
 	}
 
+	connector->max_bpc = max;
 	drm_object_attach_property(&connector->base, prop, max);
-	connector->state->max_requested_bpc = max;
-	connector->state->max_bpc = max;
+	if (connector->state) {
+		connector->state->max_requested_bpc = max;
+		connector->state->max_bpc = max;
+	}
 
 	return 0;
 }
