@@ -649,6 +649,8 @@ struct drm_dsc_config *dpu_encoder_get_dsc_config(struct drm_encoder *drm_enc)
 
 	if (dpu_enc->disp_info.intf_type == INTF_DSI)
 		return msm_dsi_get_dsc_config(priv->kms->dsi[index]);
+	else if (dpu_enc->disp_info.intf_type == INTF_DP && priv->kms->dp[index])
+		return msm_dp_get_dsc_config(priv->kms->dp[index]);
 
 	return NULL;
 }
@@ -666,6 +668,8 @@ void dpu_encoder_update_topology(struct drm_encoder *drm_enc,
 	struct drm_connector_state *conn_state;
 	struct drm_framebuffer *fb;
 	struct drm_dsc_config *dsc;
+	struct msm_dp *dp;
+	bool dsc_needed;
 
 	int i;
 
@@ -674,9 +678,14 @@ void dpu_encoder_update_topology(struct drm_encoder *drm_enc,
 			topology->num_intf++;
 
 	dsc = dpu_encoder_get_dsc_config(drm_enc);
+	dsc_needed = dsc;
+	if (disp_info->intf_type == INTF_DP) {
+		dp = priv->kms->dp[disp_info->h_tile_instance[0]];
+		dsc_needed = dp && msm_dp_dsc_needed(dp, adj_mode);
+	}
 
 	/* We only support 2 DSC mode (with 2 LM and 1 INTF) */
-	if (dsc) {
+	if (dsc_needed) {
 		/*
 		 * Use 2 DSC encoders, 2 layer mixers and 1 or 2 interfaces
 		 * when Display Stream Compression (DSC) is enabled,

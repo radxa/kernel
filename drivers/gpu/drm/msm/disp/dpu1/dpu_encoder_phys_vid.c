@@ -10,6 +10,7 @@
 #include "dpu_formats.h"
 #include "dpu_trace.h"
 #include "disp/msm_disp_snapshot.h"
+#include "msm_dsc_helper.h"
 
 #include <drm/display/drm_dsc_helper.h>
 #include <drm/drm_managed.h>
@@ -96,13 +97,27 @@ static void drm_mode_to_intf_timing_params(
 
 	timing->wide_bus_en = dpu_encoder_is_widebus_enabled(phys_enc->parent);
 	timing->compression_en = dpu_encoder_is_dsc_enabled(phys_enc->parent);
+	if (phys_enc->hw_intf->cap->type == INTF_DP && timing->compression_en) {
+		struct drm_dsc_config *dsc =
+		       dpu_encoder_get_dsc_config(phys_enc->parent);
+		u32 dce_bytes_per_cycle;
+
+		if (dsc) {
+			timing->dce_bytes_per_line = msm_dsc_get_bytes_per_line(dsc);
+			dce_bytes_per_cycle = timing->wide_bus_en ? 6 : 3;
+			timing->extra_dto_cycles =
+				max_t(u32, DIV_ROUND_UP(timing->dce_bytes_per_line,
+							dce_bytes_per_cycle), 1) - 1;
+		}
+	}
 
 	/*
 	 *  For DP/EDP, Shift timings to align it to bottom right.
 	 *  wide_bus_en is set for everything excluding SDM845 &
 	 *  porch changes cause DisplayPort failure and HDMI tearing.
 	 */
-	if (phys_enc->hw_intf->cap->type == INTF_DP && timing->wide_bus_en) {
+	if (phys_enc->hw_intf->cap->type == INTF_DP &&
+	    (timing->wide_bus_en || timing->compression_en)) {
 		timing->h_back_porch += timing->h_front_porch;
 		timing->h_front_porch = 0;
 		timing->v_back_porch += timing->v_front_porch;
@@ -111,9 +126,10 @@ static void drm_mode_to_intf_timing_params(
 
 	/*
 	 * for DP, divide the horizonal parameters by 2 when
-	 * widebus is enabled
+	 * widebus or compression is enabled
 	 */
-	if (phys_enc->hw_intf->cap->type == INTF_DP && timing->wide_bus_en) {
+	if (phys_enc->hw_intf->cap->type == INTF_DP &&
+	    (timing->wide_bus_en || timing->compression_en)) {
 		timing->width = timing->width >> 1;
 		timing->xres = timing->xres >> 1;
 		timing->h_back_porch = timing->h_back_porch >> 1;

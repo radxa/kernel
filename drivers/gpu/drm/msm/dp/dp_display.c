@@ -552,7 +552,8 @@ static int msm_dp_init_sub_modules(struct msm_dp_display_private *dp)
 		goto error_link;
 	}
 
-	dp->panel = msm_dp_panel_get(dev, dp->aux, dp->link, dp->link_base, dp->p0_base);
+	dp->panel = msm_dp_panel_get(dev, dp->aux, dp->link,
+				     dp->link_base, dp->p0_base);
 	if (IS_ERR(dp->panel)) {
 		rc = PTR_ERR(dp->panel);
 		DRM_ERROR("failed to initialize panel, rc = %d\n", rc);
@@ -738,8 +739,11 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
 	struct msm_dp_display_private *msm_dp_display;
 	struct msm_dp_link_info *link_info;
 	u32 mode_rate_khz = 0, supported_rate_khz = 0, mode_bpp = 0;
+	u32 source_bpp;
 	struct msm_dp *dp;
 	int mode_pclk_khz = mode->clock;
+	int source_pclk_khz = mode->clock;
+	bool yuv420;
 
 	dp = to_dp_bridge(bridge)->msm_dp_display;
 
@@ -751,22 +755,28 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
 	msm_dp_display = container_of(dp, struct msm_dp_display_private, msm_dp_display);
 	link_info = &msm_dp_display->panel->link_info;
 
-	if ((drm_mode_is_420_only(&dp->connector->display_info, mode) &&
-	     msm_dp_display->panel->vsc_sdp_supported) ||
-	     msm_dp_wide_bus_available(dp))
+	yuv420 = drm_mode_is_420_only(&dp->connector->display_info, mode) &&
+		 msm_dp_display->panel->vsc_sdp_supported;
+
+	if (yuv420 || msm_dp_display->wide_bus_supported)
 		mode_pclk_khz /= 2;
 
 	if (mode_pclk_khz > DP_MAX_PIXEL_CLK_KHZ)
 		return MODE_CLOCK_HIGH;
 
-	mode_bpp = dp->connector->display_info.bpc * num_components;
-	if (!mode_bpp)
-		mode_bpp = default_bpp;
+	source_bpp = dp->connector->display_info.bpc * num_components;
+	if (!source_bpp)
+		source_bpp = default_bpp;
+
+	if (!yuv420 &&
+	    msm_dp_panel_dsc_needed(msm_dp_display->panel, mode, source_bpp,
+				    source_pclk_khz))
+		return MODE_OK;
 
 	mode_bpp = msm_dp_panel_get_mode_bpp(msm_dp_display->panel,
-			mode_bpp, mode_pclk_khz);
+			source_bpp, source_pclk_khz);
 
-	mode_rate_khz = mode_pclk_khz * mode_bpp;
+	mode_rate_khz = source_pclk_khz * mode_bpp;
 	supported_rate_khz = link_info->num_lanes * link_info->rate * 8;
 
 	if (mode_rate_khz > supported_rate_khz)
@@ -1339,7 +1349,12 @@ bool msm_dp_is_yuv_420_enabled(const struct msm_dp *msm_dp_display,
 bool msm_dp_needs_periph_flush(const struct msm_dp *msm_dp_display,
 			       const struct drm_display_mode *mode)
 {
-	return msm_dp_is_yuv_420_enabled(msm_dp_display, mode);
+	struct msm_dp_display_private *dp;
+
+	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
+
+	return msm_dp_is_yuv_420_enabled(msm_dp_display, mode) ||
+	       msm_dp_panel_dsc_enabled(dp->panel);
 }
 
 bool msm_dp_wide_bus_available(const struct msm_dp *msm_dp_display)
@@ -1352,6 +1367,39 @@ bool msm_dp_wide_bus_available(const struct msm_dp *msm_dp_display)
 		return false;
 
 	return dp->wide_bus_supported;
+}
+
+struct drm_dsc_config *msm_dp_get_dsc_config(struct msm_dp *msm_dp_display)
+{
+	struct msm_dp_display_private *dp;
+
+	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
+
+	return msm_dp_panel_get_dsc_config(dp->panel);
+}
+
+bool msm_dp_dsc_needed(const struct msm_dp *msm_dp_display,
+		       const struct drm_display_mode *mode)
+{
+	const u32 default_bpp = 24, num_components = 3;
+	struct msm_dp_display_private *dp;
+	const struct drm_display_info *info;
+	u32 source_bpp;
+	int mode_pclk_khz = mode->clock;
+	bool yuv420;
+
+	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
+	info = &msm_dp_display->connector->display_info;
+	yuv420 = msm_dp_is_yuv_420_enabled(msm_dp_display, mode);
+
+	if (yuv420)
+		return false;
+
+	source_bpp = info->bpc * num_components;
+	if (!source_bpp)
+		source_bpp = default_bpp;
+
+	return msm_dp_panel_dsc_needed(dp->panel, mode, source_bpp, mode_pclk_khz);
 }
 
 void msm_dp_display_debugfs_init(struct msm_dp *msm_dp_display, struct dentry *root, bool is_edp)
@@ -1492,6 +1540,8 @@ void msm_dp_bridge_mode_set(struct drm_bridge *drm_bridge,
 	struct msm_dp *dp = msm_dp_bridge->msm_dp_display;
 	struct msm_dp_display_private *msm_dp_display;
 	struct msm_dp_panel *msm_dp_panel;
+	int mode_pclk_khz;
+	int rc;
 
 	msm_dp_display = container_of(dp, struct msm_dp_display_private, msm_dp_display);
 	msm_dp_panel = msm_dp_display->panel;
@@ -1521,6 +1571,23 @@ void msm_dp_bridge_mode_set(struct drm_bridge *drm_bridge,
 	/* populate wide_bus_support to different layers */
 	msm_dp_display->ctrl->wide_bus_en =
 		msm_dp_display->msm_dp_mode.out_fmt_is_yuv_420 ? false : msm_dp_display->wide_bus_supported;
+
+	mode_pclk_khz = adjusted_mode->clock;
+	if (msm_dp_display->msm_dp_mode.out_fmt_is_yuv_420)
+		mode_pclk_khz /= 2;
+
+	if (msm_dp_display->msm_dp_mode.out_fmt_is_yuv_420) {
+		msm_dp_panel->dsc_en = false;
+		msm_dp_panel->fec_en = false;
+		memset(&msm_dp_panel->dsc, 0, sizeof(msm_dp_panel->dsc));
+		return;
+	}
+
+	rc = msm_dp_panel_prepare_dsc(msm_dp_panel, adjusted_mode,
+				      msm_dp_display->msm_dp_mode.bpp,
+				      mode_pclk_khz);
+	if (rc)
+		DRM_ERROR("failed to prepare DSC, rc=%d\n", rc);
 }
 
 void msm_dp_bridge_hpd_enable(struct drm_bridge *bridge)
