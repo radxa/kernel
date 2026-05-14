@@ -69,7 +69,8 @@ static int msm_dp_bridge_atomic_check(struct drm_bridge *drm_bridge,
 	if (!old_conn_state)
 		return 0;
 
-	if (old_conn_state->colorspace != conn_state->colorspace)
+	if (old_conn_state->colorspace != conn_state->colorspace ||
+	    !drm_connector_atomic_hdr_metadata_equal(old_conn_state, conn_state))
 		crtc_state->mode_changed = true;
 
 	return 0;
@@ -354,6 +355,7 @@ struct drm_connector *msm_dp_drm_connector_init(struct msm_dp *msm_dp_display,
 		if (!drm_mode_create_dp_colorspace_property(connector,
 							    MSM_DP_SUPPORTED_COLORSPACES))
 			drm_connector_attach_colorspace_property(connector);
+		drm_connector_attach_hdr_output_metadata_property(connector);
 	}
 
 	drm_connector_attach_encoder(connector, encoder);
