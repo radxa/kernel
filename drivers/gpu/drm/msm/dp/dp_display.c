@@ -1466,11 +1466,21 @@ void msm_dp_bridge_atomic_enable(struct drm_bridge *drm_bridge,
 {
 	struct msm_dp_bridge *msm_dp_bridge = to_dp_bridge(drm_bridge);
 	struct msm_dp *dp = msm_dp_bridge->msm_dp_display;
+	struct drm_connector_state *conn_state = NULL;
 	int rc = 0;
 	struct msm_dp_display_private *msm_dp_display;
 	bool force_link_train = false;
 
 	msm_dp_display = container_of(dp, struct msm_dp_display_private, msm_dp_display);
+
+	if (state && !dp->is_edp && dp->connector)
+		conn_state = drm_atomic_get_new_connector_state(state, dp->connector);
+	if (!conn_state && !dp->is_edp && dp->connector)
+		conn_state = dp->connector->state;
+
+	if (conn_state)
+		msm_dp_panel_set_colorspace(msm_dp_display->panel, conn_state->colorspace);
+
 	if (!msm_dp_display->msm_dp_mode.drm_mode.clock) {
 		DRM_ERROR("invalid params\n");
 		return;

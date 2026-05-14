@@ -37,6 +37,7 @@ struct msm_dp_panel_private {
 	void __iomem *link_base;
 	void __iomem *p0_base;
 	bool panel_on;
+	enum drm_colorspace colorspace;
 };
 
 static inline u32 msm_dp_read_link(struct msm_dp_panel_private *panel, u32 offset)
@@ -1040,8 +1041,49 @@ void msm_dp_panel_disable_vsc_sdp(struct msm_dp_panel *msm_dp_panel)
 	msm_dp_panel_update_sdp(panel);
 }
 
-static int msm_dp_panel_setup_vsc_sdp_yuv_420(struct msm_dp_panel *msm_dp_panel)
+static bool msm_dp_panel_colorspace_needs_vsc_sdp(enum drm_colorspace colorspace)
 {
+	switch (colorspace) {
+	case DRM_MODE_COLORIMETRY_BT2020_RGB:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static void msm_dp_panel_set_vsc_sdp_colorimetry(struct drm_dp_vsc_sdp *vsc_sdp_data,
+						 enum drm_colorspace colorspace)
+{
+	switch (colorspace) {
+	case DRM_MODE_COLORIMETRY_BT2020_RGB:
+		if (vsc_sdp_data->pixelformat == DP_PIXELFORMAT_YUV420)
+			vsc_sdp_data->colorimetry = DP_COLORIMETRY_BT2020_YCC;
+		else
+			vsc_sdp_data->colorimetry = DP_COLORIMETRY_BT2020_RGB;
+		vsc_sdp_data->dynamic_range = DP_DYNAMIC_RANGE_CTA;
+		break;
+	default:
+		vsc_sdp_data->colorimetry = DP_COLORIMETRY_DEFAULT;
+		vsc_sdp_data->dynamic_range =
+			vsc_sdp_data->pixelformat == DP_PIXELFORMAT_YUV420 ?
+			DP_DYNAMIC_RANGE_CTA : DP_DYNAMIC_RANGE_VESA;
+		break;
+	}
+}
+
+void msm_dp_panel_set_colorspace(struct msm_dp_panel *msm_dp_panel,
+				 enum drm_colorspace colorspace)
+{
+	struct msm_dp_panel_private *panel =
+		container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
+
+	panel->colorspace = colorspace;
+}
+
+static int msm_dp_panel_setup_vsc_sdp(struct msm_dp_panel *msm_dp_panel)
+{
+	struct msm_dp_panel_private *panel =
+		container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
 	struct msm_dp_display_mode *msm_dp_mode;
 	struct drm_dp_vsc_sdp vsc_sdp_data;
 	struct dp_sdp vsc_sdp;
@@ -1054,6 +1096,11 @@ static int msm_dp_panel_setup_vsc_sdp_yuv_420(struct msm_dp_panel *msm_dp_panel)
 
 	msm_dp_mode = &msm_dp_panel->msm_dp_mode;
 
+	if (!msm_dp_panel->vsc_sdp_supported) {
+		drm_dbg_dp(panel->drm_dev, "VSC SDP not supported\n");
+		return -EOPNOTSUPP;
+	}
+
 	memset(&vsc_sdp_data, 0, sizeof(vsc_sdp_data));
 
 	/* VSC SDP header as per table 2-118 of DP 1.4 specification */
@@ -1062,12 +1109,12 @@ static int msm_dp_panel_setup_vsc_sdp_yuv_420(struct msm_dp_panel *msm_dp_panel)
 	vsc_sdp_data.length = 0x13;
 
 	/* VSC SDP Payload for DB16 */
-	vsc_sdp_data.pixelformat = DP_PIXELFORMAT_YUV420;
-	vsc_sdp_data.colorimetry = DP_COLORIMETRY_DEFAULT;
+	vsc_sdp_data.pixelformat = msm_dp_mode->out_fmt_is_yuv_420 ?
+				   DP_PIXELFORMAT_YUV420 : DP_PIXELFORMAT_RGB;
+	msm_dp_panel_set_vsc_sdp_colorimetry(&vsc_sdp_data, panel->colorspace);
 
 	/* VSC SDP Payload for DB17 */
 	vsc_sdp_data.bpc = msm_dp_mode->bpp / 3;
-	vsc_sdp_data.dynamic_range = DP_DYNAMIC_RANGE_CTA;
 
 	/* VSC SDP Payload for DB18 */
 	vsc_sdp_data.content_type = DP_CONTENT_TYPE_GRAPHICS;
@@ -1152,8 +1199,9 @@ int msm_dp_panel_timing_cfg(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en)
 
 	msm_dp_write_p0(panel, MMSS_DP_INTF_CONFIG, reg);
 
-	if (msm_dp_panel->msm_dp_mode.out_fmt_is_yuv_420)
-		msm_dp_panel_setup_vsc_sdp_yuv_420(msm_dp_panel);
+	if (msm_dp_panel->msm_dp_mode.out_fmt_is_yuv_420 ||
+	    msm_dp_panel_colorspace_needs_vsc_sdp(panel->colorspace))
+		msm_dp_panel_setup_vsc_sdp(msm_dp_panel);
 
 	panel->panel_on = true;
 

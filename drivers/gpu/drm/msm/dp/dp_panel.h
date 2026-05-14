@@ -7,6 +7,7 @@
 #define _DP_PANEL_H_
 
 #include <drm/display/drm_dsc.h>
+#include <drm/drm_connector.h>
 #include <drm/drm_modes.h>
 #include <drm/msm_drm.h>
 
@@ -65,6 +66,8 @@ int msm_dp_panel_get_modes(struct msm_dp_panel *msm_dp_panel,
 		struct drm_connector *connector);
 void msm_dp_panel_handle_sink_request(struct msm_dp_panel *msm_dp_panel);
 void msm_dp_panel_tpg_config(struct msm_dp_panel *msm_dp_panel, bool enable);
+void msm_dp_panel_set_colorspace(struct msm_dp_panel *msm_dp_panel,
+				 enum drm_colorspace colorspace);
 
 void msm_dp_panel_clear_dsc_dto(struct msm_dp_panel *msm_dp_panel);
 void msm_dp_panel_config_dsc(struct msm_dp_panel *msm_dp_panel, bool enable);

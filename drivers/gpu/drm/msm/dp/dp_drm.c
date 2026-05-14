@@ -4,16 +4,20 @@
  */
 
 #include <linux/string_choices.h>
+#include <linux/bits.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_bridge.h>
 #include <drm/drm_bridge_connector.h>
+#include <drm/drm_connector.h>
 #include <drm/drm_crtc.h>
 
 #include "msm_drv.h"
 #include "msm_kms.h"
 #include "dp_audio.h"
 #include "dp_drm.h"
+
+#define MSM_DP_SUPPORTED_COLORSPACES BIT(DRM_MODE_COLORIMETRY_BT2020_RGB)
 
 /**
  * msm_dp_bridge_get_modes - callback to add drm modes via drm_mode_probed_add()
@@ -49,10 +53,33 @@ static void msm_dp_bridge_debugfs_init(struct drm_bridge *bridge, struct dentry 
 	msm_dp_display_debugfs_init(dp, root, false);
 }
 
+static int msm_dp_bridge_atomic_check(struct drm_bridge *drm_bridge,
+				      struct drm_bridge_state *bridge_state,
+				      struct drm_crtc_state *crtc_state,
+				      struct drm_connector_state *conn_state)
+{
+	struct drm_connector_state *old_conn_state;
+
+	if (!conn_state || !conn_state->crtc || !crtc_state)
+		return 0;
+
+	old_conn_state =
+		drm_atomic_get_old_connector_state(conn_state->state,
+						   conn_state->connector);
+	if (!old_conn_state)
+		return 0;
+
+	if (old_conn_state->colorspace != conn_state->colorspace)
+		crtc_state->mode_changed = true;
+
+	return 0;
+}
+
 static const struct drm_bridge_funcs msm_dp_bridge_ops = {
 	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
 	.atomic_destroy_state   = drm_atomic_helper_bridge_destroy_state,
 	.atomic_reset           = drm_atomic_helper_bridge_reset,
+	.atomic_check           = msm_dp_bridge_atomic_check,
 	.atomic_enable          = msm_dp_bridge_atomic_enable,
 	.atomic_disable         = msm_dp_bridge_atomic_disable,
 	.atomic_post_disable    = msm_dp_bridge_atomic_post_disable,
@@ -322,8 +349,12 @@ struct drm_connector *msm_dp_drm_connector_init(struct msm_dp *msm_dp_display,
 	if (IS_ERR(connector))
 		return connector;
 
-	if (!msm_dp_display->is_edp)
+	if (!msm_dp_display->is_edp) {
 		drm_connector_attach_dp_subconnector_property(connector);
+		if (!drm_mode_create_dp_colorspace_property(connector,
+							    MSM_DP_SUPPORTED_COLORSPACES))
+			drm_connector_attach_colorspace_property(connector);
+	}
 
 	drm_connector_attach_encoder(connector, encoder);
 
