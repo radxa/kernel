@@ -352,6 +352,7 @@ struct drm_connector *msm_dp_drm_connector_init(struct msm_dp *msm_dp_display,
 
 	if (!msm_dp_display->is_edp) {
 		drm_connector_attach_dp_subconnector_property(connector);
+		drm_connector_attach_max_bpc_property(connector, 8, 10);
 		if (!drm_mode_create_dp_colorspace_property(connector,
 							    MSM_DP_SUPPORTED_COLORSPACES))
 			drm_connector_attach_colorspace_property(connector);

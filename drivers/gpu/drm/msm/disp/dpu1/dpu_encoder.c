@@ -680,8 +680,16 @@ void dpu_encoder_update_topology(struct drm_encoder *drm_enc,
 	dsc = dpu_encoder_get_dsc_config(drm_enc);
 	dsc_needed = dsc;
 	if (disp_info->intf_type == INTF_DP) {
+		connector = drm_atomic_get_new_connector_for_encoder(state, drm_enc);
+		if (!connector)
+			return;
+
+		conn_state = drm_atomic_get_new_connector_state(state, connector);
+		if (!conn_state)
+			return;
+
 		dp = priv->kms->dp[disp_info->h_tile_instance[0]];
-		dsc_needed = dp && msm_dp_dsc_needed(dp, adj_mode);
+		dsc_needed = dp && msm_dp_dsc_needed(dp, conn_state, adj_mode);
 	}
 
 	/* We only support 2 DSC mode (with 2 LM and 1 INTF) */

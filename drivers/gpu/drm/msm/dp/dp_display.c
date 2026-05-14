@@ -730,6 +730,27 @@ static bool msm_dp_bridge_mode_filter_valid(const struct drm_display_mode *mode)
 	return true;
 }
 
+static u32 msm_dp_display_get_source_bpp(const struct drm_connector *connector,
+					 const struct drm_connector_state *conn_state)
+{
+	const u32 num_components = 3, default_bpc = 8;
+	u32 bpc;
+
+	bpc = connector->display_info.bpc;
+	if (!bpc)
+		bpc = default_bpc;
+
+	if (connector->max_bpc_property) {
+		if (!conn_state)
+			conn_state = connector->state;
+
+		if (conn_state)
+			bpc = min_t(u32, bpc, conn_state->max_requested_bpc);
+	}
+
+	return bpc * num_components;
+}
+
 /**
  * msm_dp_bridge_mode_valid - callback to determine if specified mode is valid
  * @bridge: Pointer to drm bridge structure
@@ -741,7 +762,6 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
 					  const struct drm_display_info *info,
 					  const struct drm_display_mode *mode)
 {
-	const u32 num_components = 3, default_bpp = 24;
 	struct msm_dp_display_private *msm_dp_display;
 	struct msm_dp_link_info *link_info;
 	u32 mode_rate_khz = 0, supported_rate_khz = 0, mode_bpp = 0;
@@ -770,9 +790,7 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
 	if (mode_pclk_khz > DP_MAX_PIXEL_CLK_KHZ)
 		return MODE_CLOCK_HIGH;
 
-	source_bpp = dp->connector->display_info.bpc * num_components;
-	if (!source_bpp)
-		source_bpp = default_bpp;
+	source_bpp = msm_dp_display_get_source_bpp(dp->connector, NULL);
 
 	if (!yuv420 &&
 	    msm_dp_panel_dsc_needed(msm_dp_display->panel, mode, source_bpp,
@@ -1392,25 +1410,22 @@ struct drm_dsc_config *msm_dp_get_dsc_config(struct msm_dp *msm_dp_display)
 }
 
 bool msm_dp_dsc_needed(const struct msm_dp *msm_dp_display,
+		       const struct drm_connector_state *conn_state,
 		       const struct drm_display_mode *mode)
 {
-	const u32 default_bpp = 24, num_components = 3;
 	struct msm_dp_display_private *dp;
-	const struct drm_display_info *info;
 	u32 source_bpp;
 	int mode_pclk_khz = mode->clock;
 	bool yuv420;
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
-	info = &msm_dp_display->connector->display_info;
 	yuv420 = msm_dp_is_yuv_420_enabled(msm_dp_display, mode);
 
 	if (yuv420)
 		return false;
 
-	source_bpp = info->bpc * num_components;
-	if (!source_bpp)
-		source_bpp = default_bpp;
+	source_bpp = msm_dp_display_get_source_bpp(msm_dp_display->connector,
+						   conn_state);
 
 	return msm_dp_panel_dsc_needed(dp->panel, mode, source_bpp, mode_pclk_khz);
 }
@@ -1587,10 +1602,8 @@ void msm_dp_bridge_mode_set(struct drm_bridge *drm_bridge,
 	if (msm_dp_display_check_video_test(dp))
 		msm_dp_display->msm_dp_mode.bpp = msm_dp_display_get_test_bpp(dp);
 	else /* Default num_components per pixel = 3 */
-		msm_dp_display->msm_dp_mode.bpp = dp->connector->display_info.bpc * 3;
-
-	if (!msm_dp_display->msm_dp_mode.bpp)
-		msm_dp_display->msm_dp_mode.bpp = 24; /* Default bpp */
+		msm_dp_display->msm_dp_mode.bpp =
+			msm_dp_display_get_source_bpp(dp->connector, NULL);
 
 	drm_mode_copy(&msm_dp_display->msm_dp_mode.drm_mode, adjusted_mode);
 
