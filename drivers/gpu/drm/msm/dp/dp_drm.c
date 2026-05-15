@@ -463,7 +463,8 @@ struct drm_connector *msm_dp_drm_connector_init(struct msm_dp *msm_dp_display,
 		return connector;
 
 	ret = drm_mode_create_dp_colorspace_property(connector,
-						     BIT(DRM_MODE_COLORIMETRY_BT2020_RGB));
+						     BIT(DRM_MODE_COLORIMETRY_BT2020_RGB) |
+						     BIT(DRM_MODE_COLORIMETRY_DCI_P3_RGB_D65));
 	if (ret)
 		return ERR_PTR(ret);
 	drm_connector_attach_colorspace_property(connector);

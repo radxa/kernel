@@ -150,6 +150,11 @@ int msm_dp_utils_pack_vsc_sdp(struct dp_sdp *sdp, enum drm_colorspace colorspace
 			return -EINVAL;
 		vsc.colorimetry = DP_COLORIMETRY_BT2020_RGB;
 		break;
+	case DRM_MODE_COLORIMETRY_DCI_P3_RGB_D65:
+		if (yuv420)
+			return -EINVAL;
+		vsc.colorimetry = DP_COLORIMETRY_DCI_P3_RGB;
+		break;
 	default:
 		return -EINVAL;
 	}
