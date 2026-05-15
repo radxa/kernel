@@ -1377,15 +1377,30 @@ bool msm_dp_is_yuv_420_enabled(const struct msm_dp *msm_dp_display,
 	return dp->panel->vsc_sdp_supported && drm_mode_is_420_only(info, mode);
 }
 
+static bool msm_dp_colorspace_needs_vsc_sdp(enum drm_colorspace colorspace)
+{
+	switch (colorspace) {
+	case DRM_MODE_COLORIMETRY_BT2020_RGB:
+	case DRM_MODE_COLORIMETRY_DCI_P3_RGB_D65:
+		return true;
+	default:
+		return false;
+	}
+}
+
 bool msm_dp_needs_periph_flush(const struct msm_dp *msm_dp_display,
 			       const struct drm_display_mode *mode)
 {
 	struct msm_dp_display_private *dp;
+	struct drm_connector_state *conn_state;
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
+	conn_state = msm_dp_display->connector ? msm_dp_display->connector->state : NULL;
 
 	return msm_dp_is_yuv_420_enabled(msm_dp_display, mode) ||
-	       msm_dp_panel_dsc_enabled(dp->panel);
+	       msm_dp_panel_dsc_enabled(dp->panel) ||
+	       (dp->panel->vsc_sdp_supported && conn_state &&
+		msm_dp_colorspace_needs_vsc_sdp(conn_state->colorspace));
 }
 
 bool msm_dp_wide_bus_available(const struct msm_dp *msm_dp_display)
