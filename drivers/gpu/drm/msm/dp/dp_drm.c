@@ -17,7 +17,9 @@
 #include "dp_audio.h"
 #include "dp_drm.h"
 
-#define MSM_DP_SUPPORTED_COLORSPACES BIT(DRM_MODE_COLORIMETRY_BT2020_RGB)
+#define MSM_DP_SUPPORTED_COLORSPACES \
+	(BIT(DRM_MODE_COLORIMETRY_BT2020_RGB) | \
+	 BIT(DRM_MODE_COLORIMETRY_DCI_P3_RGB_D65))
 
 /**
  * msm_dp_bridge_get_modes - callback to add drm modes via drm_mode_probed_add()

@@ -1054,6 +1054,7 @@ static bool msm_dp_panel_colorspace_needs_vsc_sdp(enum drm_colorspace colorspace
 {
 	switch (colorspace) {
 	case DRM_MODE_COLORIMETRY_BT2020_RGB:
+	case DRM_MODE_COLORIMETRY_DCI_P3_RGB_D65:
 		return true;
 	default:
 		return false;
@@ -1070,6 +1071,10 @@ static void msm_dp_panel_set_vsc_sdp_colorimetry(struct drm_dp_vsc_sdp *vsc_sdp_
 		else
 			vsc_sdp_data->colorimetry = DP_COLORIMETRY_BT2020_RGB;
 		vsc_sdp_data->dynamic_range = DP_DYNAMIC_RANGE_CTA;
+		break;
+	case DRM_MODE_COLORIMETRY_DCI_P3_RGB_D65:
+		vsc_sdp_data->colorimetry = DP_COLORIMETRY_DCI_P3_RGB;
+		vsc_sdp_data->dynamic_range = DP_DYNAMIC_RANGE_VESA;
 		break;
 	default:
 		vsc_sdp_data->colorimetry = DP_COLORIMETRY_DEFAULT;
