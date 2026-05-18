@@ -1498,6 +1498,7 @@ static const struct qcom_pcie_cfg cfg_2_9_0 = {
 static const struct qcom_pcie_cfg cfg_sc8280xp = {
 	.ops = &ops_1_21_0,
 	.no_l0s = true,
+	.override_no_snoop = true,
 };
 
 static const struct qcom_pcie_cfg cfg_fw_managed = {
