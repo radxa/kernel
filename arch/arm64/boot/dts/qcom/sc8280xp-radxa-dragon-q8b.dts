@@ -733,10 +733,11 @@
 	status = "okay";
 
 	eeprom@50 {
-		status = "okay";
-		compatible = "atmel,24c16";
+		compatible = "belling,bl24c16f", "atmel,24c16";
 		reg = <0x50>;
 		pagesize = <16>;
+		vcc-supply = <&vreg_s10b>;
+		wp-gpios = <&tlmm 3 GPIO_ACTIVE_LOW>;
 	};
 
 	rtc@68 {
