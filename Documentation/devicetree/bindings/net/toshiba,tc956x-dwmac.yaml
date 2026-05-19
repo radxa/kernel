@@ -39,6 +39,18 @@ properties:
   # contradictory $nodename rules (`ethernet@` versus `pci@`). Happily only a
   # small number of the properties are useful on TC956x so we can just reference
   # what we need.
+  local-mac-address:
+    $ref: /schemas/net/network-class.yaml#/properties/local-mac-address
+
+  mac-address:
+    $ref: /schemas/net/network-class.yaml#/properties/mac-address
+
+  nvmem-cells:
+    $ref: ethernet-controller.yaml#/properties/nvmem-cells
+
+  nvmem-cell-names:
+    $ref: ethernet-controller.yaml#/properties/nvmem-cell-names
+
   phy-connection-type:
     $ref: ethernet-controller.yaml#/properties/phy-connection-type
 
