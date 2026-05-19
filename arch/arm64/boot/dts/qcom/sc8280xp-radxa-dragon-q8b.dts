@@ -738,6 +738,20 @@
 		pagesize = <16>;
 		vcc-supply = <&vreg_s10b>;
 		wp-gpios = <&tlmm 3 GPIO_ACTIVE_LOW>;
+
+		nvmem-layout {
+			compatible = "fixed-layout";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			mac_addr0: mac-address@9e {
+				reg = <0x9e 0x6>;
+			};
+
+			mac_addr1: mac-address@a4 {
+				reg = <0xa4 0x6>;
+			};
+		};
 	};
 
 	rtc@68 {
@@ -951,6 +965,9 @@
 				phy-mode = "sgmii";
 				phy-handle = <&tc956x_emac0_phy>;
 
+				nvmem-cells = <&mac_addr0>;
+				nvmem-cell-names = "mac-address";
+
 				mdio {
 					compatible = "snps,dwmac-mdio";
 					#address-cells = <1>;
@@ -998,6 +1015,9 @@
 
 				phy-mode = "sgmii";
 				phy-handle = <&tc956x_emac1_phy>;
+
+				nvmem-cells = <&mac_addr1>;
+				nvmem-cell-names = "mac-address";
 
 				mdio {
 					compatible = "snps,dwmac-mdio";
