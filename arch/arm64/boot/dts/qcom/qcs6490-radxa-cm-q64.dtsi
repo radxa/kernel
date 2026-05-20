@@ -1126,6 +1126,7 @@
 /* For uart_dbg */
 &qup_uart5_tx {
 	bias-disable;
+	output-high;
 	drive-strength = <16>;
 };
 
