@@ -367,6 +367,15 @@
 		pinctrl-names = "default";
 	};
 
+	/* This regulator is actually part of the UFS module */
+	vcc_ufs: regulator-vcc-ufs {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_ufs";
+		regulator-min-microvolt = <2480000>;
+		regulator-max-microvolt = <2480000>;
+		vin-supply = <&vreg_l7d>;
+	};
+
 	vdd_ntn_core_0p9: regulator-vdd-ntn-core-0p9 {
 		compatible = "regulator-fixed";
 
@@ -558,16 +567,6 @@
 						   RPMH_REGULATOR_MODE_HPM>;
 		};
 
-		vreg_l7c: ldo7 {
-			regulator-name = "vreg_l7c";
-			regulator-min-microvolt = <2504000>;
-			regulator-max-microvolt = <2504000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
-			regulator-allow-set-load;
-			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
-						   RPMH_REGULATOR_MODE_HPM>;
-		};
-
 		vreg_l8c: ldo8 {
 			regulator-name = "vreg_l8c";
 			regulator-min-microvolt = <1800000>;
@@ -662,9 +661,6 @@
 			regulator-min-microvolt = <3072000>;
 			regulator-max-microvolt = <3072000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
-			regulator-allow-set-load;
-			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
-						   RPMH_REGULATOR_MODE_HPM>;
 		};
 
 		vreg_l8d: ldo8 {
@@ -1456,7 +1452,7 @@
 &ufs_mem_hc {
 	reset-gpios = <&tlmm 228 GPIO_ACTIVE_LOW>;
 
-	vcc-supply = <&vreg_l7c>;
+	vcc-supply = <&vcc_ufs>;
 	vcc-max-microamp = <1100000>;
 	vccq-supply = <&vreg_l3d>;
 	vccq-max-microamp = <1200000>;
