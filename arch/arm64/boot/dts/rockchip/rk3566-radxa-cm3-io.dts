@@ -123,14 +123,14 @@
 
 &gpio_leds {
 	pi-led-green {
-		gpios = <&gpio4 4 GPIO_ACTIVE_LOW>;
+		gpio = <&gpio4 RK_PA4 GPIO_ACTIVE_LOW>;
 		linux,default-trigger = "heartbeat";
 		default-state = "on";
 		pinctrl-0 = <&pi_led>;
 	};
 
 	pwr-led-red {
-		gpios = <&gpio4 15 GPIO_ACTIVE_LOW>;
+		gpio = <&gpio4 RK_PB7 GPIO_ACTIVE_LOW>;
 		linux,default-trigger = "default-on";
 		pinctrl-0 = <&pwr_led>;
 	};
