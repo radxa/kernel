@@ -49,6 +49,12 @@
 	};
 };
 
+&rk809 {
+	rtc {
+		status = "disabled";
+	};
+};
+
 &vcc5v0_sys {
 	vin-supply = <&vcc12v_dcin>;
 };
