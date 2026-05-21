@@ -1,0 +1,314 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (c) 2024 Rockchip Electronics Co., Ltd.
+ * Copyright (c) 2025 Radxa Computer (Shenzhen) Co., Ltd.
+ *
+ */
+
+/dts-v1/;
+
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (c) 2020 Rockchip Electronics Co., Ltd.
+ * Copyright (c) 2023 Radxa Limited.
+ *
+ */
+
+/dts-v1/;
+
+#include "rk3566-radxa-cm3.dtsi"
+
+/ {
+	model = "Radxa CM3 RPI CM4 IO";
+	compatible = "radxa,cm3-rpi-cm4-io", "radxa,cm3", "rockchip,rk3566";
+
+	vcc_sd: sdmmc-regulator {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio0 RK_PA5 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&sdmmc_pwren>;
+		regulator-name = "vcc_sd";
+		regulator-always-on;
+		vin-supply = <&vcc3v3_sys>;
+	};
+
+	hdmi_sound: hdmi-sound {
+		compatible = "simple-audio-card";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,mclk-fs = <128>;
+		simple-audio-card,name = "rockchip-hdmi0";
+
+		simple-audio-card,cpu {
+				sound-dai = <&i2s0_8ch>;
+		};
+		simple-audio-card,codec {
+				sound-dai = <&hdmi>;
+		};
+	};
+};
+
+&fiq_debugger {
+	status = "okay";
+};
+
+&i2s0_8ch {
+	status = "okay";
+};
+
+&display_subsystem {
+	status = "okay";
+};
+
+&hdmi {
+	status = "okay";
+	preset_max_hdisplay = <1920>;
+	preset_max_vdisplay = <1080>;
+	preset_as_preferred;
+};
+
+&hdmi_in_vp0 {
+	status = "okay";
+};
+
+&hdmi_in_vp1 {
+	status = "disabled";
+};
+
+&hdmi_sound {
+	status = "okay";
+};
+
+&route_hdmi {
+	status = "okay";
+	connect = <&vp0_out_hdmi>;
+};
+
+&gpio_leds {
+	pi-led-green {
+		gpio = <&gpio4 RK_PA4 GPIO_ACTIVE_LOW>;
+		linux,default-trigger = "heartbeat";
+		default-state = "on";
+		pinctrl-0 = <&pi_led>;
+	};
+
+	pwr-led-red {
+		gpio = <&gpio4 RK_PB7 GPIO_ACTIVE_LOW>;
+		linux,default-trigger = "default-on";
+		pinctrl-0 = <&pwr_led>;
+	};
+};
+
+&sdmmc0 {
+	max-frequency = <150000000>;
+	supports-sd;
+	bus-width = <4>;
+	cap-mmc-highspeed;
+	cap-sd-highspeed;
+	disable-wp;
+	broken-cd;
+	sd-uhs-sdr104;
+	vmmc-supply = <&vcc_sd>;
+	vqmmc-supply = <&vccio_sd>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&sdmmc0_bus4 &sdmmc0_clk &sdmmc0_cmd>;
+	status = "okay";
+};
+
+&pcie2x1 {
+	reset-gpios = <&gpio1 RK_PB2 GPIO_ACTIVE_HIGH>;
+	vpcie3v3-supply = <&vcc3v3_sys>;
+	pinctrl-0 = <&pcie20m2_pins>;
+	status = "okay";
+};
+
+&i2c0 {
+	status = "okay";
+	pinctrl-name = "default";
+	pinctrl-0 = <&i2c0_xfer>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	emc2301: emc2301@2f {
+		status = "okay";
+		compatible = "microchip,emc2301";
+		reg = <0x2f>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		#cooling-cells = <2>;
+		microchip,pwm-separate;
+		microchip,cooling-levels = <10>;
+		channel@0 {
+			reg = <0>;
+			pwm-min = <0>;
+		};
+	};
+
+	pcf85063: pcf85063@51 {
+		compatible = "nxp,pcf85063";
+		status = "okay";
+		reg = <0x51>;
+		quartz-load-femtofarads = <12500>;
+	};
+};
+
+&rk817 {
+	rtc {
+		status = "disabled";
+	};
+};
+
+&threshold {
+	temperature = <60000>;
+};
+
+&soc_thermal {
+	cooling-maps {
+		sustainable-power = <5000>; /* milliwatts */
+		map2 {
+			trip = <&target>;
+			cooling-device =
+				<&emc2301 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+			contribution = <8192>;
+		};
+		map3 {
+			trip = <&threshold>;
+			cooling-device =
+				<&emc2301 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+			contribution = <8192>;
+		};
+	};
+};
+
+&pinctrl {
+	leds {
+		pi_led: pi-led {
+			rockchip,pins = <4 RK_PA4 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		pwr_led: pwr-led {
+			rockchip,pins = <4 RK_PB7 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	sdcard {
+		sdmmc_pwren: sdmmc-pwren {
+			rockchip,pins = <0 RK_PA5 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+};
+
+&gpio0 {
+	gpio-line-names =
+		/* GPIO0_A0-A3 */
+		"", "", "", "",
+		/* GPIO0_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO0_B0-B3 */
+		"", "", "", "",
+		/* GPIO0_B4-B7 */
+		"", "PIN_5", "PIN_3", "PIN_13",
+
+		/* GPIO0_C0-C3 */
+		"", "", "PIN_37", "PIN_15",
+		/* GPIO0_C4-C7 */
+		"", "PIN_31", "PIN_33", "PIN_11",
+
+		/* GPIO0_D0-D3 */
+		"PIN_10", "PIN_8", "", "",
+		/* GPIO0_D4-D7 */
+		"", "", "", "";
+};
+
+&gpio1 {
+	gpio-line-names =
+		/* GPIO1_A0-A3 */
+		"", "", "", "",
+		/* GPIO1_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO1_B0-B3 */
+		"", "", "", "",
+		/* GPIO1_B4-B7 */
+		"", "", "", "",
+
+		/* GPIO1_C0-C3 */
+		"", "", "", "",
+		/* GPIO1_C4-C7 */
+		"", "", "", "",
+
+		/* GPIO1_D0-D3 */
+		"", "", "", "",
+		/* GPIO1_D4-D7 */
+		"", "", "", "";
+};
+
+&gpio2 {
+	gpio-line-names =
+		/* GPIO2_A0-A3 */
+		"", "", "", "",
+		/* GPIO2_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO2_B0-B3 */
+		"", "", "", "",
+		/* GPIO2_B4-B7 */
+		"", "", "", "",
+
+		/* GPIO2_C0-C3 */
+		"", "", "", "",
+		/* GPIO2_C4-C7 */
+		"", "", "", "",
+
+		/* GPIO2_D0-D3 */
+		"", "", "", "",
+		/* GPIO2_D4-D7 */
+		"", "", "", "";
+};
+
+&gpio3 {
+	gpio-line-names =
+		/* GPIO3_A0-A3 */
+		"", "", "", "",
+		/* GPIO3_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO3_B0-B3 */
+		"", "", "", "",
+		/* GPIO3_B4-B7 */
+		"", "", "", "",
+
+		/* GPIO3_C0-C3 */
+		"", "", "", "",
+		/* GPIO3_C4-C7 */
+		"", "", "PIN_22", "PIN_12",
+
+		/* GPIO3_D0-D3 */
+		"PIN_35", "PIN_40", "PIN_38", "PIN_18",
+		/* GPIO3_D4-D7 */
+		"PIN_16", "PIN_7", "", "";
+};
+
+&gpio4 {
+	gpio-line-names =
+		/* GPIO4_A0-A3 */
+		"", "", "", "",
+		/* GPIO4_A4-A7 */
+		"", "", "PIN_24", "PIN_36",
+
+		/* GPIO4_B0-B3 */
+		"PIN_21", "PIN_29", "PIN_19", "PIN_23",
+		/* GPIO4_B4-B7 */
+		"PIN_27", "PIN_28", "", "",
+
+		/* GPIO4_C0-C3 */
+		"PIN_32", "", "", "",
+		/* GPIO4_C4-C7 */
+		"", "", "", "",
+
+		/* GPIO4_D0-D3 */
+		"", "", "", "",
+		/* GPIO4_D4-D7 */
+		"", "", "", "";
+};
