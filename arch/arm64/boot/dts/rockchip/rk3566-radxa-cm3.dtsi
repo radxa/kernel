@@ -55,9 +55,8 @@
 		status = "okay";
 
 		user-led {
-			gpios = <&gpio0 6 GPIO_ACTIVE_HIGH>;
-			linux,default-trigger = "timer";
-			default-state = "on";
+			gpios = <&gpio0 RK_PA6 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "heartbeat";
 			pinctrl-0 = <&user_led_set>;
 		};
 	};
