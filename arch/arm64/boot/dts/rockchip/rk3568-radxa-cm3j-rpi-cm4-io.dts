@@ -290,16 +290,27 @@
 
 &gpio_leds {
 	led-pwr {
-		function = LED_FUNCTION_POWER;
+		gpio = <&gpio3 RK_PC4 GPIO_ACTIVE_LOW>;
+		linux,default-trigger = "default-on";
 		default-state = "on";
-		color = <LED_COLOR_ID_RED>;
-		gpios = <&gpio3 RK_PC4 GPIO_ACTIVE_LOW>;
+		pinctrl-0 = <&pwr_led>;
 	};
 
 	led-heartbeat {
-		function = LED_FUNCTION_HEARTBEAT;
-		default-state = "off";
-		color = <LED_COLOR_ID_GREEN>;
-		gpios = <&gpio4 RK_PC6 GPIO_ACTIVE_LOW>;
+		gpio = <&gpio4 RK_PC6 GPIO_ACTIVE_LOW>;
+		linux,default-trigger = "heartbeat";
+		pinctrl-0 = <&pi_led>;
+	};
+};
+
+&pinctrl {
+	leds {
+		pwr_led: pwr-led {
+			rockchip,pins = <3 RK_PC4 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		pi_led: pi-led {
+			rockchip,pins = <4 RK_PC6 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
 	};
 };
