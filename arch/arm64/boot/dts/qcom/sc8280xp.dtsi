@@ -1306,11 +1306,10 @@
 				     <GIC_SPI 252 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 253 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 254 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 255 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 256 IRQ_TYPE_LEVEL_HIGH>;
+				     <GIC_SPI 255 IRQ_TYPE_LEVEL_HIGH>;
 
-			dma-channels = <13>;
-			dma-channel-mask = <0x1fff>;
+			dma-channels = <12>;
+			dma-channel-mask = <0xfff>;
 			#dma-cells = <3>;
 
 			iommus = <&apps_smmu 0x576 0x0>;
