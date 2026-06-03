@@ -216,24 +216,24 @@ static void tc956x_msigen_irq_domain_exit(struct irq_domain *irq_domain)
 static struct irq_domain *
 tc956x_msigen_irq_domain_instantiate(struct tc956x_data *td)
 {
-	struct irq_domain_chip_generic_info dgc_info;
-	struct irq_domain_info info;
-
-	dgc_info.name = "tc956x-msigen";
-	dgc_info.handler = handle_level_irq;
-	dgc_info.irqs_per_chip = HWIRQ_COUNT;
-	dgc_info.num_ct = 1;
-	dgc_info.init = tc956x_msigen_irq_chip_init;
-	dgc_info.exit = tc956x_msigen_irq_chip_exit;
-
-	info.domain_flags = IRQ_DOMAIN_FLAG_DESTROY_GC;
-	info.size = HWIRQ_COUNT;
-	info.hwirq_max = HWIRQ_COUNT;
-	info.ops = &irq_generic_chip_ops;
-	info.host_data = td;
-	info.dgc_info = &dgc_info;
-	info.init = tc956x_msigen_irq_domain_init;
-	info.exit = tc956x_msigen_irq_domain_exit;
+	struct irq_domain_chip_generic_info dgc_info = {
+		.name = "tc956x-msigen",
+		.handler = handle_level_irq,
+		.irqs_per_chip = HWIRQ_COUNT,
+		.num_ct = 1,
+		.init = tc956x_msigen_irq_chip_init,
+		.exit = tc956x_msigen_irq_chip_exit,
+	};
+	struct irq_domain_info info = {
+		.domain_flags = IRQ_DOMAIN_FLAG_DESTROY_GC,
+		.size = HWIRQ_COUNT,
+		.hwirq_max = HWIRQ_COUNT,
+		.ops = &irq_generic_chip_ops,
+		.host_data = td,
+		.dgc_info = &dgc_info,
+		.init = tc956x_msigen_irq_domain_init,
+		.exit = tc956x_msigen_irq_domain_exit,
+	};
 
 	return devm_irq_domain_instantiate(td->dev, &info);
 }
