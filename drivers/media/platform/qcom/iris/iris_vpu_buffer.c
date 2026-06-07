@@ -705,12 +705,25 @@ static u32 hfi_buffer_ibc_av1d(u32 frame_width, u32 frame_height)
 	return ALIGN(size, DMA_ALIGNMENT);
 }
 
+static void iris_vpu_dec_coded_dimensions(struct iris_inst *inst, u32 *width, u32 *height)
+{
+	struct v4l2_format *f = inst->fmt_src;
+
+	*width = f->fmt.pix_mp.width;
+	*height = f->fmt.pix_mp.height;
+
+	if (inst->codec == V4L2_PIX_FMT_HEVC) {
+		*width = ALIGN(*width, 32);
+		*height = ALIGN(*height, 32);
+	}
+}
+
 static u32 iris_vpu_dec_bin_size(struct iris_inst *inst)
 {
 	u32 num_vpp_pipes = inst->core->iris_platform_data->num_vpp_pipe;
-	struct v4l2_format *f = inst->fmt_src;
-	u32 height = f->fmt.pix_mp.height;
-	u32 width = f->fmt.pix_mp.width;
+	u32 width, height;
+
+	iris_vpu_dec_coded_dimensions(inst, &width, &height);
 
 	if (inst->codec == V4L2_PIX_FMT_H264)
 		return hfi_buffer_bin_h264d(width, height, num_vpp_pipes);
@@ -727,9 +740,9 @@ static u32 iris_vpu_dec_bin_size(struct iris_inst *inst)
 static u32 iris_vpu_dec_comv_size(struct iris_inst *inst)
 {
 	u32 num_comv = VIDEO_MAX_FRAME;
-	struct v4l2_format *f = inst->fmt_src;
-	u32 height = f->fmt.pix_mp.height;
-	u32 width = f->fmt.pix_mp.width;
+	u32 width, height;
+
+	iris_vpu_dec_coded_dimensions(inst, &width, &height);
 
 	if (inst->codec == V4L2_PIX_FMT_H264)
 		return hfi_buffer_comv_h264d(width, height, num_comv);
@@ -742,9 +755,9 @@ static u32 iris_vpu_dec_comv_size(struct iris_inst *inst)
 static u32 iris_vpu3x_4x_dec_comv_size(struct iris_inst *inst)
 {
 	u32 num_comv = inst->buffers[BUF_OUTPUT].min_count;
-	struct v4l2_format *f = inst->fmt_src;
-	u32 height = f->fmt.pix_mp.height;
-	u32 width = f->fmt.pix_mp.width;
+	u32 width, height;
+
+	iris_vpu_dec_coded_dimensions(inst, &width, &height);
 
 	if (inst->fw_min_count)
 		num_comv = inst->fw_min_count;
@@ -796,9 +809,9 @@ static u32 iris_vpu_dec_dpb_size(struct iris_inst *inst)
 static u32 iris_vpu_dec_non_comv_size(struct iris_inst *inst)
 {
 	u32 num_vpp_pipes = inst->core->iris_platform_data->num_vpp_pipe;
-	struct v4l2_format *f = inst->fmt_src;
-	u32 height = f->fmt.pix_mp.height;
-	u32 width = f->fmt.pix_mp.width;
+	u32 width, height;
+
+	iris_vpu_dec_coded_dimensions(inst, &width, &height);
 
 	if (inst->codec == V4L2_PIX_FMT_H264)
 		return hfi_buffer_non_comv_h264d(width, height, num_vpp_pipes);
@@ -811,11 +824,11 @@ static u32 iris_vpu_dec_non_comv_size(struct iris_inst *inst)
 static u32 iris_vpu_dec_line_size(struct iris_inst *inst)
 {
 	u32 num_vpp_pipes = inst->core->iris_platform_data->num_vpp_pipe;
-	struct v4l2_format *f = inst->fmt_src;
-	u32 height = f->fmt.pix_mp.height;
-	u32 width = f->fmt.pix_mp.width;
 	bool is_opb = false;
 	u32 out_min_count = inst->buffers[BUF_OUTPUT].min_count;
+	u32 width, height;
+
+	iris_vpu_dec_coded_dimensions(inst, &width, &height);
 
 	if (iris_split_mode_enabled(inst))
 		is_opb = true;
