@@ -1016,6 +1016,9 @@ static u32 iris_vpu_dec_partial_size(struct iris_inst *inst)
 	u32 height = f->fmt.pix_mp.height;
 	u32 width = f->fmt.pix_mp.width;
 
+	if (inst->codec != V4L2_PIX_FMT_AV1)
+		return 0;
+
 	return hfi_buffer_ibc_av1d(width, height);
 }
 
