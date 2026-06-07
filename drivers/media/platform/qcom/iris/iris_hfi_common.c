@@ -10,6 +10,11 @@
 #include "iris_hfi_common.h"
 #include "iris_vpu_common.h"
 
+struct iris_hfi_sfr {
+	u32 buf_size;
+	u8 data[];
+};
+
 u32 iris_hfi_get_v4l2_color_primaries(u32 hfi_primaries)
 {
 	switch (hfi_primaries) {
@@ -88,6 +93,27 @@ int iris_hfi_core_init(struct iris_core *core)
 		return ret;
 
 	return hfi_ops->sys_interframe_powercollapse(core);
+}
+
+void iris_hfi_sfr_print(struct iris_core *core)
+{
+	struct iris_hfi_sfr *sfr = core->sfr_vaddr;
+	u32 size, data_size;
+
+	if (!sfr)
+		return;
+
+	size = sfr->buf_size;
+	if (size <= sizeof(*sfr))
+		return;
+
+	if (size > SFR_SIZE)
+		size = SFR_SIZE;
+
+	data_size = size - sizeof(*sfr);
+
+	dev_err_ratelimited(core->dev, "SFR message from FW: %.*s\n",
+			    (int)data_size, sfr->data);
 }
 
 irqreturn_t iris_hfi_isr(int irq, void *data)

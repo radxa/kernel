@@ -280,6 +280,8 @@ static int iris_hfi_gen2_handle_system_error(struct iris_core *core,
 	if (pkt)
 		dev_err(core->dev, "received system error of type %#x\n", pkt->type);
 
+	iris_hfi_sfr_print(core);
+
 	core->state = IRIS_CORE_ERROR;
 
 	mutex_lock(&core->lock);
