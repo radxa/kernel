@@ -37,7 +37,7 @@
 
 /* Fields and values for the EMACTL registers */
 #define EMAC_SP_SEL_MASK		GENMASK(3, 0)
-#define SP_SEL_SGMII_2500M		4
+#define SP_SEL_2500BASEX		4
 #define SP_SEL_SGMII_1000M		5
 #define SP_SEL_SGMII_100M		6
 #define SP_SEL_SGMII_10M		7
@@ -131,11 +131,16 @@ struct tc956x_mac_speed {
 };
 
 static struct tc956x_mac_speed mac_speed[] = {
-	{ PHY_INTERFACE_MODE_2500BASEX,	SPEED_2500,  SP_SEL_SGMII_2500M, },
-	{ PHY_INTERFACE_MODE_SGMII,	SPEED_2500,  SP_SEL_SGMII_2500M, },
-	{ PHY_INTERFACE_MODE_SGMII,	SPEED_1000,  SP_SEL_SGMII_1000M, },
-	{ PHY_INTERFACE_MODE_SGMII,	SPEED_100,   SP_SEL_SGMII_100M, },
-	{ PHY_INTERFACE_MODE_SGMII,	SPEED_10,    SP_SEL_SGMII_10M, },
+	{ PHY_INTERFACE_MODE_2500BASEX,	SPEED_2500,  SP_SEL_2500BASEX },
+	/*
+	 * QCA808x switches its host interface to 2500BASE-X at 2.5G, but older
+	 * stmmac only passes speed to fix_mac_speed(). Legacy DTs therefore
+	 * still arrive here as SGMII, so program the 2500BASE-X selector.
+	 */
+	{ PHY_INTERFACE_MODE_SGMII,	SPEED_2500,  SP_SEL_2500BASEX },
+	{ PHY_INTERFACE_MODE_SGMII,	SPEED_1000,  SP_SEL_SGMII_1000M },
+	{ PHY_INTERFACE_MODE_SGMII,	SPEED_100,   SP_SEL_SGMII_100M },
+	{ PHY_INTERFACE_MODE_SGMII,	SPEED_10,    SP_SEL_SGMII_10M },
 };
 
 /* TC956x uses indirect addressing so this need only describe a 1KiB range */
