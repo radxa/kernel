@@ -5117,6 +5117,8 @@
 			iommus = <&apps_smmu 0x2180 0x20>;
 			memory-region = <&video_mem>;
 
+			dma-coherent;
+
 			status = "disabled";
 
 			venus_opp_table: opp-table {
