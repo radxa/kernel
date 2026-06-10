@@ -598,6 +598,11 @@ static int tc956x_mac_setup(void *apriv, struct mac_device_info *mac)
 
 	td = priv->plat->bsp_priv;
 
+	if (priv->plat->phy_interface == PHY_INTERFACE_MODE_USXGMII) {
+		priv->dma_conf.dma_rx_size = DMA_MAX_RX_SIZE;
+		priv->dma_conf.dma_tx_size = DMA_MAX_TX_SIZE;
+	}
+
 	/* dwxgmac301_dma_ops needs extending to provide DMA address translation */
 	dma = &td->dma;
 	*dma = dwxgmac301_dma_ops;
@@ -784,8 +789,16 @@ static int tc956x_plat_dat_init(struct tc956x_data *td)
 		min(TC956X_TX_FIFO_KB, 8 * plat->tx_queues_to_use) * SZ_1K;
 	plat->rx_fifo_size =
 		min(TC956X_RX_FIFO_KB, 8 * plat->rx_queues_to_use) * SZ_1K;
-	/* Cover in-flight frames while PCIe exits an ASPM low-power state. */
-	plat->rx_fifo_flow_ctrl_headroom = SZ_4K;
+	if (phy_interface == PHY_INTERFACE_MODE_USXGMII) {
+		/* Keep the receive FIFO available to the active DMA channel. */
+		plat->rx_queues_to_use = 1;
+		plat->tx_queues_to_use = 2;
+		plat->rx_fifo_size = 23 * SZ_1K;
+		plat->tx_fifo_size = SZ_16K;
+	}
+	/* Scale the PAUSE headroom with the maximum receive line rate. */
+	plat->rx_fifo_flow_ctrl_headroom =
+		speed == SPEED_10000 ? SZ_16K : SZ_4K;
 	plat->host_dma_width = 36;
 
 	plat->rx_sched_algorithm = MTL_RX_ALGORITHM_SP;
