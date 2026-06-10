@@ -27,6 +27,11 @@ static const int xpcs_usxgmii_features[] = {
 	ETHTOOL_LINK_MODE_10000baseKX4_Full_BIT,
 	ETHTOOL_LINK_MODE_10000baseKR_Full_BIT,
 	ETHTOOL_LINK_MODE_2500baseX_Full_BIT,
+	ETHTOOL_LINK_MODE_100baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_1000baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_2500baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_5000baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_10000baseT_Full_BIT,
 	__ETHTOOL_LINK_MODE_MASK_NBITS,
 };
 
@@ -985,6 +990,44 @@ static int xpcs_config_2500basex(struct dw_xpcs *xpcs)
 			   BMCR_SPEED1000);
 }
 
+static int xpcs_config_usxgmii(struct dw_xpcs *xpcs)
+{
+	int ret, val;
+
+	/* Select the 10GBASE-R PCS type used as the base for USXGMII */
+	ret = xpcs_modify(xpcs, MDIO_MMD_PCS, MDIO_CTRL2,
+			  MDIO_PCS_CTRL2_TYPE, MDIO_PCS_CTRL2_10GBR);
+	if (ret < 0)
+		return ret;
+
+	/* Enable USXGMII and select the 10G USXGMII baud mode. The DW XPCS
+	 * does not do this on its own for USXGMII, and without it the SerDes
+	 * block-locks but no USXGMII frames are decoded (RX stays dead).
+	 */
+	ret = xpcs_modify_vpcs(xpcs, DW_VR_XS_PCS_DIG_CTRL1,
+			       DW_USXGMII_EN, DW_USXGMII_EN);
+	if (ret < 0)
+		return ret;
+
+	ret = xpcs_modify_vpcs(xpcs, DW_VR_XS_PCS_KR_CTRL,
+			       DW_USXG_MODE, DW_USXG_MODE_10G);
+	if (ret < 0)
+		return ret;
+
+	/* Apply the configuration with a vendor soft reset and wait for it
+	 * to self-clear.
+	 */
+	ret = xpcs_modify_vpcs(xpcs, DW_VR_XS_PCS_DIG_CTRL1,
+			       DW_VR_RST, DW_VR_RST);
+	if (ret < 0)
+		return ret;
+
+	return read_poll_timeout(xpcs_read_vpcs, val,
+				 val < 0 || !(val & DW_VR_RST),
+				 1000, 50000, false,
+				 xpcs, DW_VR_XS_PCS_DIG_CTRL1);
+}
+
 static int xpcs_do_config(struct dw_xpcs *xpcs, phy_interface_t interface,
 			  const unsigned long *advertising,
 			  unsigned int neg_mode)
@@ -995,6 +1038,12 @@ static int xpcs_do_config(struct dw_xpcs *xpcs, phy_interface_t interface,
 	compat = xpcs_find_compat(xpcs, interface);
 	if (!compat)
 		return -ENODEV;
+
+	if (interface == PHY_INTERFACE_MODE_USXGMII) {
+		ret = xpcs_config_usxgmii(xpcs);
+		if (ret < 0)
+			return ret;
+	}
 
 	ret = xpcs_config_operating_mode(xpcs, compat->an_mode);
 	if (ret < 0)

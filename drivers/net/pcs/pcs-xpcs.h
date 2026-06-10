@@ -24,6 +24,11 @@
 #define DW_PSEQ_ST			GENMASK(4, 2)
 #define DW_PSEQ_ST_GOOD			FIELD_PREP(GENMASK(4, 2), 0x4)
 
+/* VR_XS_PCS_KR_CTRL - selects the USXGMII baud/mode (10G/5G/2.5G) */
+#define DW_VR_XS_PCS_KR_CTRL		0x001c
+#define DW_USXG_MODE			GENMASK(12, 10)
+#define DW_USXG_MODE_10G		0x0
+
 /* SR_MII */
 #define DW_USXGMII_FULL			BIT(8)
 #define DW_USXGMII_SS_MASK		(BIT(13) | BIT(6) | BIT(5))
