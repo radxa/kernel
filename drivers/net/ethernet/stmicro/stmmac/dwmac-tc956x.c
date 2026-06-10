@@ -32,8 +32,8 @@
 
 #define TC956X_PTP_CLOCK_RATE		(250 * HZ_PER_MHZ)
 
-#define TC956X_RX_FIFO_KB		46	/* Shared by all RX queues */
-#define TC956X_TX_FIFO_KB		46	/* Shared by all TX queues */
+#define TC956X_RX_FIFO_KB		32	/* Shared by all RX queues */
+#define TC956X_TX_FIFO_KB		8	/* Shared by all TX queues */
 
 /* Fields and values for the EMACTL registers */
 #define EMAC_SP_SEL_MASK		GENMASK(3, 0)
@@ -216,6 +216,19 @@ static void tc956x_msigen_irq_chip_exit(struct irq_chip_generic *gc)
 static int tc956x_msigen_irq_domain_init(struct irq_domain *irq_domain)
 {
 	struct tc956x_data *td = irq_domain->host_data;
+	unsigned int cpu, last_cpu = 0, prev_cpu = 0;
+
+	for_each_cpu(cpu, cpu_online_mask) {
+		prev_cpu = last_cpu;
+		last_cpu = cpu;
+	}
+
+	if (cpumask_weight(cpu_online_mask) > 1)
+		cpu = prev_cpu;
+	else
+		cpu = last_cpu;
+
+	irq_set_affinity_and_hint(td->auxbus_data->msigen_irq, cpumask_of(cpu));
 
 	irq_set_chained_handler_and_data(td->auxbus_data->msigen_irq,
 					 tc956x_msigen_irq_handler,
@@ -496,6 +509,13 @@ static int tc956x_mac_setup(void *apriv, struct mac_device_info *mac)
 
 	td = priv->plat->bsp_priv;
 
+	/* 10G USXGMII traffic needs the maximum descriptor ring to avoid
+	 * starving the DMA path. Keep this TC956X-specific instead of raising
+	 * stmmac's global defaults for every platform.
+	 */
+	priv->dma_conf.dma_rx_size = DMA_MAX_RX_SIZE;
+	priv->dma_conf.dma_tx_size = DMA_MAX_TX_SIZE;
+
 	/* dwxgmac301_dma_ops needs extending to provide DMA address translation */
 	dma = &td->dma;
 	*dma = dwxgmac301_dma_ops;
@@ -664,17 +684,12 @@ static int tc956x_plat_dat_init(struct tc956x_data *td)
 	plat->unicast_filter_entries = 32;
 
 	/*
-	 * TC956x has 8 RX queues but we observe significantly reduced RX
-	 * bandwidth if we don't have at least 8k FIFO space per queue, so
-	 * by default we avoid using all the queues.
+	 * Use a single ordinary RX/TX queue and give it the whole FIFO partition.
+	 * TC956X partitions FIFO per function; exposing multiple stmmac queues makes
+	 * the core split this budget and leaves the active queue too small for 10G.
 	 */
-	plat->rx_queues_to_use = 4;
-
-	/*
-	 * TX956x has 8 TX queues but only #0 to #3 work for general IP traffic.
-	 * For now we will limit the driver to only these queues.
-	 */
-	plat->tx_queues_to_use = 4;
+	plat->rx_queues_to_use = 1;
+	plat->tx_queues_to_use = 1;
 
 	/*
 	 * Oversized FIFOs result in reduced performance in bandwidth tests.
@@ -714,7 +729,7 @@ static int tc956x_plat_dat_init(struct tc956x_data *td)
 
 	/* AXI Configuration */
 	axi = &td->axi;
-	axi->axi_lpi_en = 1;
+	axi->axi_lpi_en = 0;
 	axi->axi_wr_osr_lmt = 31;
 	axi->axi_rd_osr_lmt = 31;
 	/* All sizes (2^2..2^8) are supported */
