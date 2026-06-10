@@ -79,9 +79,9 @@ config SFP
 comment "MII PHY device drivers"
 
 config AS21XXX_PHY
-	tristate "Aeonsemi AS21xxx PHYs"
+	tristate "Aeonsemi AS21xxx and AS22xxx PHYs"
 	help
-	  Currently supports the Aeonsemi AS21xxx PHY.
+	  Supports the Aeonsemi AS21xxx and AS22xxx Ethernet PHYs.
 
 	  These are C45 PHYs 10G that require all a generic firmware.
 
