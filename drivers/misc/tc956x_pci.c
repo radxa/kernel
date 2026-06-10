@@ -414,6 +414,7 @@ static int function_xgmac_adev_add(struct pci_dev *pdev,
 	data->msigen_irq = msigen_irq;
 	data->emac = sfr + DWMAC_OFFSET(mac_id);
 	data->emac_ctl = sfr + EMAC_CTL_OFFSET(mac_id);
+	data->sfr = sfr;
 	data->rev_id = chip->rev_id;
 	data->mac_id = mac_id;
 
