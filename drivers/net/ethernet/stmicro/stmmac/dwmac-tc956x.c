@@ -41,11 +41,21 @@
 #define SP_SEL_SGMII_1000M		5
 #define SP_SEL_SGMII_100M		6
 #define SP_SEL_SGMII_10M		7
+#define SP_SEL_USXGMII_10G		8
+#define SP_SEL_USXGMII_5G		9
+#define SP_SEL_USXGMII_2500M		11
 #define EMAC_PHY_INF_SEL_MASK		GENMASK(5, 4)
 #define PCS_CLK_PHY			1	/* Clock from PHY */
 #define EMAC_INV_SGM_SIG_DET		BIT(6)	/* 1 = polarity inverted */
 #define EMAC_LPIHWCLKEN			BIT(8)	/* 1 = low power mode */
 #define EMAC_INIT_DONE			BIT(21)
+
+#define MISC_CTL_OFFSET			0x1800
+#define MISC_SP_ETH0_MASK		GENMASK(18, 16)
+#define MISC_SP_ETH1_MASK		GENMASK(26, 24)
+#define MISC_SP_ETH_1G			1
+#define MISC_SP_ETH_100M			3
+#define MISC_SP_ETH_10M			7
 
 /* MSIGEN Registers */
 #define MSI_OUT_EN_OFFSET		0x0000
@@ -131,6 +141,12 @@ struct tc956x_mac_speed {
 };
 
 static struct tc956x_mac_speed mac_speed[] = {
+	{ PHY_INTERFACE_MODE_USXGMII,	SPEED_10000, SP_SEL_USXGMII_10G, },
+	{ PHY_INTERFACE_MODE_USXGMII,	SPEED_5000,  SP_SEL_USXGMII_5G, },
+	{ PHY_INTERFACE_MODE_USXGMII,	SPEED_2500,  SP_SEL_USXGMII_2500M, },
+	{ PHY_INTERFACE_MODE_USXGMII,	SPEED_1000,  SP_SEL_USXGMII_10G, },
+	{ PHY_INTERFACE_MODE_USXGMII,	SPEED_100,   SP_SEL_USXGMII_5G, },
+	{ PHY_INTERFACE_MODE_USXGMII,	SPEED_10,    SP_SEL_USXGMII_5G, },
 	{ PHY_INTERFACE_MODE_2500BASEX,	SPEED_2500,  SP_SEL_SGMII_2500M, },
 	{ PHY_INTERFACE_MODE_SGMII,	SPEED_2500,  SP_SEL_SGMII_2500M, },
 	{ PHY_INTERFACE_MODE_SGMII,	SPEED_1000,  SP_SEL_SGMII_1000M, },
@@ -291,7 +307,6 @@ static void tc956x_pma_init(struct tc956x_data *td)
 static int tc956x_mac_speed_select(struct tc956x_data *td, int speed)
 {
 	phy_interface_t phy_interface = td->plat->phy_interface;
-	struct net_device *netdev;
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(mac_speed); i++) {
@@ -301,9 +316,8 @@ static int tc956x_mac_speed_select(struct tc956x_data *td, int speed)
 		if (mac_speed[i].phy_interface == phy_interface)
 			return mac_speed[i].sp_sel;
 	}
-	netdev = dev_get_drvdata(td->dev);
-	netdev_err(netdev, "%s/%d unsupported\n",
-		   phy_modes(phy_interface), speed);
+	dev_err(td->dev, "%s/%d unsupported\n",
+		phy_modes(phy_interface), speed);
 
 	return -EOPNOTSUPP;
 }
@@ -311,6 +325,8 @@ static int tc956x_mac_speed_select(struct tc956x_data *td, int speed)
 static int tc956x_mac_configure(struct tc956x_data *td, int speed)
 {
 	void __iomem *emac_ctl = td->auxbus_data->emac_ctl;
+	void __iomem *misc_ctl = td->auxbus_data->sfr + MISC_CTL_OFFSET;
+	u32 rate = 0;
 	int sp_sel;
 	u32 val;
 
@@ -324,6 +340,27 @@ static int tc956x_mac_configure(struct tc956x_data *td, int speed)
 	val = u32_replace_bits(val, PCS_CLK_PHY, EMAC_PHY_INF_SEL_MASK);
 	val = u32_replace_bits(val, sp_sel, EMAC_SP_SEL_MASK);
 	writel(val, emac_ctl);
+
+	if (td->plat->phy_interface == PHY_INTERFACE_MODE_USXGMII) {
+		switch (speed) {
+		case SPEED_1000:
+			rate = MISC_SP_ETH_1G;
+			break;
+		case SPEED_100:
+			rate = MISC_SP_ETH_100M;
+			break;
+		case SPEED_10:
+			rate = MISC_SP_ETH_10M;
+			break;
+		}
+
+		val = readl(misc_ctl);
+		if (td->auxbus_data->mac_id)
+			val = u32_replace_bits(val, rate, MISC_SP_ETH1_MASK);
+		else
+			val = u32_replace_bits(val, rate, MISC_SP_ETH0_MASK);
+		writel(val, misc_ctl);
+	}
 
 	return 0;
 }
@@ -340,6 +377,14 @@ static int tc956x_mac_enable(struct tc956x_data *td)
 	tc956x_clock_enable(chip, id, MAC_CLOCK_ALL);
 	if (id)
 		tc956x_clock_enable(chip, id, MAC_CLOCK_RMII);
+
+	if (plat->phy_interface == PHY_INTERFACE_MODE_USXGMII) {
+		tc956x_common_clock_enable(chip, COMMON_CLOCK_PLL);
+		tc956x_common_clock_enable(chip, COMMON_CLOCK_SGMII);
+		tc956x_common_clock_enable(chip, COMMON_CLOCK_REFCLK);
+		tc956x_clock_enable(chip, id, MAC_CLOCK_125M);
+		tc956x_clock_enable(chip, id, MAC_CLOCK_312_5M);
+	}
 
 	/* Set the speed related registers */
 	ret = tc956x_mac_configure(td, plat->max_speed);
@@ -367,6 +412,10 @@ static void tc956x_mac_disable(struct tc956x_data *td)
 	tc956x_clock_disable(chip, id, MAC_CLOCK_TX);
 	if (id)
 		tc956x_clock_disable(chip, id, MAC_CLOCK_RMII);
+
+	/* The shared SerDes clocks can still be in use by the other MAC. */
+	tc956x_clock_disable(chip, id, MAC_CLOCK_125M);
+	tc956x_clock_disable(chip, id, MAC_CLOCK_312_5M);
 }
 
 static void tc956x_mac_init_state(struct tc956x_data *td)
@@ -510,6 +559,8 @@ static void tc956x_fix_mac_speed(void *bsp_priv, phy_interface_t interface,
 	struct tc956x_data *td = bsp_priv;
 
 	tc956x_mac_configure(td, speed);
+	if (td->plat->phy_interface == PHY_INTERFACE_MODE_USXGMII)
+		return;
 	tc956x_pma_init(td);
 }
 
@@ -559,6 +610,9 @@ static int tc956x_dwmac_parse_dt(struct tc956x_data *td)
 static int tc956x_lookup_max_speed(phy_interface_t phy_interface)
 {
 	switch (phy_interface) {
+	case PHY_INTERFACE_MODE_USXGMII:
+		return SPEED_10000;
+
 	case PHY_INTERFACE_MODE_SGMII:
 	case PHY_INTERFACE_MODE_2500BASEX:
 		return SPEED_2500;
