@@ -10,7 +10,9 @@
 
 #include <linux/auxiliary_bus.h>
 #include <linux/bitops.h>
+#include <linux/delay.h>
 #include <linux/etherdevice.h>
+#include <linux/gpio/consumer.h>
 #include <linux/iopoll.h>
 #include <linux/irqdomain.h>
 #include <linux/irqchip/chained_irq.h>
@@ -622,6 +624,29 @@ static int tc956x_dwmac_parse_dt(struct tc956x_data *td)
 	return 0;
 }
 
+static void tc956x_deassert_phy_resets(struct tc956x_data *td)
+{
+	struct device_node *child;
+	struct gpio_desc *reset;
+	u32 delay_us;
+
+	if (!td->plat->mdio_node)
+		return;
+
+	for_each_available_child_of_node(td->plat->mdio_node, child) {
+		reset = fwnode_gpiod_get_index(of_fwnode_handle(child), "reset", 0,
+						   GPIOD_OUT_LOW, "phy-reset");
+		if (IS_ERR(reset))
+			continue;
+
+		gpiod_set_value_cansleep(reset, 0);
+		gpiod_put(reset);
+
+		if (!of_property_read_u32(child, "reset-deassert-us", &delay_us))
+			fsleep(delay_us);
+	}
+}
+
 static int tc956x_lookup_max_speed(phy_interface_t phy_interface)
 {
 	switch (phy_interface) {
@@ -807,6 +832,8 @@ static int tc956x_dwmac_probe(struct auxiliary_device *adev,
 
 	/* Put the MAC in a known initial state */
 	tc956x_mac_init_state(td);
+	tc956x_mac_enable(td);
+	tc956x_deassert_phy_resets(td);
 
 	ret = tc956x_stmmac_resources_init(td, &res);
 	if (ret)
