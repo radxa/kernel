@@ -7,6 +7,7 @@
 
 #include <linux/bitfield.h>
 #include <linux/firmware.h>
+#include <linux/iopoll.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/phy.h>
@@ -21,6 +22,9 @@
 							 BIT(_n))
 
 #define VEND1_FW_START_ADDR		0x100
+#define AS22XXX_AN_STATES1		0x8005
+#define AS22XXX_AN_STATES1_ARB_MASK	GENMASK(15, 12)
+#define AS22XXX_LINK_GOOD		9
 
 #define VEND1_GLB_REG_MDIO_INDIRECT_ADDRCMD 0x101
 #define VEND1_GLB_REG_MDIO_INDIRECT_LOAD 0x102
@@ -139,6 +143,7 @@
 #define PHY_ID_AS21510PB1		0x75009472
 #define PHY_ID_AS21210JB1		0x75009482
 #define PHY_ID_AS21210PB1		0x75009492
+#define PHY_ID_AS22XXX			0x750094a1
 #define PHY_VENDOR_AEONSEMI		0x75009400
 
 #define AEON_MAX_LEDS			5
@@ -768,6 +773,139 @@ static int as21xxx_read_status(struct phy_device *phydev)
 	return 0;
 }
 
+static int as22xxx_read_link(struct phy_device *phydev, int *bmcr)
+{
+	int status = 0;
+	bool link_up;
+
+	*bmcr = phy_read_mmd(phydev, MDIO_MMD_AN,
+			     AS21XXX_MDIO_AN_C22 + MII_BMCR);
+	if (*bmcr < 0)
+		return *bmcr;
+
+	if (*bmcr & BMCR_ANRESTART)
+		goto done;
+
+	status = phy_read_mmd(phydev, MDIO_MMD_AN, AS22XXX_AN_STATES1);
+	if (status < 0)
+		return status;
+
+done:
+	link_up = FIELD_GET(AS22XXX_AN_STATES1_ARB_MASK, status) ==
+		  AS22XXX_LINK_GOOD;
+	phydev->link = link_up;
+	phydev->autoneg_complete = link_up;
+
+	if (phydev->autoneg == AUTONEG_ENABLE && !phydev->autoneg_complete)
+		phydev->link = 0;
+
+	return 0;
+}
+
+static int as22xxx_read_lpa(struct phy_device *phydev)
+{
+	int lpa, ret;
+
+	if (phydev->autoneg == AUTONEG_ENABLE && !phydev->autoneg_complete) {
+		mii_stat1000_mod_linkmode_lpa_t(phydev->lp_advertising, 0);
+		mii_lpa_mod_linkmode_lpa_t(phydev->lp_advertising, 0);
+		return 0;
+	}
+
+	ret = as21xxx_read_c22_lpa(phydev);
+	if (ret)
+		return ret;
+
+	lpa = phy_read_mmd(phydev, MDIO_MMD_AN,
+			   AS21XXX_MDIO_AN_C22 + MII_LPA);
+	if (lpa < 0)
+		return lpa;
+
+	mii_lpa_mod_linkmode_lpa_t(phydev->lp_advertising, lpa);
+
+	lpa = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_10GBT_STAT);
+	if (lpa < 0)
+		return lpa;
+
+	mii_10gbt_stat_mod_linkmode_lpa_t(phydev->lp_advertising, lpa);
+
+	return 0;
+}
+
+static void as22xxx_read_speed(struct phy_device *phydev, int bmcr)
+{
+	int speed;
+
+	speed = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_SPEED_STATUS);
+	if (speed < 0)
+		return;
+
+	speed &= VEND1_SPEED_MASK;
+	if (speed == VEND1_SPEED_10000) {
+		phydev->speed = SPEED_10000;
+		phydev->duplex = DUPLEX_FULL;
+	} else if (speed == VEND1_SPEED_5000) {
+		phydev->speed = SPEED_5000;
+		phydev->duplex = DUPLEX_FULL;
+	} else if (speed == VEND1_SPEED_2500) {
+		phydev->speed = SPEED_2500;
+		phydev->duplex = DUPLEX_FULL;
+	} else if (speed == VEND1_SPEED_1000) {
+		phydev->speed = SPEED_1000;
+		if (bmcr & BMCR_FULLDPLX)
+			phydev->duplex = DUPLEX_FULL;
+		else
+			phydev->duplex = DUPLEX_HALF;
+	} else if (speed == VEND1_SPEED_100) {
+		phydev->speed = SPEED_100;
+		if (bmcr & BMCR_FULLDPLX)
+			phydev->duplex = DUPLEX_FULL;
+		else
+			phydev->duplex = DUPLEX_HALF;
+	} else {
+		phydev->speed = SPEED_10;
+		phydev->duplex = DUPLEX_FULL;
+	}
+}
+
+static int as22xxx_read_status(struct phy_device *phydev)
+{
+	int bmcr, old_link = phydev->link;
+	int ret;
+
+	ret = as22xxx_read_link(phydev, &bmcr);
+	if (ret)
+		return ret;
+
+	if (phydev->autoneg == AUTONEG_ENABLE && old_link && phydev->link)
+		return 0;
+
+	phydev->speed = SPEED_UNKNOWN;
+	phydev->duplex = DUPLEX_UNKNOWN;
+	phydev->pause = 0;
+	phydev->asym_pause = 0;
+
+	if (phydev->autoneg == AUTONEG_ENABLE) {
+		ret = genphy_c45_read_lpa(phydev);
+		if (ret)
+			return ret;
+
+		ret = as22xxx_read_lpa(phydev);
+		if (ret)
+			return ret;
+
+		if (phydev->autoneg_complete) {
+			as22xxx_read_speed(phydev, bmcr);
+			phy_resolve_aneg_linkmode(phydev);
+		}
+	} else {
+		linkmode_zero(phydev->lp_advertising);
+		as22xxx_read_speed(phydev, bmcr);
+	}
+
+	return 0;
+}
+
 static int as21xxx_led_brightness_set(struct phy_device *phydev,
 				      u8 index, enum led_brightness value)
 {
@@ -943,6 +1081,71 @@ out:
 	return ret;
 }
 
+static int as22xxx_match_phy_device(struct phy_device *phydev,
+				    const struct phy_driver *phydrv)
+{
+	u32 phy_id;
+	int ret;
+
+	ret = phy_read_mmd(phydev, MDIO_MMD_PMAPMD, MII_PHYSID1);
+	if (ret < 0)
+		return ret;
+	phy_id = ret << 16;
+
+	ret = phy_read_mmd(phydev, MDIO_MMD_PMAPMD, MII_PHYSID2);
+	if (ret < 0)
+		return ret;
+	phy_id |= ret;
+
+	return phy_id == PHY_ID_AS22XXX;
+}
+
+static int as22xxx_probe(struct phy_device *phydev)
+{
+	struct as21xxx_priv *priv;
+	int ret;
+
+	/* Gen2 keeps its generic PHY ID before and after firmware load and may
+	 * expose only PMA/PMD initially. Force the MMD bitmap used by generic C45
+	 * helpers, then load firmware from probe and wait for IPC to come alive.
+	 */
+	phydev->c45_ids.mmds_present |= MDIO_DEVS_PMAPMD | MDIO_DEVS_PCS |
+					MDIO_DEVS_AN;
+
+	priv = devm_kzalloc(&phydev->mdio.dev,
+			    sizeof(*priv), GFP_KERNEL);
+	if (!priv)
+		return -ENOMEM;
+	phydev->priv = priv;
+
+	ret = devm_mutex_init(&phydev->mdio.dev,
+			      &priv->ipc_lock);
+	if (ret)
+		return ret;
+
+	ret = aeon_firmware_load(phydev);
+	if (ret)
+		return ret;
+
+	ret = read_poll_timeout(aeon_ipc_sync_parity, ret, !ret,
+				0, 10000000, false, phydev, priv);
+	if (ret) {
+		phydev_err(phydev, "timed out waiting for firmware boot\n");
+		return ret;
+	}
+
+	ret = aeon_ipc_get_fw_version(phydev);
+	if (ret)
+		return ret;
+
+	ret = phy_set_bits_mmd(phydev, MDIO_MMD_VEND1, VEND1_PTP_CLK,
+			       VEND1_PTP_CLK_EN);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
 static struct phy_driver as21xxx_drivers[] = {
 	{
 		/* PHY expose in C45 as 0x7500 0x9410
@@ -1068,6 +1271,18 @@ static struct phy_driver as21xxx_drivers[] = {
 		.probe		= as21xxx_probe,
 		.match_phy_device = as21xxx_match_phy_device,
 		.read_status	= as21xxx_read_status,
+		.led_brightness_set = as21xxx_led_brightness_set,
+		.led_hw_is_supported = as21xxx_led_hw_is_supported,
+		.led_hw_control_set = as21xxx_led_hw_control_set,
+		.led_hw_control_get = as21xxx_led_hw_control_get,
+		.led_polarity_set = as21xxx_led_polarity_set,
+	},
+	{
+		PHY_ID_MATCH_EXACT(PHY_ID_AS22XXX),
+		.name		= "Aeonsemi AS22XXX",
+		.probe		= as22xxx_probe,
+		.match_phy_device = as22xxx_match_phy_device,
+		.read_status	= as22xxx_read_status,
 		.led_brightness_set = as21xxx_led_brightness_set,
 		.led_hw_is_supported = as21xxx_led_hw_is_supported,
 		.led_hw_control_set = as21xxx_led_hw_control_set,
