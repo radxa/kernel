@@ -96,7 +96,7 @@
 	};
 
 	pmic-glink {
-		compatible = "qcom,sc8280xp-pmic-glink", "qcom,pmic-glink";
+		compatible = "radxa,batteryless-pmic-glink", "qcom,sc8280xp-pmic-glink", "qcom,pmic-glink";
 
 		#address-cells = <1>;
 		#size-cells = <0>;

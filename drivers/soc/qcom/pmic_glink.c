@@ -387,7 +387,11 @@ static const unsigned long pmic_glink_sm8450_client_mask = BIT(PMIC_GLINK_CLIENT
 							   BIT(PMIC_GLINK_CLIENT_ALTMODE) |
 							   BIT(PMIC_GLINK_CLIENT_UCSI);
 
+static const unsigned long pmic_glink_batteryless_client_mask = BIT(PMIC_GLINK_CLIENT_ALTMODE) |
+							   BIT(PMIC_GLINK_CLIENT_UCSI);
+
 static const struct of_device_id pmic_glink_of_match[] = {
+	{ .compatible = "radxa,batteryless-pmic-glink", .data = &pmic_glink_batteryless_client_mask },
 	{ .compatible = "qcom,pmic-glink", .data = &pmic_glink_sm8450_client_mask },
 	{}
 };
