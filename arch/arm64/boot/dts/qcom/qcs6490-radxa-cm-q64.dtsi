@@ -168,6 +168,11 @@
 			no-map;
 		};
 
+		video_mem: video@85b00000 {
+			reg = <0x0 0x85b00000 0x0 0x700000>;
+			no-map;
+		};
+
 		adsp_mem: adsp@8b800000 {
 			reg = <0x0 0x8b800000 0x0 0x2800000>;
 			no-map;
@@ -175,11 +180,6 @@
 
 		cdsp_mem: cdsp@8e000000 {
 			reg = <0x0 0x8e000000 0x0 0x1e00000>;
-			no-map;
-		};
-
-		video_mem: video@8fe00000 {
-			reg = <0x0 0x8fe00000 0x0 0x500000>;
 			no-map;
 		};
 
@@ -211,6 +211,10 @@
 		adsp_rpc_remote_heap_mem: adsp-rpc-remote-heap@c6500000 {
 			reg = <0x0 0xc6500000 0x0 0x800000>;
 			no-map;
+		};
+
+		iris_iova: iris-iova {
+			iommu-addresses = <&venus 0x0 0x0 0x0 0x25800000>;
 		};
 	};
 
@@ -1093,6 +1097,9 @@
 };
 
 &venus {
+	firmware-name = "qcom/vpu/vpu20_p1_gen2_s6.mbn";
+	memory-region = <&video_mem>, <&iris_iova>;
+
 	status = "okay";
 };
 
