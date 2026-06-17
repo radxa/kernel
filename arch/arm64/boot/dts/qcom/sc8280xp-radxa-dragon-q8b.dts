@@ -443,7 +443,7 @@
 		pmc8280c-thermal {
 			cooling-maps {
 				map0 {
-					trip = <&pmc8280c_alert0>;
+					trip = <&pmc8280c_alert1>;
 					/* Throttle X1C cores to 2496MHz at 105C */
 					cooling-device = <&cpu4 5 5>,
 							 <&cpu5 5 5>,
@@ -453,7 +453,13 @@
 			};
 
 			trips {
-				pmc8280c_alert0: trip2 {
+				pmc8280c_alert0: trip0 {
+					temperature = <95000>;
+					hysteresis = <0>;
+					type = "passive";
+				};
+
+				pmc8280c_alert1: trip1 {
 					temperature = <105000>;
 					hysteresis = <0>;
 					type = "passive";
