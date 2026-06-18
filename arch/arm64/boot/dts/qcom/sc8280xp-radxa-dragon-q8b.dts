@@ -797,6 +797,7 @@
 		pagesize = <16>;
 		vcc-supply = <&vreg_s10b>;
 		wp-gpios = <&tlmm 3 GPIO_ACTIVE_LOW>;
+		read-only;
 
 		nvmem-layout {
 			compatible = "fixed-layout";
