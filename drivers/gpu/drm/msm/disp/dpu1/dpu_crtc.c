@@ -1443,16 +1443,20 @@ static int dpu_crtc_assign_resources(struct drm_crtc *crtc,
 	int ret;
 
 	/*
-	 * Release and Allocate resources on every modeset
+	 * When disabling a CRTC, release all its hardware resources.
+	 * When re-reserving for an enabled CRTC (e.g. during modeset),
+	 * do NOT release first — dpu_rm_reserve will prefer the existing
+	 * assignment, preventing unnecessary block migration that can
+	 * break vblank IRQ registration.
 	 */
 	global_state = dpu_kms_get_global_state(crtc_state->state);
 	if (IS_ERR(global_state))
 		return PTR_ERR(global_state);
 
-	dpu_rm_release(global_state, crtc);
-
-	if (!crtc_state->enable)
+	if (!crtc_state->enable) {
+		dpu_rm_release(global_state, crtc);
 		return 0;
+	}
 
 	topology = dpu_crtc_get_topology(crtc, dpu_kms, crtc_state);
 	ret = dpu_rm_reserve(&dpu_kms->rm, global_state,
