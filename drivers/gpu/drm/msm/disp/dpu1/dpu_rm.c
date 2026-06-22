@@ -366,7 +366,63 @@ static int _dpu_rm_reserve_lms(struct dpu_rm *rm,
 		return -EINVAL;
 	}
 
-	/* Find a primary mixer */
+	/*
+	 * First pass: prefer LMs already assigned to this CRTC.
+	 * Skip the capability check — these LMs were already working
+	 * and may have been assigned under a different topology (e.g.
+	 * boot-time topology with num_dspp=0 vs hotplug topology with
+	 * num_dspp>0).  Changing the assignment would trigger an
+	 * unnecessary modeset and break vblank IRQ registration.
+	 */
+	for (i = 0; i < ARRAY_SIZE(rm->mixer_blks) &&
+			lm_count < topology->num_lm; i++) {
+		if (!rm->mixer_blks[i])
+			continue;
+
+		if (global_state->mixer_to_crtc_id[i] != crtc_id)
+			continue;
+
+		lm_count &= ~1;
+		lm_idx[lm_count] = i;
+
+		/*
+		 * For existing LMs, skip the connected-blocks check.
+		 * The HW was already configured and working; re-validating
+		 * against the current topology may reject valid assignments
+		 * (e.g. DSPP_-1 when topology->num_dspp changed).
+		 */
+		pp_idx[lm_count] = to_dpu_hw_mixer(rm->mixer_blks[i])->cap->pingpong - PINGPONG_0;
+		if (topology->num_dspp) {
+			int d = to_dpu_hw_mixer(rm->mixer_blks[i])->cap->dspp - DSPP_0;
+			dspp_idx[lm_count] = (d >= 0 && d < ARRAY_SIZE(rm->dspp_blks)) ? d : 0;
+		}
+
+		++lm_count;
+
+		/* Valid primary mixer found, find matching peer */
+		if (lm_count < topology->num_lm) {
+			int j = _dpu_rm_get_lm_peer(rm, i);
+
+			if (j < 0 || j < i)
+				continue;
+
+			if (!rm->mixer_blks[j])
+				continue;
+
+			if (global_state->mixer_to_crtc_id[j] != crtc_id)
+				continue;
+
+			lm_idx[lm_count] = j;
+			pp_idx[lm_count] = to_dpu_hw_mixer(rm->mixer_blks[j])->cap->pingpong - PINGPONG_0;
+			if (topology->num_dspp) {
+				int d = to_dpu_hw_mixer(rm->mixer_blks[j])->cap->dspp - DSPP_0;
+				dspp_idx[lm_count] = (d >= 0 && d < ARRAY_SIZE(rm->dspp_blks)) ? d : 0;
+			}
+			++lm_count;
+		}
+	}
+
+	/* Second pass: find LMs from the free pool */
 	for (i = 0; i < ARRAY_SIZE(rm->mixer_blks) &&
 			lm_count < topology->num_lm; i++) {
 		if (!rm->mixer_blks[i])
@@ -452,7 +508,37 @@ static int _dpu_rm_reserve_ctls(
 		needs_split_display = false;
 	}
 
-	for (j = 0; j < ARRAY_SIZE(rm->ctl_blks); j++) {
+	/*
+	 * First pass: prefer CTLs already assigned to this CRTC.
+	 * This avoids unnecessary reassignment when another CRTC
+	 * releases its CTL (e.g. during hot-unplug), which would
+	 * otherwise cause the lowest-numbered free CTL to be
+	 * picked and trigger a spurious modeset on this CRTC.
+	 */
+	for (j = 0; j < ARRAY_SIZE(rm->ctl_blks) && i < num_ctls; j++) {
+		const struct dpu_hw_ctl *ctl;
+		unsigned long features;
+		bool has_split_display;
+
+		if (!rm->ctl_blks[j])
+			continue;
+		if (global_state->ctl_to_crtc_id[j] != crtc_id)
+			continue;
+
+		ctl = to_dpu_hw_ctl(rm->ctl_blks[j]);
+		features = ctl->caps->features;
+		has_split_display = BIT(DPU_CTL_SPLIT_DISPLAY) & features;
+
+		if (needs_split_display != has_split_display)
+			continue;
+
+		ctl_idx[i] = j;
+		DPU_DEBUG("CTL_%d match (existing)\n", j);
+		i++;
+	}
+
+	/* Second pass: fill remaining from free pool */
+	for (j = 0; j < ARRAY_SIZE(rm->ctl_blks) && i < num_ctls; j++) {
 		const struct dpu_hw_ctl *ctl;
 		unsigned long features;
 		bool has_split_display;
@@ -473,10 +559,7 @@ static int _dpu_rm_reserve_ctls(
 
 		ctl_idx[i] = j;
 		DPU_DEBUG("CTL_%d match\n", j);
-
-		if (++i == num_ctls)
-			break;
-
+		i++;
 	}
 
 	if (i != num_ctls)
