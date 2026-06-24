@@ -871,44 +871,6 @@
 	};
 };
 
-&qup_uart2_cts {
-	bias-bus-hold;
-};
-
-&qup_uart2_rts {
-	drive-strength = <2>;
-	bias-disable;
-};
-
-&qup_uart2_rx {
-	bias-pull-up;
-};
-
-&qup_uart2_tx {
-	drive-strength = <2>;
-	bias-disable;
-};
-
-&qup_uart18_cts {
-	drive-strength = <2>;
-	bias-disable;
-};
-
-&qup_uart18_rts {
-	drive-strength = <2>;
-	bias-disable;
-};
-
-&qup_uart18_tx {
-	drive-strength = <2>;
-	bias-disable;
-};
-
-&qup_uart18_rx {
-	drive-strength = <2>;
-	bias-disable;
-};
-
 &tlmm {
 	bt_default: bt-default-state {
 		hstp-bt-en-pins {

@@ -945,24 +945,6 @@
 	};
 };
 
-&qup_uart2_cts {
-	bias-bus-hold;
-};
-
-&qup_uart2_rts {
-	drive-strength = <2>;
-	bias-disable;
-};
-
-&qup_uart2_rx {
-	bias-pull-up;
-};
-
-&qup_uart2_tx {
-	drive-strength = <2>;
-	bias-disable;
-};
-
 &tlmm {
 	gpio-reserved-ranges = <74 6>, <83 4>, <125 2>, <128 2>, <154 7>;
 
