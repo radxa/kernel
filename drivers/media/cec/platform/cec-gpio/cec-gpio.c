@@ -8,6 +8,7 @@
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/seq_file.h>
 #include <media/cec-notifier.h>
 #include <media/cec-pin.h>
@@ -177,6 +178,7 @@ static int cec_gpio_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct device *hdmi_dev;
+	const char *port_name = NULL;
 	struct cec_gpio *cec;
 	u32 caps = CEC_CAP_DEFAULTS | CEC_CAP_MONITOR_ALL | CEC_CAP_MONITOR_PIN;
 	int ret;
@@ -184,8 +186,14 @@ static int cec_gpio_probe(struct platform_device *pdev)
 	hdmi_dev = cec_notifier_parse_hdmi_phandle(dev);
 	if (PTR_ERR(hdmi_dev) == -EPROBE_DEFER)
 		return PTR_ERR(hdmi_dev);
-	if (IS_ERR(hdmi_dev))
+	if (IS_ERR(hdmi_dev)) {
 		caps |= CEC_CAP_PHYS_ADDR;
+	} else if (device_property_present(dev, "port-name")) {
+		caps |= CEC_CAP_CONNECTOR_INFO;
+		ret = device_property_read_string(dev, "port-name", &port_name);
+		if (ret)
+			return ret;
+	}
 
 	cec = devm_kzalloc(dev, sizeof(*cec), GFP_KERNEL);
 	if (!cec)
@@ -242,7 +250,7 @@ static int cec_gpio_probe(struct platform_device *pdev)
 	}
 
 	if (!IS_ERR(hdmi_dev)) {
-		cec->notifier = cec_notifier_cec_adap_register(hdmi_dev, NULL,
+		cec->notifier = cec_notifier_cec_adap_register(hdmi_dev, port_name,
 							       cec->adap);
 		if (!cec->notifier) {
 			ret = -ENOMEM;
