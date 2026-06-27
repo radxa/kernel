@@ -231,7 +231,7 @@ static int lt8712sx_power_on(struct lt8712sx *lt8712sx)
 		gpiod_set_value_cansleep(lt8712sx->power_gpio, 1);
 
 	if (lt8712sx->reset_gpio)
-		gpiod_set_value_cansleep(lt8712sx->reset_gpio, 1);
+		gpiod_set_value_cansleep(lt8712sx->reset_gpio, 0);
 
 	lt8712sx->powered = true;
 
@@ -250,7 +250,7 @@ static void lt8712sx_power_off_action(void *data)
 		gpiod_set_value_cansleep(lt8712sx->enable_gpio, 0);
 
 	if (lt8712sx->reset_gpio)
-		gpiod_set_value_cansleep(lt8712sx->reset_gpio, 0);
+		gpiod_set_value_cansleep(lt8712sx->reset_gpio, 1);
 
 	if (lt8712sx->power_gpio)
 		gpiod_set_value_cansleep(lt8712sx->power_gpio, 0);
@@ -268,12 +268,12 @@ static int lt8712sx_hw_reset(struct lt8712sx *lt8712sx)
 	if (!lt8712sx->reset_gpio)
 		return 0;
 
-	gpiod_set_value_cansleep(lt8712sx->reset_gpio, 1);
-	msleep(5);
 	gpiod_set_value_cansleep(lt8712sx->reset_gpio, 0);
-	msleep(5);
+	msleep(100);
 	gpiod_set_value_cansleep(lt8712sx->reset_gpio, 1);
-	msleep(5);
+	msleep(100);
+	gpiod_set_value_cansleep(lt8712sx->reset_gpio, 0);
+	msleep(100);
 
 	return 0;
 }
@@ -1005,7 +1005,7 @@ static int lt8712sx_probe(struct i2c_client *client)
 				     "failed to get power GPIO\n");
 
 	lt8712sx->reset_gpio = devm_gpiod_get_optional(dev, "reset",
-						       GPIOD_OUT_LOW);
+						       GPIOD_OUT_HIGH);
 	if (IS_ERR(lt8712sx->reset_gpio))
 		return dev_err_probe(dev, PTR_ERR(lt8712sx->reset_gpio),
 				     "failed to get reset GPIO\n");
