@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/bridge/lontium,lt8712sx.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Lontium LT8712SX/LT8713SX eDP to HDMI Bridge
+
+maintainers:
+  - Chen Jiali <chenjiali@radxa.com>
+
+properties:
+  compatible:
+    enum:
+      - lontium,lt8712sx
+      - lontium,lt8713sx
+
+  reg:
+    maxItems: 1
+
+  cec-port-names:
+    $ref: /schemas/types.yaml#/definitions/string-array
+    description:
+      HDMI connector port names used to create named CEC notifiers for boards
+      that route multiple HDMI CEC lines to GPIO CEC adapters.
+    minItems: 1
+    maxItems: 2
+    uniqueItems: true
+
+  enable-gpios:
+    maxItems: 1
+
+  power-gpios:
+    maxItems: 1
+
+  pinctrl-0: true
+
+  pinctrl-names:
+    items:
+      - const: default
+
+  reset-gpios:
+    maxItems: 1
+
+  vdd-supply:
+    description: Power supply for the bridge.
+
+  ports:
+    $ref: /schemas/graph.yaml#/properties/ports
+
+    properties:
+      port@0:
+        $ref: /schemas/graph.yaml#/properties/port
+        description: eDP input port.
+
+      port@1:
+        $ref: /schemas/graph.yaml#/properties/port
+        description: HDMI output port.
+
+    required:
+      - port@0
+      - port@1
+
+required:
+  - compatible
+  - reg
+  - ports
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        hdmi-bridge@4f {
+            compatible = "lontium,lt8712sx";
+            reg = <0x4f>;
+            cec-port-names = "HDMI0", "HDMI1";
+            vdd-supply = <&vcc_3v3>;
+            reset-gpios = <&gpio 1 GPIO_ACTIVE_LOW>;
+
+            ports {
+                #address-cells = <1>;
+                #size-cells = <0>;
+
+                port@0 {
+                    reg = <0>;
+
+                    bridge_in: endpoint {
+                        remote-endpoint = <&edp_out>;
+                    };
+                };
+
+                port@1 {
+                    reg = <1>;
+
+                    bridge_out: endpoint {
+                        remote-endpoint = <&hdmi_connector_in>;
+                    };
+                };
+            };
+        };
+    };
+
+...
