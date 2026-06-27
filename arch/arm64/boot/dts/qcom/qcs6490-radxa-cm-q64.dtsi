@@ -45,6 +45,26 @@
 		stdout-path = "serial0:115200n8";
 	};
 
+	fan_pwm: fan-pwm {
+		compatible = "pwm-gpio";
+		gpios = <&tlmm 108 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&fan_pwm_cpu>;
+		pinctrl-names = "default";
+		#pwm-cells = <3>;
+	};
+
+	pwm_fan: pwm-fan {
+		pinctrl-0 = <&fan_tacho>;
+		pinctrl-names = "default";
+		compatible = "pwm-fan";
+		pwms = <&fan_pwm 0 20000 0>;
+		fan-supply = <&vcc_3v3>;
+		interrupt-parent = <&pm8350c_gpios>;
+		interrupts = <5 IRQ_TYPE_EDGE_FALLING>;
+		#cooling-cells = <2>;
+		cooling-levels = <0 120 150 180 210 240 255>;
+    };
+
 	wcd938x: audio-codec {
 		compatible = "qcom,wcd9380-codec";
 
@@ -141,6 +161,26 @@
 				remote-endpoint = <&hdmi_edp_bridge_out>;
 			};
 		};
+	};
+
+	/* HDMI0 CEC via GPIO_45 (HDMI0_CEC_CPU), bit-banged through TXS0108 level shifter */
+	cec-0 {
+		compatible = "cec-gpio";
+		cec-gpios = <&tlmm 45 (GPIO_ACTIVE_HIGH|GPIO_OPEN_DRAIN)>;
+		hdmi-phandle = <&lt8712sx>;
+		port-name = "HDMI0";
+		pinctrl-0 = <&cec0_gpio_default>;
+		pinctrl-names = "default";
+	};
+
+	/* HDMI1 CEC via GPIO_46 (HDMI1_CEC_CPU), bit-banged through TXS0108 level shifter */
+	cec-1 {
+		compatible = "cec-gpio";
+		cec-gpios = <&tlmm 46 (GPIO_ACTIVE_HIGH|GPIO_OPEN_DRAIN)>;
+		hdmi-phandle = <&lt8712sx>;
+		port-name = "HDMI1";
+		pinctrl-0 = <&cec1_gpio_default>;
+		pinctrl-names = "default";
 	};
 
 	leds {
@@ -266,8 +306,6 @@
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 		vin-supply = <&vreg_l7b_2p96>;
-
-		regulator-always-on;
 	};
 
 	vbus: regulator-vbus {
@@ -430,6 +468,18 @@
 						   RPMH_REGULATOR_MODE_HPM>;
 		};
 
+		vreg_l5c_1p62: ldo5 {
+			regulator-name = "vreg_l5c_1p62";
+			regulator-min-microvolt = <1620000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+			regulator-allow-set-load;
+			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
+						   RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-always-on;
+		};
+
 		vreg_l6c_2p96: ldo6 {
 			regulator-name = "vreg_l6c_2p96";
 			regulator-min-microvolt = <1650000>;
@@ -508,6 +558,11 @@
 	lt8712sx: hdmi-edp-bridge@4f {
 		compatible = "lontium,lt8712sx";
 		reg = <0x4f>;
+		cec-port-names = "HDMI0", "HDMI1";
+		vdd-supply = <&vcc_3v3s>;
+		reset-gpios = <&tlmm 110 GPIO_ACTIVE_LOW>;
+		pinctrl-0 = <&lt8712sx_reset_default>;
+		pinctrl-names = "default";
 
 		ports {
 			#address-cells = <1>;
@@ -541,6 +596,7 @@
 	rtc: rtc@68 {
 		compatible = "st,m41t11";
 		reg = <0x68>;
+		vcc-supply = <&vcc_3v3>;
 	};
 };
 
@@ -690,11 +746,18 @@
 			  "",
 			  "",
 			  "",
-			  "",
+			  "FAN_TACHO_IN",
 			  "",
 			  "LCD_BLEN",
 			  "LCD_BLPWM",
 			  "";
+
+	fan_tacho: fan-tacho-state {
+		pins = "gpio5";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		bias-disable;
+		power-source = <1>;
+	};
 
 	lcd_bl_en: lcd-bl-en-state {
 		pins = "gpio7";
@@ -902,7 +965,73 @@
 	};
 };
 
+&thermal_zones {
+	cpuss0-thermal {
+		polling-delay-passive = <250>;
+		trips {
+			cpuss0_active: trip-point2 {
+				temperature = <60000>;
+				hysteresis = <10000>;
+				type = "passive";
+			};
+		};
+
+		cooling-maps {
+			map2 {
+				trip = <&cpuss0_active>;
+				cooling-device = <&pwm_fan 0 THERMAL_NO_LIMIT>;
+			};
+		};
+	};
+
+	cpuss1-thermal {
+		polling-delay-passive = <250>;
+		trips {
+			cpuss1_active: trip-point2 {
+				temperature = <60000>;
+				hysteresis = <10000>;
+				type = "passive";
+			};
+		};
+
+		cooling-maps {
+			map2 {
+				trip = <&cpuss1_active>;
+				cooling-device = <&pwm_fan 0 THERMAL_NO_LIMIT>;
+			};
+		};
+	};
+};
+
 &tlmm {
+	fan_pwm_cpu: fan-ctr-pwm-state {
+		pins = "gpio108";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	lt8712sx_reset_default: lt8712sx-reset-default-state {
+		pins = "gpio110";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cec0_gpio_default: cec0-gpio-default-state {
+		pins = "gpio45";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cec1_gpio_default: cec1-gpio-default-state {
+		pins = "gpio46";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
 	pcie0_reset_n: pcie0-reset-n-state {
 		pins = "gpio87";
 		function = "gpio";

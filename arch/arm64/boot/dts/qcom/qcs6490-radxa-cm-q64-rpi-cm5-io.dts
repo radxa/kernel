@@ -10,82 +10,6 @@
 / {
 	model = "Radxa CM-Q64 Raspberry Pi Compute Module 5 IO Board";
 	compatible = "radxa,cm-q64-rpi-cm5-io", "radxa,cm-q64", "qcom,qcm6490";
-
-	fan_pwm: fan-pwm {
-		compatible = "pwm-gpio";
-		gpios = <&tlmm 106 GPIO_ACTIVE_HIGH>;
-		pinctrl-0 = <&fan_pwm_cpu>;
-		pinctrl-names = "default";
-		#pwm-cells = <3>;
-	};
-
-	pwm_fan: pwm-fan {
-		pinctrl-0 = <&fan_tacho>;
-		pinctrl-names = "default";
-		compatible = "pwm-fan";
-		pwms = <&fan_pwm 0 20000 0>;
-		fan-supply = <&vcc_3v3>;
-		interrupt-parent = <&pm8350c_gpios>;
-		interrupts = <5 IRQ_TYPE_EDGE_FALLING>;
-		#cooling-cells = <2>;
-		cooling-levels = <0 120 150 180 210 240 255>;
-    };
-};
-
-&pm8350c_gpios {
-	gpio-line-names = "",		/* 1 */
-			  "",
-			  "",
-			  "",
-			  "FAN_TACHO_IN",
-			  "",
-			  "LCD_BLEN",
-			  "LCD_BLPWM",
-			  "";
-
-	fan_tacho: fan-tacho-state {
-		pins = "gpio5";
-		function = PMIC_GPIO_FUNC_NORMAL;
-		bias-disable;
-		power-source = <1>;
-	};
-};
-
-
-&thermal_zones {
-	cpuss0-thermal {
-		trips {
-			cpuss0_active: trip-point2 {
-				temperature = <60000>;
-				hysteresis = <2000>;
-				type = "active";
-			};
-		};
-
-		cooling-maps {
-			map2 {
-				trip = <&cpuss0_active>;
-				cooling-device = <&pwm_fan THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
-			};
-		};
-	};
-
-	cpuss1-thermal {
-		trips {
-			cpuss1_active: trip-point2 {
-				temperature = <60000>;
-				hysteresis = <2000>;
-				type = "active";
-			};
-		};
-
-		cooling-maps {
-			map2 {
-				trip = <&cpuss1_active>;
-				cooling-device = <&pwm_fan THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
-			};
-		};
-	};
 };
 
 &tlmm {
@@ -182,11 +106,4 @@
 		"", "", "", "",
 		/* GPIO_172 ~ GPIO_174 */
 		"", "", "";
-
-	fan_pwm_cpu: fan-ctr-pwm-state {
-		pins = "gpio106";
-		function = "gpio";
-		bias-disable;
-		drive-strength = <16>;
-	};
 };
