@@ -15,15 +15,19 @@
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/of_graph.h>
+#include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
+#include <linux/string.h>
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_bridge.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
+
+#include <media/cec-notifier.h>
 
 #define LT8712SX_PAGE_SIZE			256
 #define LT8712SX_MAIN_FW_SIZE			SZ_64K
@@ -43,6 +47,8 @@
 #define LT8712SX_BLOCK_ERASE_DELAY_MS		100
 #define LT8712SX_STATUS_POLL_DELAY_MS		50
 #define LT8712SX_STATUS_POLL_RETRIES		50
+
+#define LT8712SX_MAX_CEC_PORTS			2
 
 struct lt8712sx_info {
 	unsigned int connector_type;
@@ -85,6 +91,11 @@ struct lt8712sx {
 	struct gpio_desc *enable_gpio;
 	struct mutex lock;
 	bool powered;
+
+	const char *cec_port_names[LT8712SX_MAX_CEC_PORTS];
+	struct cec_notifier *cec_notifiers[LT8712SX_MAX_CEC_PORTS];
+	unsigned int cec_notifier_count;
+	bool cec_port_names_initialized;
 };
 
 static inline struct lt8712sx *bridge_to_lt8712sx(struct drm_bridge *bridge)
@@ -96,6 +107,14 @@ static inline struct lt8712sx *connector_to_lt8712sx(
 	struct drm_connector *connector)
 {
 	return container_of(connector, struct lt8712sx, connector);
+}
+
+static void lt8712sx_set_phys_addr(struct lt8712sx *lt8712sx, u16 pa)
+{
+	unsigned int i;
+
+	for (i = 0; i < lt8712sx->cec_notifier_count; i++)
+		cec_notifier_set_phys_addr(lt8712sx->cec_notifiers[i], pa);
 }
 
 static const struct regmap_config lt8712sx_regmap_config = {
@@ -846,6 +865,7 @@ static int lt8712sx_connector_get_modes(struct drm_connector *connector)
 {
 	struct lt8712sx *lt8712sx = connector_to_lt8712sx(connector);
 	const struct drm_edid *drm_edid;
+	u16 phys_addr;
 	int ret;
 
 	if (lt8712sx->next_bridge->ops & DRM_BRIDGE_OP_EDID) {
@@ -863,12 +883,17 @@ static int lt8712sx_connector_get_modes(struct drm_connector *connector)
 		 * If the downstream HDMI connector does not expose DDC to the SoC,
 		 * keep the same no-EDID fallback used by simple-bridge.
 		 */
+		lt8712sx_set_phys_addr(lt8712sx, CEC_PHYS_ADDR_INVALID);
 		ret = drm_add_modes_noedid(connector, 1920, 1200);
 		drm_set_preferred_mode(connector, 1024, 768);
 		return ret;
 	}
 
 	ret = drm_edid_connector_add_modes(connector);
+
+	phys_addr = connector->display_info.source_physical_address;
+	lt8712sx_set_phys_addr(lt8712sx, phys_addr);
+
 	drm_edid_free(drm_edid);
 
 	return ret;
@@ -882,8 +907,14 @@ static enum drm_connector_status
 lt8712sx_connector_detect(struct drm_connector *connector, bool force)
 {
 	struct lt8712sx *lt8712sx = connector_to_lt8712sx(connector);
+	enum drm_connector_status status;
 
-	return drm_bridge_detect(lt8712sx->next_bridge, connector);
+	status = drm_bridge_detect(lt8712sx->next_bridge, connector);
+
+	if (status != connector_status_connected)
+		lt8712sx_set_phys_addr(lt8712sx, CEC_PHYS_ADDR_INVALID);
+
+	return status;
 }
 
 static const struct drm_connector_funcs lt8712sx_con_funcs = {
@@ -894,6 +925,103 @@ static const struct drm_connector_funcs lt8712sx_con_funcs = {
 	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
 };
+
+static void lt8712sx_cec_notifiers_unregister(void *data);
+
+static int lt8712sx_init_cec_port_names(struct lt8712sx *lt8712sx)
+{
+	struct device *dev = lt8712sx->dev;
+	int count;
+
+	if (!device_property_present(dev, "cec-port-names")) {
+		lt8712sx->cec_notifier_count = 1;
+		lt8712sx->cec_port_names_initialized = true;
+		return 0;
+	}
+
+	if (lt8712sx->cec_port_names_initialized)
+		return 0;
+
+	count = device_property_string_array_count(dev, "cec-port-names");
+	if (count < 0)
+		return dev_err_probe(dev, count,
+				     "failed to read CEC port names\n");
+
+	if (count == 0 || count > LT8712SX_MAX_CEC_PORTS)
+		return dev_err_probe(dev, -EINVAL,
+				     "invalid number of CEC port names\n");
+
+	count = device_property_read_string_array(dev, "cec-port-names",
+						  lt8712sx->cec_port_names, count);
+	if (count < 0)
+		return dev_err_probe(dev, count,
+				     "failed to read CEC port names\n");
+
+	if (count == 2 &&
+	    !strcmp(lt8712sx->cec_port_names[0], lt8712sx->cec_port_names[1]))
+		return dev_err_probe(dev, -EINVAL,
+				     "duplicate CEC port names\n");
+
+	lt8712sx->cec_notifier_count = count;
+	lt8712sx->cec_port_names_initialized = true;
+
+	return 0;
+}
+
+static int lt8712sx_register_cec_notifiers(struct lt8712sx *lt8712sx,
+					   struct drm_connector *connector)
+{
+	struct cec_connector_info conn_info;
+	unsigned int i;
+	int ret;
+
+	ret = lt8712sx_init_cec_port_names(lt8712sx);
+	if (ret)
+		return ret;
+
+	cec_fill_conn_info_from_drm(&conn_info, connector);
+
+	for (i = 0; i < lt8712sx->cec_notifier_count; i++) {
+		if (lt8712sx->cec_notifiers[i])
+			continue;
+
+		lt8712sx->cec_notifiers[i] =
+			cec_notifier_conn_register(lt8712sx->dev,
+						   lt8712sx->cec_port_names[i],
+						   &conn_info);
+		if (!lt8712sx->cec_notifiers[i]) {
+			DRM_ERROR("Failed to register CEC notifier\n");
+			ret = -ENOMEM;
+			goto unregister_notifiers;
+		}
+	}
+
+	lt8712sx_set_phys_addr(lt8712sx, connector->display_info.source_physical_address);
+
+	return 0;
+
+unregister_notifiers:
+	while (i--) {
+		cec_notifier_conn_unregister(lt8712sx->cec_notifiers[i]);
+		lt8712sx->cec_notifiers[i] = NULL;
+	}
+	lt8712sx->cec_notifier_count = 0;
+
+	return ret;
+}
+
+static int lt8712sx_init_cec_notifiers(struct lt8712sx *lt8712sx)
+{
+	int ret;
+
+	ret = lt8712sx_init_cec_port_names(lt8712sx);
+	if (ret)
+		return ret;
+
+	return devm_add_action_or_reset(lt8712sx->dev,
+					     lt8712sx_cec_notifiers_unregister,
+					     lt8712sx);
+}
 
 static int lt8712sx_attach(struct drm_bridge *bridge,
 			   struct drm_encoder *encoder,
@@ -927,6 +1055,34 @@ static int lt8712sx_attach(struct drm_bridge *bridge,
 	return 0;
 }
 
+static void
+lt8712sx_hpd(struct drm_bridge *bridge, struct drm_connector *connector,
+	     enum drm_connector_status status)
+{
+	struct lt8712sx *lt8712sx = bridge_to_lt8712sx(bridge);
+
+	if (status != connector_status_connected) {
+		lt8712sx_set_phys_addr(lt8712sx, CEC_PHYS_ADDR_INVALID);
+		return;
+	}
+
+	if (lt8712sx_register_cec_notifiers(lt8712sx, connector))
+		lt8712sx_set_phys_addr(lt8712sx, CEC_PHYS_ADDR_INVALID);
+}
+
+static void lt8712sx_cec_notifiers_unregister(void *data)
+{
+	struct lt8712sx *lt8712sx = data;
+	unsigned int i;
+
+	for (i = 0; i < lt8712sx->cec_notifier_count; i++) {
+		cec_notifier_conn_unregister(lt8712sx->cec_notifiers[i]);
+		lt8712sx->cec_notifiers[i] = NULL;
+	}
+
+	lt8712sx->cec_notifier_count = 0;
+}
+
 static void lt8712sx_enable(struct drm_bridge *bridge)
 {
 	struct lt8712sx *lt8712sx = bridge_to_lt8712sx(bridge);
@@ -945,6 +1101,7 @@ static void lt8712sx_disable(struct drm_bridge *bridge)
 
 static const struct drm_bridge_funcs lt8712sx_bridge_funcs = {
 	.attach = lt8712sx_attach,
+	.hpd_notify = lt8712sx_hpd,
 	.enable = lt8712sx_enable,
 	.disable = lt8712sx_disable,
 };
@@ -1026,8 +1183,14 @@ static int lt8712sx_probe(struct i2c_client *client)
 
 	lt8712sx_try_optional_firmware(lt8712sx);
 
+	ret = lt8712sx_init_cec_notifiers(lt8712sx);
+	if (ret)
+		return ret;
+
 	lt8712sx->bridge.of_node = dev->of_node;
+	lt8712sx->bridge.ops = DRM_BRIDGE_OP_HDMI_CEC_NOTIFIER;
 	lt8712sx->bridge.type = lt8712sx->info->connector_type;
+	lt8712sx->bridge.hdmi_cec_dev = dev;
 
 	return devm_drm_bridge_add(dev, &lt8712sx->bridge);
 }
