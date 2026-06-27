@@ -40,6 +40,13 @@ properties:
       GPIO that the 5V line is connected to.  Used for debugging changes on the
       5V line.
 
+  port-name:
+    $ref: /schemas/types.yaml#/definitions/string
+    description:
+      HDMI connector port name used with hdmi-phandle to match this GPIO CEC
+      adapter to a named HDMI controller notifier when that controller exposes
+      multiple CEC-capable connectors.
+
 required:
   - compatible
   - cec-gpios
@@ -59,6 +66,13 @@ allOf:
     then:
       properties:
         hdmi-phandle: false
+
+  - if:
+      required:
+        - port-name
+    then:
+      required:
+        - hdmi-phandle
 
 unevaluatedProperties: false
 
