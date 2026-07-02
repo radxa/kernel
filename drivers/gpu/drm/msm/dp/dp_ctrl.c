@@ -1425,7 +1425,8 @@ static int msm_dp_ctrl_set_pattern_state_bit(struct msm_dp_ctrl_private *ctrl,
 				 data, data & bit,
 				 POLLING_SLEEP_US, POLLING_TIMEOUT_US);
 	if (ret < 0) {
-		DRM_ERROR("set state_bit for link_train=%d failed\n", state_bit);
+		drm_dbg_dp(ctrl->drm_dev,
+			   "set state_bit for link_train=%d failed\n", state_bit);
 		return ret;
 	}
 
@@ -1617,14 +1618,16 @@ static int msm_dp_ctrl_link_train_1_2(struct msm_dp_ctrl_private *ctrl,
 
 	ret = msm_dp_ctrl_link_train_1(ctrl, training_step, dp_phy);
 	if (ret) {
-		DRM_ERROR("link training #1 on phy %d failed. ret=%d\n", dp_phy, ret);
+		drm_dbg_dp(ctrl->drm_dev,
+			   "link training #1 on phy %d failed. ret=%d\n", dp_phy, ret);
 		return ret;
 	}
 	drm_dbg_dp(ctrl->drm_dev, "link training #1 on phy %d successful\n", dp_phy);
 
 	ret = msm_dp_ctrl_link_train_2(ctrl, training_step, dp_phy);
 	if (ret) {
-		DRM_ERROR("link training #2 on phy %d failed. ret=%d\n", dp_phy, ret);
+		drm_dbg_dp(ctrl->drm_dev,
+			   "link training #2 on phy %d failed. ret=%d\n", dp_phy, ret);
 		return ret;
 	}
 	drm_dbg_dp(ctrl->drm_dev, "link training #2 on phy %d successful\n", dp_phy);
@@ -1679,7 +1682,8 @@ static int msm_dp_ctrl_link_train(struct msm_dp_ctrl_private *ctrl,
 
 	ret = msm_dp_ctrl_link_train_1_2(ctrl, training_step, DP_PHY_DPRX);
 	if (ret) {
-		DRM_ERROR("link training on sink failed. ret=%d\n", ret);
+		drm_dbg_dp(ctrl->drm_dev,
+			   "link training on sink failed. ret=%d\n", ret);
 		goto end;
 	}
 
