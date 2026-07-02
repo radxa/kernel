@@ -96,7 +96,7 @@
 
 &pmu_io_domains {
 	status = "okay";
-	pmuio2-supply = <&vcc_3v3>;
+	pmuio2-supply = <&vcc_1v8>;
 	vccio1-supply = <&vccio_acodec>;
 	vccio2-supply = <&vcc_1v8>;
 	vccio3-supply = <&vccio_sd>;
