@@ -83,6 +83,8 @@
 #define DWC3_DEVICE_REGS_END		0xcbff
 #define DWC3_OTG_REGS_START		0xcc00
 #define DWC3_OTG_REGS_END		0xccff
+/* DWC_usb31 LLUCTL sits past the OTG register block. */
+#define DWC3_LLUCTL_REGS_END		0xda00
 
 #define DWC3_RTK_RTD_GLOBALS_REGS_START	0x8100
 
