@@ -2133,6 +2133,24 @@ end:
 	return ret;
 }
 
+int msm_dp_ctrl_retrain_link(struct msm_dp_ctrl *msm_dp_ctrl)
+{
+	struct msm_dp_ctrl_private *ctrl;
+	u8 link_status[DP_LINK_STATUS_SIZE];
+
+	ctrl = container_of(msm_dp_ctrl, struct msm_dp_ctrl_private, msm_dp_ctrl);
+
+	if (!ctrl->link_clks_on)
+		return -EINVAL;
+
+	/* a racing modeset may have retrained the link already */
+	if (drm_dp_dpcd_read_link_status(ctrl->aux, link_status) >= 0 &&
+	    drm_dp_channel_eq_ok(link_status, ctrl->link->link_params.num_lanes))
+		return 0;
+
+	return msm_dp_ctrl_link_maintenance(ctrl);
+}
+
 #define SCRAMBLER_RESET_COUNT_VALUE		0xFC
 
 static void msm_dp_ctrl_send_phy_pattern(struct msm_dp_ctrl_private *ctrl,

@@ -15,6 +15,8 @@
 #include <drm/display/drm_dp_aux_bus.h>
 #include <drm/display/drm_hdmi_audio_helper.h>
 #include <drm/drm_edid.h>
+#include <drm/drm_modeset_lock.h>
+#include <drm/drm_probe_helper.h>
 
 #include "msm_drv.h"
 #include "msm_kms.h"
@@ -33,6 +35,9 @@ module_param(psr_enabled, bool, 0);
 MODULE_PARM_DESC(psr_enabled, "enable PSR for eDP and DP displays");
 
 #define HPD_STRING_SIZE 30
+
+#define HPD_RECOVERY_MAX_TRIES	5
+#define HPD_RECOVERY_DELAY_MS	500
 
 enum {
 	ISR_DISCONNECTED,
@@ -57,6 +62,7 @@ struct msm_dp_display_private {
 	bool plugged;
 
 	struct delayed_work hpd_recovery_work;
+	unsigned int hpd_recovery_tries;
 
 	struct drm_device *drm_dev;
 
@@ -393,25 +399,63 @@ static void msm_dp_hpd_recovery_work(struct work_struct *work)
 	struct delayed_work *dw = to_delayed_work(work);
 	struct msm_dp_display_private *dp =
 		container_of(dw, struct msm_dp_display_private, hpd_recovery_work);
-	int rc;
+	struct drm_connector *connector = dp->msm_dp_display.connector;
+	struct drm_device *dev = dp->drm_dev;
+	struct drm_modeset_acquire_ctx ctx;
+	struct drm_crtc *crtc;
+	int rc = 0;
+	int ret;
 
-	mutex_lock(&dp->plugged_lock);
+	if (!dp->msm_dp_display.power_on || !dp->plugged) {
+		dp->hpd_recovery_tries = 0;
+		return;
+	}
 
-	if (!dp->msm_dp_display.power_on || !dp->plugged)
+	/* clocks stay on, and the locks serialize any concurrent commit */
+	drm_modeset_acquire_init(&ctx, 0);
+
+retry:
+	ret = drm_modeset_lock(&dev->mode_config.connection_mutex, &ctx);
+	if (ret)
 		goto unlock;
 
-	msm_dp_ctrl_off_link_stream(dp->ctrl);
-	msm_dp_ctrl_on_link(dp->ctrl);
-	rc = msm_dp_ctrl_on_stream(dp->ctrl, false);
-	if (rc)
-		goto unlock;
+	crtc = connector->state->crtc;
+	if (crtc) {
+		ret = drm_modeset_lock(&crtc->mutex, &ctx);
+		if (ret)
+			goto unlock;
+	}
 
-	drm_connector_set_link_status_property(dp->msm_dp_display.connector,
-					       DRM_MODE_LINK_STATUS_GOOD);
-	msm_dp_display_handle_plugged_change(&dp->msm_dp_display, true);
+	if (dp->msm_dp_display.power_on && dp->plugged)
+		rc = msm_dp_ctrl_retrain_link(dp->ctrl);
 
 unlock:
-	mutex_unlock(&dp->plugged_lock);
+	if (ret == -EDEADLK) {
+		ret = drm_modeset_backoff(&ctx);
+		if (!ret)
+			goto retry;
+	}
+	drm_modeset_drop_locks(&ctx);
+	drm_modeset_acquire_fini(&ctx);
+
+	if (rc) {
+		if (++dp->hpd_recovery_tries < HPD_RECOVERY_MAX_TRIES) {
+			schedule_delayed_work(&dp->hpd_recovery_work,
+					      msecs_to_jiffies(HPD_RECOVERY_DELAY_MS));
+			return;
+		}
+
+		DRM_ERROR("link recovery failed after %u tries. rc=%d\n",
+			  dp->hpd_recovery_tries, rc);
+		dp->hpd_recovery_tries = 0;
+		/* LINK_STATUS_BAD is still set, let userspace do a fresh modeset */
+		drm_kms_helper_connector_hotplug_event(dp->msm_dp_display.connector);
+		return;
+	}
+
+	dp->hpd_recovery_tries = 0;
+	drm_connector_set_link_status_property(dp->msm_dp_display.connector,
+					       DRM_MODE_LINK_STATUS_GOOD);
 }
 
 static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
@@ -450,7 +494,9 @@ static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
 		drm_connector_set_link_status_property(dp->msm_dp_display.connector,
 						       DRM_MODE_LINK_STATUS_BAD);
 
-		schedule_delayed_work(&dp->hpd_recovery_work, msecs_to_jiffies(500));
+		dp->hpd_recovery_tries = 0;
+		schedule_delayed_work(&dp->hpd_recovery_work,
+				      msecs_to_jiffies(HPD_RECOVERY_DELAY_MS));
 	}
 
 	drm_dbg_dp(dp->drm_dev, "After, type=%d sink_count=%d\n",
@@ -1603,9 +1649,12 @@ void msm_dp_bridge_atomic_enable(struct drm_bridge *drm_bridge,
 	}
 
 	rc = msm_dp_ctrl_on_link(msm_dp_display->ctrl);
-	if (rc)
-		DRM_ERROR("Failed link training (rc=%d)\n", rc);
-	// TODO: schedule drm_connector_set_link_status_property()
+	if (rc) {
+		/* link status cannot be set from commit context */
+		DRM_ERROR("Failed link training (rc=%d), scheduling recovery\n", rc);
+		mod_delayed_work(system_wq, &msm_dp_display->hpd_recovery_work,
+				 msecs_to_jiffies(HPD_RECOVERY_DELAY_MS));
+	}
 
 	msm_dp_display_enable(msm_dp_display, force_link_train);
 
