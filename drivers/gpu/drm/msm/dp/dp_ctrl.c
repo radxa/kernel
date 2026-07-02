@@ -44,7 +44,7 @@
 	DP_INTR_WRONG_ADDR | DP_INTR_TIMEOUT | \
 	DP_INTR_NACK_DEFER | DP_INTR_WRONG_DATA_CNT | \
 	DP_INTR_I2C_NACK | DP_INTR_I2C_DEFER | \
-	DP_INTR_PLL_UNLOCKED | DP_INTR_AUX_ERROR)
+	DP_INTR_AUX_ERROR)
 
 #define DP_INTERRUPT_STATUS1_ACK \
 	(DP_INTERRUPT_STATUS1 << DP_INTERRUPT_STATUS_ACK_SHIFT)
@@ -278,7 +278,7 @@ static u32 msm_dp_ctrl_get_aux_interrupt(struct msm_dp_ctrl_private *ctrl)
 	u32 intr, intr_ack;
 
 	intr = msm_dp_read_ahb(ctrl, REG_DP_INTR_STATUS);
-	intr &= ~DP_INTERRUPT_STATUS1_MASK;
+	intr &= DP_INTERRUPT_STATUS1;
 	intr_ack = (intr & DP_INTERRUPT_STATUS1)
 			<< DP_INTERRUPT_STATUS_ACK_SHIFT;
 	msm_dp_write_ahb(ctrl, REG_DP_INTR_STATUS,
