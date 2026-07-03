@@ -16,6 +16,7 @@
 #include "qcs9075-thermal.dtsi"
 #include "qcs9xxx-reserved-memory.dtsi"
 #include "sa8775p-video.dtsi"
+#include "sa8775p-camera.dtsi"
 
 / {
 	model = "Radxa VMARC Q9075";
