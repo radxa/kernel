@@ -18,7 +18,7 @@
 #include "sa8775p-video.dtsi"
 
 / {
-	model = "Radxa VMARC Q9075";
+	model = "Radxa VMARC-Q9075";
 	compatible = "radxa,vmarc-q9075", "qcom,qcs9075", "qcom,sa8775p";
 
 	qcom,msm-id = <676 0x20000>;

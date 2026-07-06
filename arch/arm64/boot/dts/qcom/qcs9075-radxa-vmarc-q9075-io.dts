@@ -8,7 +8,7 @@
 #include "qcs9075-radxa-vmarc-q9075.dtsi"
 
 / {
-	model = "Radxa VMARC Q9075 IO";
+	model = "Radxa VMARC-Q9075 IO";
 	compatible = "radxa,vmarc-q9075-io", "qcom,qcs9075", "qcom,sa8775p";
 
 	vcc_usb_hub_regulator: vcc-usb-hub-regulator {
