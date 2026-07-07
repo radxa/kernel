@@ -2091,6 +2091,41 @@ static int qcom_scm_find_dload_address(struct device *dev, u64 *addr)
 	return 0;
 }
 
+/**
+ * qcom_scm_query_tpm_type() - Query the TPM backend type from TrustZone.
+ * @type: Returned TPM type.
+ *
+ * Invoke the Qualcomm SIP TPM info call. Success or failure of the secure call
+ * is returned by qcom_scm_call(); the TPM type is returned in result[0].
+ *
+ * Return: Zero on success, nonzero on failure.
+ */
+int qcom_scm_query_tpm_type(u64 *type)
+{
+	struct qcom_scm_desc desc = {
+		.owner = ARM_SMCCC_OWNER_SIP,
+		.svc = QCOM_SCM_SVC_TPM_INFO,
+		.cmd = QCOM_SCM_TPM_INFO_QUERY_TYPE,
+		.arginfo = QCOM_SCM_ARGS(0),
+	};
+	struct qcom_scm_res res = {};
+	int ret;
+
+	if (!type)
+		return -EINVAL;
+
+	if (!__scm)
+		return -EPROBE_DEFER;
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+	if (ret)
+		return ret;
+
+	*type = res.result[0];
+	return 0;
+}
+EXPORT_SYMBOL_GPL(qcom_scm_query_tpm_type);
+
 #ifdef CONFIG_QCOM_QSEECOM
 
 /* Lock for QSEECOM SCM call executions */
