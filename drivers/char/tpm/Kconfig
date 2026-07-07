@@ -244,6 +244,15 @@ config TCG_FTPM_TEE
 	help
 	  This driver proxies for firmware TPM running in TEE.
 
+config TCG_QCOM_TPM_QSEE
+	tristate "Qualcomm QSEE TPM interface"
+	depends on TCG_TPM && QCOM_QSEECOM
+	help
+	  If you have a Qualcomm platform where TrustZone preloads the
+	  qcom.tz.tpm QSEE secure application, say Yes. The driver queries
+	  TrustZone for the TPM backend type and rejects unsupported backends.
+	  It currently supports fTPM backends only.
+
 config TCG_SVSM
 	tristate "SNP SVSM vTPM interface"
 	depends on AMD_MEM_ENCRYPT
