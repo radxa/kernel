@@ -84,6 +84,7 @@ static int qseecom_client_register(struct platform_device *qseecom_dev,
  * and its ID can be queried successfully.
  */
 static const struct qseecom_app_desc qcom_qseecom_apps[] = {
+	{ "qcom.tz.tpm", "tpm" },
 	{ "qcom.tz.uefisecapp", "uefisecapp" },
 };
 
