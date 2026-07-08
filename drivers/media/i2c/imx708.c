@@ -1233,6 +1233,10 @@ static int imx708_set_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_WIDE_DYNAMIC_RANGE:
 		/* Already handled above. */
 		break;
+	case V4L2_CID_PIXEL_RATE:
+	case V4L2_CID_HBLANK:
+		ret = 0;
+		break;
 	default:
 		dev_info(&client->dev,
 			 "ctrl(id:0x%x,val:0x%x) is not handled\n",
