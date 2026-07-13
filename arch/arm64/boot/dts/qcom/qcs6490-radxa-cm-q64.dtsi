@@ -1044,14 +1044,14 @@
 	cec0_gpio_default: cec0-gpio-default-state {
 		pins = "gpio45";
 		function = "gpio";
-		drive-strength = <2>;
+		drive-strength = <16>;
 		bias-disable;
 	};
 
 	cec1_gpio_default: cec1-gpio-default-state {
 		pins = "gpio46";
 		function = "gpio";
-		drive-strength = <2>;
+		drive-strength = <16>;
 		bias-disable;
 	};
 
