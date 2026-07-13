@@ -10,6 +10,23 @@
 / {
 	model = "Radxa CM-Q64 Raspberry Pi Compute Module 5 IO Board";
 	compatible = "radxa,cm-q64-rpi-cm5-io", "radxa,cm-q64", "qcom,qcm6490";
+
+	m2_3v3: regulator-m2-3v3 {
+		compatible = "regulator-fixed";
+		regulator-name = "m2_3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pcieb_pwr_en>;
+		gpio = <&tlmm 10 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		vin-supply = <&vdd_5v_dcin>;
+	};
+};
+
+&pcie1 {
+	vddpe-3v3-supply = <&m2_3v3>;
+	vdda-supply = <&vreg_l6b_1p2>;
 };
 
 &tlmm {
@@ -106,4 +123,10 @@
 		"", "", "", "",
 		/* GPIO_172 ~ GPIO_174 */
 		"", "", "";
+
+	pcieb_pwr_en: pinctrl-pcie1-pwr-en {
+		pins = "gpio10";
+		function = "gpio";
+		bias-disable;
+	};
 };
