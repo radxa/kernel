@@ -316,11 +316,31 @@
 		vin-supply = <&vcc_3v3>;
 	};
 
+	vdd_5v_dcin: regulator-5v-dcin {
+		compatible = "regulator-fixed";
+		regulator-name = "vdd_5v_dcin";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+
+		regulator-always-on;
+	};
+
+	vdd_5v_in: regulator-5v-in {
+		compatible = "regulator-fixed";
+		regulator-name = "vdd_5v_in";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		vin-supply = <&vdd_5v_dcin>;
+
+		regulator-always-on;
+	};
+
 	vph_pwr: regulator-vph-pwr {
 		compatible = "regulator-fixed";
 		regulator-name = "vph_pwr";
-		regulator-min-microvolt = <3700000>;
-		regulator-max-microvolt = <3700000>;
+		regulator-min-microvolt = <4300000>;
+		regulator-max-microvolt = <4300000>;
+		vin-supply = <&vdd_5v_in>;
 
 		regulator-always-on;
 	};
@@ -650,6 +670,9 @@
 };
 
 &pcie0 {
+	vddpe-3v3-supply = <&vcc_3v3>;
+	vdda-supply = <&vreg_l6b_1p2>;
+
 	perst-gpios = <&tlmm 87 GPIO_ACTIVE_LOW>;
 	wake-gpios = <&tlmm 89 GPIO_ACTIVE_HIGH>;
 
