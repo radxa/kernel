@@ -62,7 +62,7 @@
 		interrupt-parent = <&pm8350c_gpios>;
 		interrupts = <5 IRQ_TYPE_EDGE_FALLING>;
 		#cooling-cells = <2>;
-		cooling-levels = <0 120 150 180 210 240 255>;
+		cooling-levels = <0 31 63 95 127 159 191 223 255>;
     };
 
 	wcd938x: audio-codec {
