@@ -1355,14 +1355,17 @@
 };
 
 &qup0 {
+	firmware-name = "qcom/sc8280xp/qupv3fw.elf";
 	status = "okay";
 };
 
 &qup1 {
+	firmware-name = "qcom/sc8280xp/qupv3fw.elf";
 	status = "okay";
 };
 
 &qup2 {
+	firmware-name = "qcom/sc8280xp/qupv3fw.elf";
 	status = "okay";
 };
 
