@@ -1285,8 +1285,6 @@
 
 &pmk8280_rtc {
 	qcom,uefi-rtc-info;
-
-	status = "okay";
 };
 
 &pmk8280_vadc {
