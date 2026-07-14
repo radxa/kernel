@@ -145,6 +145,16 @@
 	status = "okay";
 };
 
+&io_domains {
+	status = "okay";
+	vccio0-supply = <&vcc_io>;
+	vccio1-supply = <&vcc_io>;
+	vccio2-supply = <&vcc_1v8>;
+	vccio3-supply = <&vcc_1v8>;
+	vccio4-supply = <&vcc_1v8>;
+	vccio5-supply = <&vcc_io>;
+};
+
 &gmac {
 	clock_in_out = "output";
 	phy-handle = <&rtl8201f>;
