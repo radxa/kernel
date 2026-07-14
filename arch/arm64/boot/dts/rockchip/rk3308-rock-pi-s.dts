@@ -246,13 +246,12 @@
 &sdio {
 	#address-cells = <1>;
 	#size-cells = <0>;
+	max-frequency = <150000000>;
+	bus-width = <4>;
 	cap-sd-highspeed;
 	cap-sdio-irq;
 	keep-power-in-suspend;
-	max-frequency = <100000000>;
 	mmc-pwrseq = <&sdio_pwrseq>;
-	no-mmc;
-	no-sd;
 	non-removable;
 	sd-uhs-sdr50;
 	vmmc-supply = <&vcc_io>;
@@ -260,7 +259,6 @@
 	status = "okay";
 
 	rtl8723ds: wifi@1 {
-		reg = <1>;
 		interrupt-parent = <&gpio0>;
 		interrupts = <RK_PA0 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-names = "host-wake";
