@@ -44,6 +44,14 @@
 		};
 	};
 
+	bt_reg_on_h: bt-reg-on-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "bt_reg_on";
+		enable-active-high;
+		gpio = <&gpio4 RK_PB3 GPIO_ACTIVE_HIGH>;
+		regulator-always-on;
+	};
+
 	sdio_pwrseq: sdio-pwrseq {
 		compatible = "mmc-pwrseq-simple";
 		pinctrl-0 = <&wifi_enable_h>;
@@ -187,10 +195,6 @@
 	pinctrl-0 = <&rtc_32k>;
 
 	bluetooth {
-		bt_reg_on: bt-reg-on {
-			rockchip,pins = <4 RK_PB3 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-
 		bt_wake_host: bt-wake-host {
 			rockchip,pins = <4 RK_PB4 RK_FUNC_GPIO &pcfg_pull_down>;
 		};
@@ -302,10 +306,9 @@
 	bluetooth {
 		compatible = "realtek,rtl8723ds-bt";
 		device-wake-gpios = <&gpio4 RK_PB2 GPIO_ACTIVE_HIGH>;
-		enable-gpios = <&gpio4 RK_PB3 GPIO_ACTIVE_HIGH>;
 		host-wake-gpios = <&gpio4 RK_PB4 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&bt_reg_on &bt_wake_host &host_wake_bt>;
+		pinctrl-0 = <&bt_wake_host &host_wake_bt>;
 	};
 };
 
