@@ -20,10 +20,6 @@
 		mmc2 = &sdio;
 	};
 
-	chosen {
-		stdout-path = "serial0:1500000n8";
-	};
-
 	leds {
 		compatible = "gpio-leds";
 		pinctrl-names = "default";
@@ -127,6 +123,11 @@
 		regulator-max-microvolt = <1050000>;
 		vin-supply = <&vcc5v0_sys>;
 	};
+};
+
+&fiq_debugger{
+	rockchip,serial-id = <0>;
+	status = "okay";
 };
 
 &cpu0 {
@@ -283,7 +284,7 @@
 &uart0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart0_xfer>;
-	status = "okay";
+	status = "disabled";
 };
 
 &uart4 {
