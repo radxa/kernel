@@ -238,6 +238,38 @@ static const struct ucsi_operations pmic_glink_ucsi_ops = {
 	.connector_status = pmic_glink_ucsi_connector_status,
 };
 
+static int pmic_glink_ucsi_set_initial_orientation(struct device *dev,
+						   struct fwnode_handle *fwnode,
+						   struct gpio_desc *desc)
+{
+	struct typec_switch *sw;
+	int orientation;
+	int ret;
+
+	sw = fwnode_typec_switch_get(fwnode);
+	if (IS_ERR(sw))
+		return dev_err_probe(dev, PTR_ERR(sw),
+				     "failed to acquire orientation switch\n");
+
+	orientation = gpiod_get_value(desc);
+	if (orientation < 0) {
+		ret = orientation;
+		goto out_put_switch;
+	}
+
+	ret = typec_switch_set(sw, orientation ? TYPEC_ORIENTATION_REVERSE :
+						 TYPEC_ORIENTATION_NORMAL);
+
+out_put_switch:
+	typec_switch_put(sw);
+
+	if (ret)
+		return dev_err_probe(dev, ret,
+				     "failed to set initial orientation\n");
+
+	return 0;
+}
+
 static void pmic_glink_ucsi_read_ack(struct pmic_glink_ucsi *ucsi, const void *data, int len)
 {
 	u32 ret_code, resp_len, buf_len = 0;
@@ -445,6 +477,11 @@ static int pmic_glink_ucsi_probe(struct auxiliary_device *adev,
 					     "unable to acquire orientation gpio\n");
 
 		ucsi->port_orientation[port] = desc;
+
+		/* The orientation GPIO is available before the PPM is running. */
+		ret = pmic_glink_ucsi_set_initial_orientation(dev, fwnode, desc);
+		if (ret)
+			return ret;
 	}
 
 	ucsi->client = devm_pmic_glink_client_alloc(dev, PMIC_GLINK_OWNER_USBC,
