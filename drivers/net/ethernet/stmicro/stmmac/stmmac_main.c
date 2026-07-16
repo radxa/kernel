@@ -66,6 +66,16 @@
 #define	RTL8211F_LCR_ADDR	0x10
 #define	RTL8211F_EEELCR_ADDR	0x11
 
+#define RTL8201F_PHY_ID		0x001cc816
+#define RTL8201F_PHY_ID_MASK	0x001fffff
+#define RTL8201F_LED_PAGE	0x07
+#define RTL8201F_LEDS_CFG	0x11
+#define RTL8201F_LEDS_CFG_MASK	GENMASK(7, 0)
+#define RTL8201F_LED0_LINK_100	BIT(1)
+#define RTL8201F_LED1_ACTIVITY	BIT(7)
+#define RTL8201F_LEDS_FUNC	0x13
+#define RTL8201F_CUSTOMIZED_LED	BIT(3)
+
 /* Module parameters */
 #define TX_TIMEO	5000
 static int watchdog = TX_TIMEO;
@@ -7103,6 +7113,9 @@ static int phy_rtl8211f_led_fixup(struct phy_device *phydev)
 {
 	u32 val, val2;
 
+	if (phydev->phy_id == RTL8201F_PHY_ID)
+		return 0;
+
 	/* Switch to Page 0x0d04 */
 	phy_write(phydev, RTL8211F_PAGE_SELECT, 0x0d04);
 
@@ -7128,6 +7141,9 @@ static int phy_rtl8211f_led_fixup(struct phy_device *phydev)
 
 static int phy_rtl8211f_eee_fixup(struct phy_device *phydev)
 {
+	if (phydev->phy_id == RTL8201F_PHY_ID)
+		return 0;
+
 	phy_write(phydev, 31, 0x0000);
 	phy_write(phydev,  0, 0x8000);
 	mdelay(20);
@@ -7140,6 +7156,24 @@ static int phy_rtl8211f_eee_fixup(struct phy_device *phydev)
 	phy_write(phydev, 14, 0x0000);
 
 	return 0;
+}
+
+static int phy_rtl8201f_led_fixup(struct phy_device *phydev)
+{
+	int ret;
+
+	/* LED0 is yellow (100M link); LED1 is green (activity). */
+	ret = phy_modify_paged(phydev, RTL8201F_LED_PAGE,
+			       RTL8201F_LEDS_CFG, RTL8201F_LEDS_CFG_MASK,
+			       RTL8201F_LED0_LINK_100 |
+			       RTL8201F_LED1_ACTIVITY);
+	if (ret < 0)
+		return ret;
+
+	return phy_modify_paged(phydev, RTL8201F_LED_PAGE,
+				RTL8201F_LEDS_FUNC,
+				RTL8201F_CUSTOMIZED_LED,
+				RTL8201F_CUSTOMIZED_LED);
 }
 
 /**
@@ -7437,6 +7471,13 @@ int stmmac_dvr_probe(struct device *device,
 	if (ret) {
 		dev_warn(priv->device, "Failed to register fixup for PHY RTL8211F disabling EEE.\n");
 	}
+
+	/* Register fixup for PHY RTL8201F */
+	ret = phy_register_fixup_for_uid(RTL8201F_PHY_ID,
+					 RTL8201F_PHY_ID_MASK,
+					 phy_rtl8201f_led_fixup);
+	if (ret)
+		dev_warn(priv->device, "Failed to register fixup for PHY RTL8201F.\n");
 
 	return ret;
 
