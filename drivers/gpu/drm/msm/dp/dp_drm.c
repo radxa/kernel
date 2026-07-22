@@ -314,7 +314,7 @@ static const struct drm_bridge_funcs msm_edp_bridge_ops = {
 };
 
 int msm_dp_bridge_init(struct msm_dp *msm_dp_display, struct drm_device *dev,
-		   struct drm_encoder *encoder, bool yuv_supported)
+		   struct drm_encoder *encoder)
 {
 	int rc;
 	struct msm_dp_bridge *msm_dp_bridge;
@@ -330,7 +330,8 @@ int msm_dp_bridge_init(struct msm_dp *msm_dp_display, struct drm_device *dev,
 
 	bridge = &msm_dp_bridge->bridge;
 	bridge->type = msm_dp_display->connector_type;
-	bridge->ycbcr_420_allowed = yuv_supported;
+	/* all platforms which support DP have a CDM block for YUV output */
+	bridge->ycbcr_420_allowed = true;
 
 	/*
 	 * Many ops only make sense for DP. Why?
