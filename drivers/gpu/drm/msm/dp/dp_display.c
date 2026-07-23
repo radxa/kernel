@@ -385,21 +385,33 @@ static int msm_dp_display_handle_irq_hpd(struct msm_dp_display_private *dp)
 	return 0;
 }
 
+static void msm_dp_display_handle_plugged_change(struct msm_dp *msm_dp_display,
+		bool plugged);
+
 static void msm_dp_hpd_recovery_work(struct work_struct *work)
 {
 	struct delayed_work *dw = to_delayed_work(work);
 	struct msm_dp_display_private *dp =
 		container_of(dw, struct msm_dp_display_private, hpd_recovery_work);
+	int rc;
+
+	mutex_lock(&dp->plugged_lock);
 
 	if (!dp->msm_dp_display.power_on || !dp->plugged)
-		return;
+		goto unlock;
 
 	msm_dp_ctrl_off_link_stream(dp->ctrl);
 	msm_dp_ctrl_on_link(dp->ctrl);
-	msm_dp_ctrl_on_stream(dp->ctrl, false);
+	rc = msm_dp_ctrl_on_stream(dp->ctrl, false);
+	if (rc)
+		goto unlock;
 
 	drm_connector_set_link_status_property(dp->msm_dp_display.connector,
 					       DRM_MODE_LINK_STATUS_GOOD);
+	msm_dp_display_handle_plugged_change(&dp->msm_dp_display, true);
+
+unlock:
+	mutex_unlock(&dp->plugged_lock);
 }
 
 static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
