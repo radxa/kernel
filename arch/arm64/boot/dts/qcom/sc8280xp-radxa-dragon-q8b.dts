@@ -522,6 +522,58 @@
 			linux,default-trigger = "heartbeat";
 		};
 	};
+
+	wlan-connector {
+		compatible = "pcie-m2-e-connector";
+		vpcie3v3-supply = <&vcc_3v3_ekey>;
+		vpcie1v8-supply = <&vreg_s10b>;
+		w-disable1-gpios = <&tlmm 134 GPIO_ACTIVE_LOW>;
+		w-disable2-gpios = <&tlmm 133 GPIO_ACTIVE_LOW>;
+		uart-wake-gpios = <&tlmm 130 GPIO_ACTIVE_LOW>;
+		pinctrl-0 = <&wcn_wlan_bt_en>;
+		pinctrl-names = "default";
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			/* PCIe interface for Wi-Fi */
+			port@0 {
+				reg = <0>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				wlan_pcie_ep: endpoint@0 {
+					reg = <0>;
+					remote-endpoint = <&pcie4_ep>;
+				};
+			};
+
+			/* USB interface for BT */
+			port@2 {
+				reg = <2>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				wlan_usb_ep: endpoint@0 {
+					reg = <0>;
+					remote-endpoint = <&usb_hub_m2_ep>;
+				};
+			};
+
+			/* UART interface for BT */
+			port@3 {
+				reg = <3>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				wlan_uart_ep: endpoint@0 {
+					reg = <0>;
+					remote-endpoint = <&uart2_ep>;
+				};
+			};
+		};
+	};
 };
 
 &apps_rsc {
@@ -1195,8 +1247,16 @@
 };
 
 &pcie4_port0 {
+	compatible = "pciclass,0604";
+
 	reset-gpios = <&tlmm 141 GPIO_ACTIVE_LOW>;
 	wake-gpios = <&tlmm 139 GPIO_ACTIVE_LOW>;
+
+	port {
+		pcie4_ep: endpoint {
+			remote-endpoint = <&wlan_pcie_ep>;
+		};
+	};
 };
 
 &pcie4_phy {
@@ -1523,6 +1583,18 @@
 	status = "okay";
 };
 
+/* E-key Bluetooth */
+&uart2 {
+	uart-has-rtscts;
+	status = "okay";
+
+	port {
+		uart2_ep: endpoint {
+			remote-endpoint = <&wlan_uart_ep>;
+		};
+	};
+};
+
 &uart17 {
 	compatible = "qcom,geni-debug-uart";
 
@@ -1625,6 +1697,29 @@
 
 &usb_2 {
 	status = "okay";
+};
+
+&usb_2_dwc3 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	usb_hub_m2: hub@3 {
+		compatible = "usb1a86,8091";
+		reg = <3>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@2 {
+				reg = <2>;
+
+				usb_hub_m2_ep: endpoint {
+					remote-endpoint = <&wlan_usb_ep>;
+				};
+			};
+		};
+	};
 };
 
 &usb_2_hsphy0 {
@@ -2039,6 +2134,13 @@
 			function = "gpio";
 			bias-disable;
 		};
+	};
+
+	wcn_wlan_bt_en: wcn-wlan-en-state {
+		pins = "gpio133", "gpio134";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
 	};
 
 	user_led: user-led-state {
