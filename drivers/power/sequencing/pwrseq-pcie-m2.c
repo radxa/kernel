@@ -4,11 +4,13 @@
  * Author: Manivannan Sadhasivam <manivannan.sadhasivam@oss.qualcomm.com>
  */
 
+#include <linux/cleanup.h>
 #include <linux/device.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/of_graph.h>
 #include <linux/of_platform.h>
@@ -32,6 +34,8 @@ struct pwrseq_pcie_m2_ctx {
 	struct notifier_block nb;
 	struct gpio_desc *w_disable1_gpio;
 	struct gpio_desc *w_disable2_gpio;
+	unsigned int w_disable2_refcnt;
+	struct mutex w_disable2_lock;
 	struct serdev_device *serdev;
 	struct of_changeset *ocs;
 	struct device *dev;
@@ -66,12 +70,25 @@ static int pwrseq_pci_m2_e_bt_enable(struct pwrseq_device *pwrseq)
 {
 	struct pwrseq_pcie_m2_ctx *ctx = pwrseq_device_get_drvdata(pwrseq);
 
+	guard(mutex)(&ctx->w_disable2_lock);
+
+	if (ctx->w_disable2_refcnt++)
+		return 0;
+
 	return gpiod_set_value_cansleep(ctx->w_disable2_gpio, 0);
 }
 
 static int pwrseq_pci_m2_e_bt_disable(struct pwrseq_device *pwrseq)
 {
 	struct pwrseq_pcie_m2_ctx *ctx = pwrseq_device_get_drvdata(pwrseq);
+
+	guard(mutex)(&ctx->w_disable2_lock);
+
+	if (WARN_ON(!ctx->w_disable2_refcnt))
+		return 0;
+
+	if (--ctx->w_disable2_refcnt)
+		return 0;
 
 	return gpiod_set_value_cansleep(ctx->w_disable2_gpio, 1);
 }
@@ -426,6 +443,10 @@ static int pwrseq_pcie_m2_probe(struct platform_device *pdev)
 	if (!ctx->pdata)
 		return dev_err_probe(dev, -ENODEV,
 				     "Failed to obtain platform data\n");
+
+	ret = devm_mutex_init(dev, &ctx->w_disable2_lock);
+	if (ret)
+		return ret;
 
 	/*
 	 * Currently, of_regulator_bulk_get_all() is the only regulator API that
