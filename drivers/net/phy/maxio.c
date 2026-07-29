@@ -17,6 +17,14 @@
 #define MAXIO_PAGE_SELECT		0x1f
 #define MAXIO_MAE0621A_WORK_STATUS_REG	0x1d
 #define MAXIO_MAE0621A_CLK_MODE_REG	0x02
+#define MAXIO_MAE0621A_LED_PAGE		0x0d04
+#define MAXIO_MAE0621A_LED_CTRL_REG	0x10
+#define MAXIO_MAE0621A_EEE_LED_CTRL_REG	0x11
+#define MAXIO_MAE0621A_LED_CTRL_SET	(BIT(5) | BIT(8) | BIT(10) | BIT(11))
+#define MAXIO_MAE0621A_LED_CTRL_CLEAR	BIT(14)
+#define MAXIO_MAE0621A_EEE_LED_EN	BIT(3)
+#define MAXIO_MAE0621A_EEE_PAGE		0x0a4b
+#define MAXIO_MAE0621A_EEE_CTRL_REG	0x11
 
 #define MAXIO_PHYSR_P_A43  (0X1A)
 #define MAXIO_PHY_LINK     (1<<2)
@@ -60,6 +68,67 @@ int maxio_write_paged(struct phy_device *phydev, int page, u32 regnum, u16 val)
 	PHY_WRITE(phydev, MAXIO_PAGE_SELECT, oldpage);
 
 	return ret;
+}
+
+static int maxio_mae0621a_led_config(struct phy_device *phydev)
+{
+	int ret;
+
+	ret = maxio_read_paged(phydev, MAXIO_MAE0621A_LED_PAGE,
+			       MAXIO_MAE0621A_LED_CTRL_REG);
+	if (ret < 0)
+		return ret;
+
+	ret = maxio_write_paged(phydev, MAXIO_MAE0621A_LED_PAGE,
+				MAXIO_MAE0621A_LED_CTRL_REG,
+				(ret | MAXIO_MAE0621A_LED_CTRL_SET) &
+				~MAXIO_MAE0621A_LED_CTRL_CLEAR);
+	if (ret < 0)
+		return ret;
+
+	ret = maxio_read_paged(phydev, MAXIO_MAE0621A_LED_PAGE,
+			       MAXIO_MAE0621A_EEE_LED_CTRL_REG);
+	if (ret < 0)
+		return ret;
+
+	return maxio_write_paged(phydev, MAXIO_MAE0621A_LED_PAGE,
+				 MAXIO_MAE0621A_EEE_LED_CTRL_REG,
+				 ret & ~MAXIO_MAE0621A_EEE_LED_EN);
+}
+
+static int maxio_mae0621a_eee_config(struct phy_device *phydev)
+{
+	int ret;
+
+	ret = PHY_WRITE(phydev, MAXIO_PAGE_SELECT, 0);
+	if (ret < 0)
+		return ret;
+
+	ret = PHY_WRITE(phydev, MII_BMCR, BMCR_RESET);
+	if (ret < 0)
+		return ret;
+
+	mdelay(20);
+
+	ret = maxio_write_paged(phydev, MAXIO_MAE0621A_EEE_PAGE,
+				MAXIO_MAE0621A_EEE_CTRL_REG, 0x1110);
+	if (ret < 0)
+		return ret;
+
+	ret = maxio_write_paged(phydev, 0, MII_MMD_CTRL, MDIO_MMD_AN);
+	if (ret < 0)
+		return ret;
+
+	ret = maxio_write_paged(phydev, 0, MII_MMD_DATA, MDIO_AN_EEE_ADV);
+	if (ret < 0)
+		return ret;
+
+	ret = maxio_write_paged(phydev, 0, MII_MMD_CTRL,
+				MDIO_MMD_AN | MII_MMD_CTRL_NOINCR);
+	if (ret < 0)
+		return ret;
+
+	return maxio_write_paged(phydev, 0, MII_MMD_DATA, 0);
 }
 
 int maxio_adcc_check(struct phy_device *phydev)
@@ -313,10 +382,14 @@ static int maxio_mae0621aq3ci_probe(struct phy_device *phydev)
 
 static int maxio_mae0621aq3ci_config_init(struct phy_device *phydev)
 {
-	int ret = 0;
+	int ret;
 	printk("MAXIO_PHY_VER: %s \n",MAXIO_PHY_VER);
 
-	ret |= maxio_write_paged(phydev, 0xa43, 0x19, 0x823);
+	ret = maxio_mae0621a_eee_config(phydev);
+	if (ret < 0)
+		return ret;
+
+	ret = maxio_write_paged(phydev, 0xa43, 0x19, 0x823);
 	ret |= maxio_write_paged(phydev, 0xdab, 0x17, 0xC13);
 	ret |= maxio_write_paged(phydev, 0xd96, 0x15, 0xc08a);
 	ret |= maxio_write_paged(phydev, 0xda4, 0x12, 0x7bc);
@@ -345,6 +418,13 @@ static int maxio_mae0621aq3ci_config_init(struct phy_device *phydev)
 	ret |= maxio_write_paged(phydev, 0x0, 0x0, 0x9140);
 
 	ret |= PHY_WRITE(phydev, MAXIO_PAGE_SELECT, 0);
+
+	if (ret < 0)
+		return ret;
+
+	ret = maxio_mae0621a_led_config(phydev);
+	if (ret < 0)
+		return ret;
 
 	return 0;
 }
