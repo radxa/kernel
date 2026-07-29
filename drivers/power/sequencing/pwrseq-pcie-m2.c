@@ -20,6 +20,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/serdev.h>
 #include <linux/slab.h>
+#include <linux/usb.h>
 
 struct pwrseq_pcie_m2_pdata {
 	const struct pwrseq_target_data **targets;
@@ -278,6 +279,93 @@ err_destroy_changeset:
 	return ret;
 }
 
+#if IS_ENABLED(CONFIG_USB)
+static bool pwrseq_pcie_m2_is_bt_iface(struct usb_device *udev)
+{
+	struct usb_host_config *conf = udev->actconfig;
+	unsigned int i;
+
+	if (udev->descriptor.bDeviceClass == USB_CLASS_WIRELESS_CONTROLLER &&
+	    udev->descriptor.bDeviceSubClass == 0x01 &&
+	    udev->descriptor.bDeviceProtocol == 0x01)
+		return true;
+
+	if (!conf)
+		return false;
+
+	for (i = 0; i < conf->desc.bNumInterfaces; i++) {
+		struct usb_interface *intf = conf->interface[i];
+		struct usb_host_interface *alt;
+
+		if (!intf)
+			continue;
+
+		alt = intf->cur_altsetting;
+		if (alt &&
+		    alt->desc.bInterfaceClass == USB_CLASS_WIRELESS_CONTROLLER &&
+		    alt->desc.bInterfaceSubClass == 0x01 &&
+		    alt->desc.bInterfaceProtocol == 0x01)
+			return true;
+	}
+
+	return false;
+}
+
+struct pwrseq_pcie_m2_usb_match {
+	struct device_node *hub;
+	u32 port;
+};
+
+static int pwrseq_pcie_m2_match_usb_bt(struct usb_device *udev, void *data)
+{
+	struct pwrseq_pcie_m2_usb_match *match = data;
+
+	if (!udev->parent || dev_of_node(&udev->parent->dev) != match->hub)
+		return 0;
+
+	if (udev->portnum != match->port)
+		return 0;
+
+	return pwrseq_pcie_m2_is_bt_iface(udev);
+}
+
+static bool pwrseq_pcie_m2_has_usb_bt(struct pwrseq_pcie_m2_ctx *ctx)
+{
+	struct pwrseq_pcie_m2_usb_match match;
+
+	struct device_node *ep __free(device_node) =
+			of_graph_get_endpoint_by_regs(ctx->of_node, 2, 0);
+	if (!ep)
+		return false;
+
+	struct device_node *usb_port __free(device_node) =
+			of_graph_get_remote_port(ep);
+	if (!usb_port)
+		return false;
+
+	if (of_property_read_u32(usb_port, "reg", &match.port))
+		return false;
+
+	struct device_node *ports __free(device_node) =
+			of_get_parent(usb_port);
+	if (!ports)
+		return false;
+
+	struct device_node *hub __free(device_node) = of_get_parent(ports);
+	if (!hub)
+		return false;
+
+	match.hub = hub;
+
+	return usb_for_each_dev(&match, pwrseq_pcie_m2_match_usb_bt) != 0;
+}
+#else
+static bool pwrseq_pcie_m2_has_usb_bt(struct pwrseq_pcie_m2_ctx *ctx)
+{
+	return false;
+}
+#endif
+
 static int pwrseq_pcie_m2_create_serdev(struct pwrseq_pcie_m2_ctx *ctx)
 {
 	struct serdev_controller *serdev_ctrl;
@@ -288,6 +376,12 @@ static int pwrseq_pcie_m2_create_serdev(struct pwrseq_pcie_m2_ctx *ctx)
 		of_graph_get_remote_node(dev_of_node(ctx->dev), 3, 0);
 	if (!serdev_parent)
 		return 0;
+
+	if (pwrseq_pcie_m2_has_usb_bt(ctx)) {
+		dev_dbg(dev,
+			"Bluetooth is attached over USB, skipping UART serdev\n");
+		return 0;
+	}
 
 	serdev_ctrl = of_find_serdev_controller_by_node(serdev_parent);
 	if (!serdev_ctrl)
@@ -368,7 +462,7 @@ static int pwrseq_m2_pcie_notify(struct notifier_block *nb, unsigned long action
 		return NOTIFY_DONE;
 
 	switch (action) {
-	case BUS_NOTIFY_ADD_DEVICE:
+	case BUS_NOTIFY_BOUND_DRIVER:
 		/* Create serdev device for WCN7850 */
 		if (pdev->vendor == PCI_VENDOR_ID_QCOM && pdev->device == 0x1107) {
 			ret = pwrseq_pcie_m2_create_serdev(ctx);
@@ -376,7 +470,7 @@ static int pwrseq_m2_pcie_notify(struct notifier_block *nb, unsigned long action
 				return notifier_from_errno(ret);
 		}
 		break;
-	case BUS_NOTIFY_REMOVED_DEVICE:
+	case BUS_NOTIFY_UNBIND_DRIVER:
 		/* Destroy serdev device for WCN7850 */
 		if (pdev->vendor == PCI_VENDOR_ID_QCOM && pdev->device == 0x1107)
 			pwrseq_pcie_m2_remove_serdev(ctx);
