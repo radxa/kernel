@@ -72,6 +72,11 @@
 #define NCID_OFFSET			0x0000
 #define NCID_REV_ID_MASK		GENMASK(7, 0)
 
+#define NMODESTS_OFFSET			0x0004
+#define NMODESTS_MODE2			BIT(10)	/* 0 = USP x4, 1 = USP x2 */
+#define NBUSCTRL_OFFSET			0x1014
+#define NBUSCTRL_FREQ			BIT(16)	/* 0 = 250 MHz, 1 = 125 MHz */
+
 /* Reset and clock register offsets.  MAC resets and clocks are controlled
  * by bits in register 0 for MAC0, register 1 for MAC1.  Other non-MAC
  * resets and clocks (whose IDs are defined here) are controlled by bits
@@ -679,6 +684,16 @@ tc956x_function_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		return ret;
 
 	pci_set_master(pdev);
+
+	if (of_property_present(dev->of_node, "tc956x,aspm-quirk")) {
+		ret = pci_disable_link_state(pdev, PCIE_LINK_STATE_L1 |
+						   PCIE_LINK_STATE_L1_1 |
+						   PCIE_LINK_STATE_L1_2 |
+						   PCIE_LINK_STATE_L1_1_PCIPM |
+						   PCIE_LINK_STATE_L1_2_PCIPM);
+		if (ret)
+			dev_warn(dev, "failed to disable ASPM L1: %d\n", ret);
+	}
 
 	/* Function 1 gets -EPROBE_DEFER until function 0 sets platform data */
 	chip = chip_get(pdev);

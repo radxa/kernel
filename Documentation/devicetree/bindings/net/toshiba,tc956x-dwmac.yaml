@@ -35,6 +35,13 @@ properties:
 
   gpio-controller: true
 
+  tc956x,aspm-quirk:
+    type: boolean
+    description:
+      Disable ASPM L1 and its substates on this PCI function's endpoint link.
+      Set this only on platforms where TC956x L1 entry gates shared clocks and
+      stalls a neighbouring device.
+
   # We can't allOf reference Ethernet-controller.yaml because we end up with
   # contradictory $nodename rules (`ethernet@` versus `pci@`). Happily only a
   # small number of the properties are useful on TC956x so we can just reference
