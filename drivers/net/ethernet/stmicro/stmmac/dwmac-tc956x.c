@@ -31,6 +31,7 @@
 #define DRIVER_NAME			"dwmac-tc956x"
 
 #define TC956X_PTP_CLOCK_RATE		(250 * HZ_PER_MHZ)
+#define TC956X_MAC_CLOCK_RATE		(125 * HZ_PER_MHZ)
 
 #define TC956X_RX_FIFO_KB		46	/* Shared by all RX queues */
 #define TC956X_TX_FIFO_KB		46	/* Shared by all TX queues */
@@ -716,6 +717,7 @@ static int tc956x_plat_dat_init(struct tc956x_data *td)
 
 	plat->bsp_priv = td;
 	plat->clk_ptp_rate = TC956X_PTP_CLOCK_RATE;
+	plat->clk_ref_rate = TC956X_MAC_CLOCK_RATE;
 
 	/* AXI Configuration */
 	axi = &td->axi;
