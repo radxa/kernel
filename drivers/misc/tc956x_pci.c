@@ -147,6 +147,7 @@ enum clock_id {
  */
 #define EMAC_CTL_OFFSET(_mac_id)	((_mac_id) ? 0x1074 : 0x1070)
 #define MSIGEN_OFFSET(_mac_id)		((_mac_id) ? 0xf100 : 0xf000)
+#define TC956X_MSI_VECTORS		32
 #define DWMAC_OFFSET(_mac_id)		((_mac_id) ? 0x48000 : 0x40000)
 
 /*
@@ -390,7 +391,8 @@ static int chip_gpio_adev_add(struct tc956x_chip *chip)
 /* The two embedded XGMAC controllers have an auxiliary device driver */
 static int function_xgmac_adev_add(struct pci_dev *pdev,
 				   struct tc956x_chip *chip,
-				   unsigned int msigen_irq)
+				   unsigned int msigen_irq,
+				   unsigned int msigen_nvec)
 {
 	u8 mac_id = PCI_FUNC(pdev->devfn);
 	struct device *dev = &pdev->dev;
@@ -417,6 +419,7 @@ static int function_xgmac_adev_add(struct pci_dev *pdev,
 	data->chip = chip;
 	data->msigen = sfr + MSIGEN_OFFSET(mac_id);
 	data->msigen_irq = msigen_irq;
+	data->msigen_nvec = msigen_nvec;
 	data->emac = sfr + DWMAC_OFFSET(mac_id);
 	data->emac_ctl = sfr + EMAC_CTL_OFFSET(mac_id);
 	data->sfr = sfr;
@@ -673,6 +676,7 @@ tc956x_function_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	struct device *dev = &pdev->dev;
 	struct tc956x_chip *chip;
 	unsigned int msigen_irq;
+	unsigned int msigen_nvec;
 	int ret;
 
 	/* Despite being a PCI device, we require devicetree */
@@ -701,15 +705,18 @@ tc956x_function_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		return dev_err_probe(dev, PTR_ERR(chip), "failed to get chip\n");
 
 	/* We called pcim_enable_device() so this will be freed automatically */
-	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_MSI);
+	ret = pci_alloc_irq_vectors(pdev, 1, TC956X_MSI_VECTORS, PCI_IRQ_MSI);
 	if (ret < 1)
 		return dev_err_probe(dev, ret ? : -EIO,
 				     "failed to allocate IRQ vectors\n");
+	msigen_nvec = ret;
 
 	ret = pci_irq_vector(pdev, 0);
 	if (ret < 1)
 		return dev_err_probe(dev, ret ? : -EIO, "failed to get IRQ\n");
 	msigen_irq = ret;
+
+	dev_info(dev, "%u MSI vector(s), base IRQ %u\n", msigen_nvec, msigen_irq);
 
 	ret = chip_init(chip, pdev);
 	if (ret)
@@ -718,7 +725,7 @@ tc956x_function_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	/* We're ready; the other function can now probe */
 	dev->platform_data = chip;
 
-	ret = function_xgmac_adev_add(pdev, chip, msigen_irq);
+	ret = function_xgmac_adev_add(pdev, chip, msigen_irq, msigen_nvec);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to add xgmap device\n");
 

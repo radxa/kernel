@@ -45,7 +45,8 @@ enum tc956x_common_clock_id {
  * @emac_ctl:		I/O mapped address used for eMAC control
  * @sfr:		I/O mapped address used for TC956X SFR access
  * @msigen:		I/O mapped address used by MSIGEN
- * @msigen_irq:		IRQ number used by MSIGEN
+ * @msigen_irq:		IRQ number of the first MSIGEN vector
+ * @msigen_nvec:	Number of consecutive MSIGEN vectors from @msigen_irq
  * @rev_id:		Chip revision ID (for quirks)
  * @mac_id:		Unique device ID (0 or 1)
  *
@@ -58,6 +59,7 @@ struct tc956x_dwmac_data {
 	void __iomem *sfr;
 	void __iomem *msigen;
 	unsigned int msigen_irq;
+	unsigned int msigen_nvec;
 	u8 rev_id;
 	u8 mac_id;
 };
