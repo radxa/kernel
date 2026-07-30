@@ -13,6 +13,7 @@
 #define TC956X_PCIE_DRIVER_NAME	"tc956x_pci"
 
 #define TC956X_XGMAC_DEV_NAME	"dwmac-tc956x"
+#define TC956X_MSI_VECTORS	4
 
 /* Starting address of the space translated by the PCIe endpoint bridge */
 #define TC956X_SLV00_SRC_ADDR	0x0000001000000000ULL
@@ -45,7 +46,8 @@ enum tc956x_clock_id {
  * @emac_ctl:		I/O mapped address used for eMAC control
  * @sfr:		I/O mapped address of the shared system registers
  * @msigen:		I/O mapped address used by MSIGEN
- * @msigen_irq:		IRQ number used by MSIGEN
+ * @msigen_irq:		Linux IRQ numbers for the MSIGEN vectors
+ * @msigen_nvec:		Number of allocated MSI vectors
  * @rev_id:		Chip revision ID (for quirks)
  * @mac_id:		Unique device ID (0 or 1)
  *
@@ -57,7 +59,8 @@ struct tc956x_dwmac_data {
 	void __iomem *emac_ctl;
 	void __iomem *sfr;
 	void __iomem *msigen;
-	unsigned int msigen_irq;
+	unsigned int msigen_irq[TC956X_MSI_VECTORS];
+	unsigned int msigen_nvec;
 	u8 rev_id;
 	u8 mac_id;
 };

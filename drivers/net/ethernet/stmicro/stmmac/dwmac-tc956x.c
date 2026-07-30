@@ -11,6 +11,8 @@
 #include <linux/auxiliary_bus.h>
 #include <linux/bitops.h>
 #include <linux/etherdevice.h>
+#include <linux/group_cpus.h>
+#include <linux/interrupt.h>
 #include <linux/iopoll.h>
 #include <linux/irqdomain.h>
 #include <linux/irqchip/chained_irq.h>
@@ -61,8 +63,9 @@
 /* MSIGEN Registers */
 #define MSI_OUT_EN_OFFSET		0x0000
 #define MSI_MASK_CLR_OFFSET		0x000c
-#define MSI_MASK_VALUE			BIT(0)
 #define MSI_INT_STS_OFFSET		0x0010
+#define MSI_VECT_SET_OFFSET(src)		(0x0020 + ((src) / 4) * 4)
+#define MSI_VECT_SET_SHIFT(src)		(((src) % 4) * 8)
 
 enum msigen_hwirq {
 	HWIRQ_LPI		= 0,
@@ -77,6 +80,12 @@ enum msigen_hwirq {
 };
 
 #define HWIRQ_COUNT			25
+
+struct tc956x_msi_vector {
+	struct tc956x_data *td;
+	u32 sources;
+	u32 index;
+};
 
 /* Offset to the XPCS memory block, relative to the EMAC address range */
 #define DWMAC_XPCS_OFFSET		0x3a00
@@ -113,6 +122,7 @@ enum msigen_hwirq {
  * @irq_domain:		MSIGEN IRQ domain
  * @auxbus_data:	Pointer to data passed from the parent device
  * @plat:		Pointer to our stmmac platform data
+ * @vectors:		Per-vector interrupt source masks and handler data
  * @dma_cfg:		DMA config buffer used by plat_stmmacenet_data
  * @mdio_bus_data:	MDIO bus data used by plat_stmmacenet_data
  * @axi:		AXI data used by plat_stmmacenet_data
@@ -124,6 +134,7 @@ struct tc956x_data {
 	struct irq_domain *irq_domain;
 	struct tc956x_dwmac_data *auxbus_data;
 	struct plat_stmmacenet_data *plat;
+	struct tc956x_msi_vector vectors[TC956X_MSI_VECTORS];
 
 	/* These three fields are used by the plat_stmmacenet_data structure */
 	struct stmmac_dma_cfg dma_cfg;
@@ -164,9 +175,43 @@ static const struct regmap_config xpcs_regmap_config = {
 	.reg_shift	= REGMAP_UPSHIFT(2),
 };
 
+static unsigned int tc956x_msigen_vector(struct tc956x_data *td,
+					 unsigned int source)
+{
+	unsigned int nvec = td->auxbus_data->msigen_nvec;
+
+	if (source >= HWIRQ_RX0 && source < HWIRQ_XPCS)
+		return nvec - 1;
+	if (nvec == TC956X_MSI_VECTORS &&
+	    source >= HWIRQ_TX0 && source < HWIRQ_RX0)
+		return 1 + (source - HWIRQ_TX0) % 2;
+
+	return 0;
+}
+
+static int tc956x_msigen_set_affinity(struct irq_data *data,
+				      const struct cpumask *mask, bool force)
+{
+	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(data);
+	struct tc956x_data *td = gc->domain->host_data;
+	unsigned int vector = tc956x_msigen_vector(td, data->hwirq);
+	unsigned int parent = td->auxbus_data->msigen_irq[vector];
+	int ret;
+
+	ret = force ? irq_force_affinity(parent, mask) :
+		      irq_set_affinity(parent, mask);
+	if (ret)
+		return ret;
+
+	irq_data_update_effective_affinity(data,
+					   irq_get_effective_affinity_mask(parent));
+	return IRQ_SET_MASK_OK;
+}
+
 static void tc956x_msigen_irq_handler(struct irq_desc *desc)
 {
-	struct irq_domain *irq_domain = irq_desc_get_handler_data(desc);
+	struct tc956x_msi_vector *vector = irq_desc_get_handler_data(desc);
+	struct irq_domain *irq_domain = vector->td->irq_domain;
 	struct irq_chip *chip = irq_desc_get_chip(desc);
 	struct irq_chip_generic *gc;
 	unsigned long status;
@@ -176,7 +221,7 @@ static void tc956x_msigen_irq_handler(struct irq_desc *desc)
 
 	chained_irq_enter(chip, desc);
 
-	status = irq_reg_readl(gc, MSI_INT_STS_OFFSET);
+	status = irq_reg_readl(gc, MSI_INT_STS_OFFSET) & vector->sources;
 	for_each_set_bit(hwirq, &status, HWIRQ_COUNT)
 		generic_handle_domain_irq(irq_domain, hwirq);
 
@@ -185,7 +230,7 @@ static void tc956x_msigen_irq_handler(struct irq_desc *desc)
 	 * type. If any interrupts are still asserted then clearing this flag
 	 * will cause the (edge-triggered) MSI to be regenerated.
 	 */
-	irq_reg_writel(gc, MSI_MASK_VALUE, MSI_MASK_CLR_OFFSET);
+	irq_reg_writel(gc, BIT(vector->index), MSI_MASK_CLR_OFFSET);
 
 	chained_irq_exit(chip, desc);
 }
@@ -193,14 +238,28 @@ static void tc956x_msigen_irq_handler(struct irq_desc *desc)
 static int tc956x_msigen_irq_chip_init(struct irq_chip_generic *gc)
 {
 	struct tc956x_data *td = gc->domain->host_data;
+	unsigned int src, i;
+	u32 value;
 
 	gc->reg_base = td->auxbus_data->msigen;
 	gc->chip_types[0].regs.mask = MSI_OUT_EN_OFFSET;
 	gc->chip_types[0].chip.irq_mask = irq_gc_mask_clr_bit;
 	gc->chip_types[0].chip.irq_unmask = irq_gc_mask_set_bit;
+	gc->chip_types[0].chip.irq_set_affinity = tc956x_msigen_set_affinity;
 
 	/* Disable all interrupts */
 	irq_reg_writel(gc, 0, MSI_OUT_EN_OFFSET);
+
+	/* Keep receive and transmit DMA sources on separate vectors. */
+	for (i = 0; i < DIV_ROUND_UP(HWIRQ_COUNT, 4); i++) {
+		value = 0;
+		for (src = i * 4; src < min((i + 1) * 4, HWIRQ_COUNT); src++)
+			value |= tc956x_msigen_vector(td, src) <<
+				 MSI_VECT_SET_SHIFT(src);
+		irq_reg_writel(gc, value, MSI_VECT_SET_OFFSET(i * 4));
+	}
+	irq_reg_writel(gc, BIT(td->auxbus_data->msigen_nvec) - 1,
+		       MSI_MASK_CLR_OFFSET);
 
 	return 0;
 }
@@ -213,10 +272,45 @@ static void tc956x_msigen_irq_chip_exit(struct irq_chip_generic *gc)
 static int tc956x_msigen_irq_domain_init(struct irq_domain *irq_domain)
 {
 	struct tc956x_data *td = irq_domain->host_data;
+	struct cpumask *masks;
+	unsigned int i, src, nr_masks;
+	int ret;
 
-	irq_set_chained_handler_and_data(td->auxbus_data->msigen_irq,
-					 tc956x_msigen_irq_handler,
-					 irq_domain);
+	if (IS_ENABLED(CONFIG_SMP) && td->auxbus_data->msigen_nvec > 1) {
+		masks = group_cpus_evenly(td->auxbus_data->msigen_nvec - 1,
+					  &nr_masks);
+		if (!masks)
+			return -ENOMEM;
+
+		/* Incoming traffic must remain serviceable when CPUs go offline. */
+		for (i = 1; i < td->auxbus_data->msigen_nvec; i++) {
+			struct cpumask *mask = &masks[(i - 1) % nr_masks];
+
+			cpumask_and(mask, mask, cpu_online_mask);
+			if (cpumask_empty(mask))
+				cpumask_copy(mask, cpu_online_mask);
+			ret = irq_set_affinity(td->auxbus_data->msigen_irq[i],
+					       mask);
+			if (ret) {
+				kfree(masks);
+				return ret;
+			}
+		}
+		kfree(masks);
+	}
+
+	for (i = 0; i < td->auxbus_data->msigen_nvec; i++) {
+		struct tc956x_msi_vector *vector = &td->vectors[i];
+
+		vector->td = td;
+		vector->index = i;
+		for (src = 0; src < HWIRQ_COUNT; src++)
+			if (tc956x_msigen_vector(td, src) == i)
+				vector->sources |= BIT(src);
+
+		irq_set_chained_handler_and_data(td->auxbus_data->msigen_irq[i],
+						 tc956x_msigen_irq_handler, vector);
+	}
 
 	return 0;
 }
@@ -224,9 +318,11 @@ static int tc956x_msigen_irq_domain_init(struct irq_domain *irq_domain)
 static void tc956x_msigen_irq_domain_exit(struct irq_domain *irq_domain)
 {
 	struct tc956x_data *td = irq_domain->host_data;
+	unsigned int i;
 
-	irq_set_chained_handler_and_data(td->auxbus_data->msigen_irq,
-					 NULL, NULL);
+	for (i = 0; i < td->auxbus_data->msigen_nvec; i++)
+		irq_set_chained_handler_and_data(td->auxbus_data->msigen_irq[i],
+						 NULL, NULL);
 }
 
 /* We have one IRQ chip instance with 25 IRQs in its domain */
@@ -736,6 +832,28 @@ static int tc956x_plat_dat_init(struct tc956x_data *td)
 	return 0;
 }
 
+static unsigned int tc956x_irq_create_mapping(struct tc956x_data *td,
+					      unsigned int source)
+{
+	struct irq_data *parent;
+	unsigned int vector, irq;
+	int ret;
+
+	irq = irq_create_mapping(td->irq_domain, source);
+	if (!irq || !IS_ENABLED(CONFIG_SMP))
+		return irq;
+
+	vector = tc956x_msigen_vector(td, source);
+	parent = irq_get_irq_data(td->auxbus_data->msigen_irq[vector]);
+	ret = irq_set_affinity(irq, irq_data_get_affinity_mask(parent));
+	if (ret) {
+		irq_dispose_mapping(irq);
+		return 0;
+	}
+
+	return irq;
+}
+
 /*
  * The domain was created with IRQ_DOMAIN_FLAG_DESTROY_GC, so any mapped IRQs
  * will be disposed when the domain is removed (when the device is destroyed).
@@ -743,22 +861,21 @@ static int tc956x_plat_dat_init(struct tc956x_data *td)
 static int tc956x_stmmac_resources_init(struct tc956x_data *td,
 					struct stmmac_resources *res)
 {
-	struct irq_domain *irq_domain = td->irq_domain;
 	u32 i;
 
-	res->irq = irq_create_mapping(irq_domain, HWIRQ_EVENT);
+	res->irq = tc956x_irq_create_mapping(td, HWIRQ_EVENT);
 	if (!res->irq)
 		return -EINVAL;
 
 	for (i = 0; i < td->plat->tx_queues_to_use; i++) {
-		res->tx_irq[i] = irq_create_mapping(irq_domain, HWIRQ_TX0 + i);
+		res->tx_irq[i] = tc956x_irq_create_mapping(td, HWIRQ_TX0 + i);
 		if (!res->tx_irq[i])
 			return -EINVAL;
 	}
 
 	for (i = 0; i < td->plat->rx_queues_to_use; i++) {
-		res->rx_irq[i] = irq_create_mapping(irq_domain, HWIRQ_RX0 + i);
-		if (!res->tx_irq[i])
+		res->rx_irq[i] = tc956x_irq_create_mapping(td, HWIRQ_RX0 + i);
+		if (!res->rx_irq[i])
 			return -EINVAL;
 	}
 
