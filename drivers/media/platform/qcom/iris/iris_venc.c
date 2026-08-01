@@ -219,18 +219,10 @@ static int iris_venc_s_fmt_output(struct iris_inst *inst, struct v4l2_format *f)
 
 	fmt = inst->fmt_dst;
 	fmt->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-	/*
-	 * If output format size != input format size,
-	 * it is considered a scaling case,
-	 * and the scaled size needs to be saved.
-	 */
-	if (f->fmt.pix_mp.width != inst->fmt_src->fmt.pix_mp.width ||
-	    f->fmt.pix_mp.height != inst->fmt_src->fmt.pix_mp.height) {
-		inst->enc_scale_width = f->fmt.pix_mp.width;
-		inst->enc_scale_height = f->fmt.pix_mp.height;
-		fmt->fmt.pix_mp.width = ALIGN(f->fmt.pix_mp.width, codec_align);
-		fmt->fmt.pix_mp.height = ALIGN(f->fmt.pix_mp.height, codec_align);
-	}
+	inst->enc_scale_width = f->fmt.pix_mp.width;
+	inst->enc_scale_height = f->fmt.pix_mp.height;
+	fmt->fmt.pix_mp.width = ALIGN(f->fmt.pix_mp.width, codec_align);
+	fmt->fmt.pix_mp.height = ALIGN(f->fmt.pix_mp.height, codec_align);
 	fmt->fmt.pix_mp.num_planes = 1;
 	fmt->fmt.pix_mp.plane_fmt[0].bytesperline = 0;
 	fmt->fmt.pix_mp.plane_fmt[0].sizeimage = iris_get_buffer_size(inst, BUF_OUTPUT);
@@ -255,11 +247,15 @@ static int iris_venc_s_fmt_output(struct iris_inst *inst, struct v4l2_format *f)
 static int iris_venc_s_fmt_input(struct iris_inst *inst, struct v4l2_format *f)
 {
 	struct v4l2_format *fmt, *output_fmt;
+	u32 raw_width, raw_height;
 
 	iris_venc_try_fmt(inst, f);
 
 	if (!check_format(inst, f->fmt.pix_mp.pixelformat, f->type))
 		return -EINVAL;
+
+	raw_width = f->fmt.pix_mp.width;
+	raw_height = f->fmt.pix_mp.height;
 
 	fmt = inst->fmt_src;
 	fmt->type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
@@ -276,8 +272,8 @@ static int iris_venc_s_fmt_input(struct iris_inst *inst, struct v4l2_format *f)
 	fmt->fmt.pix_mp.quantization = f->fmt.pix_mp.quantization;
 
 	output_fmt = inst->fmt_dst;
-	output_fmt->fmt.pix_mp.width = fmt->fmt.pix_mp.width;
-	output_fmt->fmt.pix_mp.height = fmt->fmt.pix_mp.height;
+	output_fmt->fmt.pix_mp.width = raw_width;
+	output_fmt->fmt.pix_mp.height = raw_height;
 	output_fmt->fmt.pix_mp.colorspace = fmt->fmt.pix_mp.colorspace;
 	output_fmt->fmt.pix_mp.xfer_func = fmt->fmt.pix_mp.xfer_func;
 	output_fmt->fmt.pix_mp.ycbcr_enc = fmt->fmt.pix_mp.ycbcr_enc;
@@ -286,21 +282,21 @@ static int iris_venc_s_fmt_input(struct iris_inst *inst, struct v4l2_format *f)
 	inst->buffers[BUF_INPUT].min_count = iris_vpu_buf_count(inst, BUF_INPUT);
 	inst->buffers[BUF_INPUT].size = fmt->fmt.pix_mp.plane_fmt[0].sizeimage;
 
-	inst->enc_raw_width = f->fmt.pix_mp.width;
-	inst->enc_raw_height = f->fmt.pix_mp.height;
-	inst->enc_scale_width = f->fmt.pix_mp.width;
-	inst->enc_scale_height = f->fmt.pix_mp.height;
+	inst->enc_raw_width = raw_width;
+	inst->enc_raw_height = raw_height;
+	inst->enc_scale_width = raw_width;
+	inst->enc_scale_height = raw_height;
 
-	if (f->fmt.pix_mp.width != inst->crop.width ||
-	    f->fmt.pix_mp.height != inst->crop.height) {
+	if (raw_width != inst->crop.width || raw_height != inst->crop.height) {
 		inst->crop.top = 0;
 		inst->crop.left = 0;
-		inst->crop.width = fmt->fmt.pix_mp.width;
-		inst->crop.height = fmt->fmt.pix_mp.height;
+		inst->crop.width = raw_width;
+		inst->crop.height = raw_height;
 
 		iris_venc_s_fmt_output(inst, output_fmt);
 	}
 
+	/* The negotiated height carries the Y-to-UV offset for contiguous NV12. */
 	memcpy(f, fmt, sizeof(struct v4l2_format));
 
 	return 0;
@@ -359,8 +355,8 @@ int iris_venc_s_selection(struct iris_inst *inst, struct v4l2_selection *s)
 		s->r.left = 0;
 		s->r.top = 0;
 
-		if (s->r.width > inst->fmt_src->fmt.pix_mp.width ||
-		    s->r.height > inst->fmt_src->fmt.pix_mp.height)
+		if (s->r.width > inst->enc_raw_width ||
+		    s->r.height > inst->enc_raw_height)
 			return -EINVAL;
 
 		inst->crop.left = s->r.left;
