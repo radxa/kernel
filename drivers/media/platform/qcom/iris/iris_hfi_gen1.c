@@ -127,6 +127,12 @@ static const struct platform_inst_fw_cap inst_fw_cap_sm8250_enc[] = {
 		.set = iris_set_header_mode_gen1,
 	},
 	{
+		.cap_id = REQUEST_I_FRAME,
+		.hfi_id = HFI_PROPERTY_CONFIG_VENC_REQUEST_SYNC_FRAME,
+		.flags = CAP_FLAG_INPUT_PORT | CAP_FLAG_DYNAMIC_ALLOWED,
+		.set = iris_set_request_sync_frame,
+	},
+	{
 		.cap_id = BITRATE,
 		.min = BITRATE_MIN,
 		.max = BITRATE_MAX,
