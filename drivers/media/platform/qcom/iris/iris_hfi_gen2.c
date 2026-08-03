@@ -384,6 +384,12 @@ static const struct platform_inst_fw_cap inst_fw_cap_sm8550_enc[] = {
 		.value = 0,
 	},
 	{
+		.cap_id = REQUEST_I_FRAME,
+		.hfi_id = HFI_PROP_REQUEST_SYNC_FRAME,
+		.flags = CAP_FLAG_INPUT_PORT | CAP_FLAG_DYNAMIC_ALLOWED,
+		.set = iris_set_request_sync_frame,
+	},
+	{
 		.cap_id = BITRATE,
 		.min = 1,
 		.max = BITRATE_MAX,
