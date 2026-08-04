@@ -247,8 +247,10 @@ static int iris_hfi_gen2_set_crop_offsets(struct iris_inst *inst, u32 plane)
 	} else {
 		codec_align = inst->codec == V4L2_PIX_FMT_HEVC ? 32 : 16;
 		if (V4L2_TYPE_IS_OUTPUT(plane)) {
-			bottom_offset = (inst->enc_raw_height - inst->crop.height);
-			right_offset = (inst->enc_raw_width - inst->crop.width);
+			bottom_offset = inst->enc_raw_height -
+				min(inst->crop.height, inst->enc_raw_height);
+			right_offset = inst->enc_raw_width -
+				min(inst->crop.width, inst->enc_raw_width);
 			left_offset = inst->crop.left;
 			top_offset = inst->crop.top;
 		} else {
