@@ -62,8 +62,8 @@ int iris_venc_inst_init(struct iris_inst *inst)
 
 	inst->crop.left = 0;
 	inst->crop.top = 0;
-	inst->crop.width = DEFAULT_WIDTH;
-	inst->crop.height = DEFAULT_HEIGHT;
+	inst->crop.width = f->fmt.pix_mp.width;
+	inst->crop.height = f->fmt.pix_mp.height;
 
 	inst->operating_rate = DEFAULT_FPS;
 	inst->frame_rate = DEFAULT_FPS;
@@ -228,7 +228,8 @@ static int iris_venc_s_fmt_output(struct iris_inst *inst, struct v4l2_format *f)
 	fmt->fmt.pix_mp.plane_fmt[0].sizeimage = iris_get_buffer_size(inst, BUF_OUTPUT);
 
 	if (f->fmt.pix_mp.colorspace != V4L2_COLORSPACE_DEFAULT &&
-	    f->fmt.pix_mp.colorspace != V4L2_COLORSPACE_REC709)
+	    f->fmt.pix_mp.colorspace != V4L2_COLORSPACE_REC709 &&
+	    f->fmt.pix_mp.colorspace != V4L2_COLORSPACE_SMPTE170M)
 		f->fmt.pix_mp.colorspace = V4L2_COLORSPACE_DEFAULT;
 	fmt->fmt.pix_mp.colorspace = f->fmt.pix_mp.colorspace;
 	fmt->fmt.pix_mp.xfer_func = f->fmt.pix_mp.xfer_func;
@@ -248,6 +249,7 @@ static int iris_venc_s_fmt_input(struct iris_inst *inst, struct v4l2_format *f)
 {
 	struct v4l2_format *fmt, *output_fmt;
 	u32 raw_width, raw_height;
+	int ret;
 
 	iris_venc_try_fmt(inst, f);
 
@@ -287,14 +289,15 @@ static int iris_venc_s_fmt_input(struct iris_inst *inst, struct v4l2_format *f)
 	inst->enc_scale_width = raw_width;
 	inst->enc_scale_height = raw_height;
 
-	if (raw_width != inst->crop.width || raw_height != inst->crop.height) {
-		inst->crop.top = 0;
-		inst->crop.left = 0;
-		inst->crop.width = raw_width;
-		inst->crop.height = raw_height;
+	/* S_FMT resets the crop rectangle to the full negotiated buffer. */
+	inst->crop.top = 0;
+	inst->crop.left = 0;
+	inst->crop.width = fmt->fmt.pix_mp.width;
+	inst->crop.height = fmt->fmt.pix_mp.height;
 
-		iris_venc_s_fmt_output(inst, output_fmt);
-	}
+	ret = iris_venc_s_fmt_output(inst, output_fmt);
+	if (ret)
+		return ret;
 
 	/* The negotiated height carries the Y-to-UV offset for contiguous NV12. */
 	memcpy(f, fmt, sizeof(struct v4l2_format));
