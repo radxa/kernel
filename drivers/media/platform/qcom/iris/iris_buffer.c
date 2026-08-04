@@ -956,6 +956,11 @@ int iris_vb2_buffer_done(struct iris_inst *inst, struct iris_buffer *buf)
 		return -EINVAL;
 
 	vb2 = &vbuf->vb2_buf;
+	/* Failed start_streaming() must return driver-owned buffers as queued. */
+	if (!vb2->vb2_queue->streaming && inst->state == IRIS_INST_ERROR) {
+		v4l2_m2m_buf_done(vbuf, VB2_BUF_STATE_QUEUED);
+		return 0;
+	}
 
 	vbuf->flags |= buf->flags;
 
