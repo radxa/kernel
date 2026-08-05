@@ -1314,19 +1314,38 @@ static irqreturn_t msm_dp_display_irq_thread(int irq, void *dev_id)
 	unsigned long flags;
 	u32 hpd_isr_status;
 	int rc;
+	bool was_plugged;
 
 	spin_lock_irqsave(&dp->irq_thread_lock, flags);
 	hpd_isr_status = dp->hpd_isr_status;
 	dp->hpd_isr_status = 0;
 	spin_unlock_irqrestore(&dp->irq_thread_lock, flags);
 
-	if (hpd_isr_status & DP_DP_HPD_UNPLUG_INT_MASK)
+	was_plugged = dp->plugged;
+
+	/* notify only on actual state transitions */
+	if (hpd_isr_status & DP_DP_HPD_UNPLUG_INT_MASK && was_plugged)
 		drm_bridge_hpd_notify(dp->msm_dp_display.bridge,
 				      connector_status_disconnected);
 
-	if (hpd_isr_status & DP_DP_HPD_PLUG_INT_MASK)
+	if (hpd_isr_status & DP_DP_HPD_PLUG_INT_MASK && !was_plugged)
 		drm_bridge_hpd_notify(dp->msm_dp_display.bridge,
 				      connector_status_connected);
+
+	/*
+	 * A replug is a sink that went away and came back before the controller
+	 * could report the two edges apart. What sits behind the connector may
+	 * not be what was there before, so retire the old sink and announce the
+	 * new one rather than assume nothing happened.
+	 */
+	if (hpd_isr_status & DP_DP_HPD_REPLUG_INT_MASK) {
+		if (was_plugged)
+			drm_bridge_hpd_notify(dp->msm_dp_display.bridge,
+					      connector_status_disconnected);
+
+		drm_bridge_hpd_notify(dp->msm_dp_display.bridge,
+				      connector_status_connected);
+	}
 
 	if (hpd_isr_status & DP_DP_IRQ_HPD_INT_MASK) {
 		rc = pm_runtime_resume_and_get(&pdev->dev);
