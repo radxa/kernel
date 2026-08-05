@@ -301,6 +301,7 @@ int msm_dp_audio_prepare(struct drm_bridge *bridge,
 	msm_dp_audio_enable(audio, true);
 	msm_dp_display_signal_audio_start(msm_dp_display);
 	msm_dp_display->audio_enabled = true;
+	msm_dp_display->audio_restore_pending = false;
 
 end:
 	return rc;
@@ -333,6 +334,23 @@ void msm_dp_audio_shutdown(struct drm_bridge *bridge,
 	msm_dp_audio_enable(audio, false);
 	/* signal the dp display to safely shutdown clocks */
 	msm_dp_display_signal_audio_complete(msm_dp_display);
+}
+
+void msm_dp_audio_restore(struct msm_dp *msm_dp_display)
+{
+	struct msm_dp_audio_private *audio;
+
+	if (!msm_dp_display->power_on || !msm_dp_display->audio_enabled)
+		return;
+
+	audio = msm_dp_audio_get_data(msm_dp_display);
+	if (IS_ERR(audio))
+		return;
+
+	msm_dp_audio_setup_sdp(audio);
+	msm_dp_audio_setup_acr(audio);
+	msm_dp_audio_safe_to_exit_level(audio);
+	msm_dp_audio_enable(audio, true);
 }
 
 struct msm_dp_audio *msm_dp_audio_get(struct platform_device *pdev,

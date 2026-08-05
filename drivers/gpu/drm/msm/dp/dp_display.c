@@ -627,6 +627,12 @@ static int msm_dp_irq_hpd_handle(struct msm_dp_display_private *dp)
 	}
 	drm_dp_cec_irq(dp->aux);
 
+	if (dp->audio_supported) {
+		dp->audio->bw_code = drm_dp_link_rate_to_bw_code(dp->link->link_params.rate);
+		dp->audio->lane_count = dp->link->link_params.num_lanes;
+		msm_dp_audio_restore(&dp->msm_dp_display);
+	}
+
 	drm_dbg_dp(dp->drm_dev, "After, type=%d, sink_count=%d\n",
 			dp->msm_dp_display.connector_type,
 			dp->link->sink_count);
@@ -889,6 +895,13 @@ static int msm_dp_display_post_enable(struct msm_dp *msm_dp_display,
 	/* signal the connect event late to synchronize video and display */
 	msm_dp_display_handle_plugged_change(msm_dp_display, true);
 
+	/* a stream left open across the disable never issues a new prepare */
+	if (msm_dp_display->audio_restore_pending) {
+		msm_dp_display->audio_restore_pending = false;
+		msm_dp_display->audio_enabled = true;
+		msm_dp_audio_restore(msm_dp_display);
+	}
+
 	if (msm_dp_display->psr_supported)
 		msm_dp_ctrl_config_psr(dp->ctrl, dp->panel, !state->vsc_enabled);
 
@@ -904,8 +917,11 @@ static void msm_dp_display_audio_notify_disable(struct msm_dp_display_private *d
 		/* signal the disconnect event */
 		msm_dp_display_handle_plugged_change(msm_dp_display, false);
 		if (!wait_for_completion_timeout(&dp->audio_comp,
-				HZ * 5))
+				HZ * 5)) {
 			DRM_ERROR("audio comp timeout\n");
+			/* the PCM is still open, no new prepare will come */
+			msm_dp_display->audio_restore_pending = true;
+		}
 	}
 
 	msm_dp_display->audio_enabled = false;
