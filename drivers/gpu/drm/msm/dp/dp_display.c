@@ -394,6 +394,16 @@ static int msm_dp_display_handle_irq_hpd(struct msm_dp_display_private *dp)
 static void msm_dp_display_handle_plugged_change(struct msm_dp *msm_dp_display,
 		bool plugged);
 
+static void msm_dp_display_audio_restore(struct msm_dp_display_private *dp)
+{
+	if (!dp->audio_supported)
+		return;
+
+	dp->audio->bw_code = drm_dp_link_rate_to_bw_code(dp->link->link_params.rate);
+	dp->audio->lane_count = dp->link->link_params.num_lanes;
+	msm_dp_audio_restore(&dp->msm_dp_display);
+}
+
 static void msm_dp_hpd_recovery_work(struct work_struct *work)
 {
 	struct delayed_work *dw = to_delayed_work(work);
@@ -454,6 +464,10 @@ unlock:
 	}
 
 	dp->hpd_recovery_tries = 0;
+
+	/* the retrain may have landed on new link parameters */
+	msm_dp_display_audio_restore(dp);
+
 	drm_connector_set_link_status_property(dp->msm_dp_display.connector,
 					       DRM_MODE_LINK_STATUS_GOOD);
 }
@@ -599,6 +613,9 @@ static int msm_dp_irq_hpd_handle(struct msm_dp_display_private *dp)
 			rc = msm_dp_display_handle_irq_hpd(dp);
 	}
 	drm_dp_cec_irq(dp->aux);
+
+	/* link maintenance from a sink request leaves the audio SDPs off */
+	msm_dp_display_audio_restore(dp);
 
 	drm_dbg_dp(dp->drm_dev, "After, type=%d, sink_count=%d\n",
 			dp->msm_dp_display.connector_type,

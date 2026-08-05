@@ -11,6 +11,7 @@
 #include <sound/hdmi-codec.h>
 
 struct drm_bridge;
+struct msm_dp;
 
 /**
  * struct msm_dp_audio
@@ -51,6 +52,7 @@ int msm_dp_audio_prepare(struct drm_bridge *bridge,
 			 struct hdmi_codec_params *params);
 void msm_dp_audio_shutdown(struct drm_bridge *bridge,
 			   struct drm_connector *connector);
+void msm_dp_audio_restore(struct msm_dp *msm_dp_display);
 
 #endif /* _DP_AUDIO_H_ */
 
