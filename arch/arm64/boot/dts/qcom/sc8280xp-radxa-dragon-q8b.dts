@@ -416,12 +416,11 @@
 
 		gpio = <&tlmm 159 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
-		startup-delay-us = <33000>;
+		startup-delay-us = <250000>;
+		off-on-delay-us = <150000>;
 
 		pinctrl-0 = <&vcc_5v_s_reg_en>;
 		pinctrl-names = "default";
-
-		regulator-boot-on;
 	};
 
 	vcc_nvme_3v3: regulator-vcc-nvme-3v3 {
