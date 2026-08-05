@@ -686,6 +686,13 @@ static int msm_dp_display_post_enable(struct msm_dp *msm_dp_display)
 	/* signal the connect event late to synchronize video and display */
 	msm_dp_display_handle_plugged_change(msm_dp_display, true);
 
+	/* a stream left open across the disable never issues a new prepare */
+	if (msm_dp_display->audio_restore_pending) {
+		msm_dp_display->audio_restore_pending = false;
+		msm_dp_display->audio_enabled = true;
+		msm_dp_audio_restore(msm_dp_display);
+	}
+
 	if (msm_dp_display->psr_supported)
 		msm_dp_ctrl_config_psr(dp->ctrl);
 
@@ -704,8 +711,11 @@ static int msm_dp_display_disable(struct msm_dp_display_private *dp)
 		/* signal the disconnect event */
 		msm_dp_display_handle_plugged_change(msm_dp_display, false);
 		if (!wait_for_completion_timeout(&dp->audio_comp,
-				HZ * 5))
+				HZ * 5)) {
 			DRM_ERROR("audio comp timeout\n");
+			/* the PCM is still open, no new prepare will come */
+			msm_dp_display->audio_restore_pending = true;
+		}
 	}
 
 	msm_dp_display->audio_enabled = false;

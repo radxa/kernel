@@ -298,6 +298,7 @@ int msm_dp_audio_prepare(struct drm_bridge *bridge,
 	msm_dp_audio_enable(audio, true);
 	msm_dp_display_signal_audio_start(msm_dp_display);
 	msm_dp_display->audio_enabled = true;
+	msm_dp_display->audio_restore_pending = false;
 
 end:
 	return rc;
