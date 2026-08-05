@@ -1144,6 +1144,21 @@ static irqreturn_t msm_dp_display_irq_thread(int irq, void *dev_id)
 		drm_bridge_hpd_notify(dp->msm_dp_display.bridge,
 				      connector_status_connected);
 
+	/*
+	 * A replug is a sink that went away and came back before the controller
+	 * could report the two edges apart. What sits behind the connector may
+	 * not be what was there before, so retire the old sink and announce the
+	 * new one rather than assume nothing happened.
+	 */
+	if (hpd_isr_status & DP_DP_HPD_REPLUG_INT_MASK) {
+		if (was_plugged)
+			drm_bridge_hpd_notify(dp->msm_dp_display.bridge,
+					      connector_status_disconnected);
+
+		drm_bridge_hpd_notify(dp->msm_dp_display.bridge,
+				      connector_status_connected);
+	}
+
 	if (hpd_isr_status & DP_DP_IRQ_HPD_INT_MASK) {
 		rc = pm_runtime_resume_and_get(&pdev->dev);
 		if (rc)
