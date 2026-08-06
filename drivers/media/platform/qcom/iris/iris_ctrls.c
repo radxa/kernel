@@ -465,6 +465,11 @@ void iris_session_init_caps(struct iris_core *core)
 		core->inst_fw_caps_enc[cap_id].hfi_id = caps[i].hfi_id;
 		core->inst_fw_caps_enc[cap_id].set = caps[i].set;
 	}
+
+	if (core->iris_platform_data->prepend_sps_pps_to_idr &&
+	    core->inst_fw_caps_enc[PREPEND_SPSPPS_TO_IDR].cap_id ==
+		    PREPEND_SPSPPS_TO_IDR)
+		core->inst_fw_caps_enc[PREPEND_SPSPPS_TO_IDR].value = 1;
 }
 
 static u32 iris_get_port_info(struct iris_inst *inst,
