@@ -137,14 +137,13 @@
 			function = LED_FUNCTION_STATUS;
 			gpios = <&pca 0 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "heartbeat";
-			default-state = "on";
 		};
 
 		green_led {
 			color = <LED_COLOR_ID_GREEN>;
 			function = LED_FUNCTION_STATUS;
 			gpios = <&pmm8654au_2_gpios 10 GPIO_ACTIVE_HIGH>;
-			default-state = "off";
+			linux,default-trigger = "none";
 		};
 	};
 
@@ -176,6 +175,8 @@
 	pca: pca@55 {
 		compatible = "nxp,pca9685-pwm";
 		#pwm-cells = <2>;
+		#gpio-cells = <2>;
+		gpio-controller;
 		reg = <0x55>;
 
 		gpio-line-names =
