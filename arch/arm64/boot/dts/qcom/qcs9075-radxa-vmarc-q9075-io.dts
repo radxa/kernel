@@ -269,6 +269,10 @@
 	status = "okay";
 };
 
+&qup_uart17_rts {
+	bias-pull-down;
+};
+
 &uart17 {
 	qcom,load-firmware;
 	qcom,xfer-mode = <1>;
@@ -276,7 +280,6 @@
 	pinctrl-names = "default";
 	status = "okay";
 	linux,rs485-enabled-at-boot-time;
-	rs485-rts-active-low;
 };
 
 &pmm8654au_1_gpios {
