@@ -1189,6 +1189,18 @@ static int cam_req_mgr_probe(struct platform_device *pdev)
 		}
 	}
 
+	/* Also populate CCI children as platform devices */
+	np = NULL;
+	while ((np = of_find_compatible_node(np, NULL, "qcom,cci"))) {
+		rc = of_platform_populate(np, cam_sensor_module_dt_match, NULL, NULL);
+		if (rc) {
+			CAM_ERR(CAM_CRM,
+				"Failed to populate CCI child nodes as platform devices for parent: %s, rc=%d",
+				np->full_name, rc);
+			goto end;
+		}
+	}
+
 	rc = camera_component_match_add_drivers(dev, &match_list);
 	if (rc) {
 		CAM_ERR(CAM_CRM,
