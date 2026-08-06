@@ -147,6 +147,25 @@
 			default-state = "off";
 		};
 	};
+
+	fan_pwm: pwm {
+		compatible = "clk-pwm";
+		#pwm-cells = <2>;
+		clocks = <&gcc GCC_GP1_CLK>;
+		gpios = <&tlmm 51 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-names = "default", "gpio";
+		pinctrl-0 = <&fan_pwm_clk_state>;
+		pinctrl-1 = <&fan_pwm_gpio_state>;
+	};
+
+	fan0: pwm-fan {
+		compatible = "pwm-fan";
+		pwms = <&fan_pwm 0 100000>;
+		cooling-levels = <0 64 128 192 255>;
+		#cooling-cells = <2>;
+		status = "okay";
+	};
 };
 
 &i2c1 {
@@ -360,6 +379,20 @@
 		function = "gpio";
 		drive-strength = <2>;
 		bias-pull-up;
+	};
+
+	fan_pwm_clk_state: fan-pwm-clk-state {
+		pins = "gpio51";
+		function = "gcc_gp1";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	fan_pwm_gpio_state: fan-pwm-gpio-state {
+		pins = "gpio51";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
 	};
 
 	vcc_1v8_reboot_en_state: vcc-1v8-reboot-en-state {
