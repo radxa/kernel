@@ -230,7 +230,8 @@ static int pwrseq_pcie_m2_match(struct pwrseq_device *pwrseq,
 }
 
 static int pwrseq_m2_pcie_create_bt_node(struct pwrseq_pcie_m2_ctx *ctx,
-					struct device_node *parent)
+					struct device_node *parent,
+					const char *compatible)
 {
 	struct device *dev = ctx->dev;
 	struct device_node *np;
@@ -249,7 +250,7 @@ static int pwrseq_m2_pcie_create_bt_node(struct pwrseq_pcie_m2_ctx *ctx,
 		goto err_destroy_changeset;
 	}
 
-	ret = of_changeset_add_prop_string(ctx->ocs, np, "compatible", "qcom,wcn7850-bt");
+	ret = of_changeset_add_prop_string(ctx->ocs, np, "compatible", compatible);
 	if (ret) {
 		dev_err(dev, "Failed to add bluetooth compatible: %d\n", ret);
 		goto err_destroy_changeset;
@@ -366,7 +367,8 @@ static bool pwrseq_pcie_m2_has_usb_bt(struct pwrseq_pcie_m2_ctx *ctx)
 }
 #endif
 
-static int pwrseq_pcie_m2_create_serdev(struct pwrseq_pcie_m2_ctx *ctx)
+static int pwrseq_pcie_m2_create_serdev(struct pwrseq_pcie_m2_ctx *ctx,
+					const char *compatible)
 {
 	struct serdev_controller *serdev_ctrl;
 	struct device *dev = ctx->dev;
@@ -399,13 +401,13 @@ static int pwrseq_pcie_m2_create_serdev(struct pwrseq_pcie_m2_ctx *ctx)
 		goto err_put_ctrl;
 	}
 
-	ret = pwrseq_m2_pcie_create_bt_node(ctx, serdev_parent);
+	ret = pwrseq_m2_pcie_create_bt_node(ctx, serdev_parent, compatible);
 	if (ret)
 		goto err_free_serdev;
 
 	ret = serdev_device_add(ctx->serdev);
 	if (ret) {
-		dev_err(dev, "Failed to add serdev for WCN7850: %d\n", ret);
+		dev_err(dev, "Failed to add serdev for bluetooth: %d\n", ret);
 		goto err_free_dt_node;
 	}
 
@@ -444,11 +446,29 @@ static void pwrseq_pcie_m2_remove_serdev(struct pwrseq_pcie_m2_ctx *ctx)
 	}
 }
 
+static const struct pci_device_id pcie_m2_serdev_ids[] = {
+	{ /* QCNFA765A with QCA2066 */
+		PCI_VDEVICE_SUB(QCOM, 0x1103, PCI_VENDOR_ID_QCOM, 0x3374),
+		.driver_data = (kernel_ulong_t)"qcom,qca2066-bt",
+	},
+	{ /* QCNFA765A */
+		PCI_VDEVICE(QCOM, 0x1103),
+		.driver_data = (kernel_ulong_t)"qcom,wcn6855-bt",
+	},
+	{ /* QCNCM865A */
+		PCI_VDEVICE(QCOM, 0x1107),
+		.driver_data = (kernel_ulong_t)"qcom,wcn8750-bt",
+	},
+	{}
+};
+
 static int pwrseq_m2_pcie_notify(struct notifier_block *nb, unsigned long action,
 			      void *data)
 {
 	struct pwrseq_pcie_m2_ctx *ctx = container_of(nb, struct pwrseq_pcie_m2_ctx, nb);
 	struct pci_dev *pdev = to_pci_dev(data);
+	const struct pci_device_id * id;
+	const char *compatible;
 	int ret;
 
 	/*
@@ -463,16 +483,17 @@ static int pwrseq_m2_pcie_notify(struct notifier_block *nb, unsigned long action
 
 	switch (action) {
 	case BUS_NOTIFY_BOUND_DRIVER:
-		/* Create serdev device for WCN7850 */
-		if (pdev->vendor == PCI_VENDOR_ID_QCOM && pdev->device == 0x1107) {
-			ret = pwrseq_pcie_m2_create_serdev(ctx);
+		/* Create serdev device for matched devices */
+		if ((id = pci_match_id(pcie_m2_serdev_ids, pdev))) {
+			compatible = (const char*)id->driver_data;
+			ret = pwrseq_pcie_m2_create_serdev(ctx, compatible);
 			if (ret)
 				return notifier_from_errno(ret);
 		}
 		break;
 	case BUS_NOTIFY_UNBIND_DRIVER:
-		/* Destroy serdev device for WCN7850 */
-		if (pdev->vendor == PCI_VENDOR_ID_QCOM && pdev->device == 0x1107)
+		/* Destroy serdev device for matched devices */
+		if (pci_match_id(pcie_m2_serdev_ids, pdev))
 			pwrseq_pcie_m2_remove_serdev(ctx);
 
 		break;
