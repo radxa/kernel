@@ -1222,6 +1222,8 @@ static int iris_hfi_gen2_session_drain(struct iris_inst *inst, u32 plane)
 
 	if (!V4L2_TYPE_IS_OUTPUT(plane))
 		return 0;
+	if (!inst_hfi_gen2->packet)
+		return -EINVAL;
 
 	iris_hfi_gen2_packet_session_command(inst,
 					     HFI_CMD_DRAIN,
