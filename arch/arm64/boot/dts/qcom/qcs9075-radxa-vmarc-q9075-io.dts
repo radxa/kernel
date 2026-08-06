@@ -113,6 +113,27 @@
 			debounce-interval = <30>;
 		};
 	};
+
+	gpio_leds: leds {
+		compatible = "gpio-leds";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pme_gpio_10_led>;
+
+		blue_led {
+			color = <LED_COLOR_ID_BLUE>;
+			function = LED_FUNCTION_STATUS;
+			gpios = <&pca 0 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "heartbeat";
+			default-state = "on";
+		};
+
+		green_led {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_STATUS;
+			gpios = <&pmm8654au_2_gpios 10 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
+		};
+	};
 };
 
 &i2c1 {
@@ -221,6 +242,13 @@
 		output-high;
 		bias-pull-high;
 	};
+
+	pme_gpio_10_led: pme-gpio-10-led-state {
+		pins = "gpio10";
+		function = "normal";
+		output-low;
+		bias-disable;
+	};
 };
 
 &tlmm {
@@ -232,4 +260,3 @@
 		bias-pull-up;
 	};
 };
-
