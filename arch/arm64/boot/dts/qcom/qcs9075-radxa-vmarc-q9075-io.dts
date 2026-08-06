@@ -145,9 +145,20 @@
 		compatible = "nxp,pca9685-pwm";
 		#pwm-cells = <2>;
 		reg = <0x55>;
+
+		gpio-line-names =
+		/* GPIO0 ~  GPIO3 */
+		"", "PIN_37", "PIN_7", "PIN_11",
+		/* GPIO4 ~  GPIO7 */
+		"PIN_13", "PIN_15", "PIN_29", "PIN_31",
+		/* GPIO8 ~ GPIO11 */
+		"PIN_36", "PIN_32", "PIN_22", "PIN_18", 
+		/* GPIO12 ~ GPIO15 */
+		"PIN_16", "PIN_10", "PIN_8", "PIN_33",
+		/*GPIO16*/
+		"";
 	};
 };
-
 
 &i2c7 {
 	qcom,load-firmware;
@@ -252,6 +263,84 @@
 };
 
 &tlmm {
+
+	gpio-line-names =
+		/* GPIO0 ~  GPIO3 */
+		"", "", "", "",
+		/* GPIO4 ~  GPIO7 */
+		"", "", "", "",
+		/* GPIO8 ~ GPIO11 */
+		"", "", "", "",
+		/* GPIO12 ~ GPIO15 */
+		"", "PIN_21", "PIN_19", "PIN_23",
+		/* GPIO16 ~ GPIO19 */
+		"PIN_24", "PIN_26", "", "",
+		/* GPIO20 ~ GPIO23 */
+		"", "", "", "",
+		/* GPIO24 ~ GPIO27 */
+		"", "", "", "",
+		/* GPIO28 ~ GPIO31 */
+		"", "", "", "",
+		/* GPIO32 ~ GPIO35 */
+		"", "", "", "",
+		/* GPIO36 ~ GPIO39 */
+		"", "", "", "",
+		/* GPIO40 ~ GPIO43 */
+		"PIN_3", "PIN_5", "", "",
+		/* GPIO44 ~ GPIO47 */
+		"", "", "", "",
+		/* GPIO48 ~ GPIO51 */
+		"", "", "", "",
+		/* GPIO52 ~ GPIO55 */
+		"", "", "", "",
+		/* GPIO56 ~ GPIO59 */
+		"", "", "", "",
+		/* GPIO60 ~ GPIO63 */
+		"", "", "", "",
+		/* GPIO64 ~ GPIO67 */
+		"", "", "", "",
+		/* GPIO68 ~ GPIO71 */
+		"", "", "", "",
+		/* GPIO72 ~ GPIO75 */
+		"", "", "", "",
+		/* GPIO76 ~ GPIO79 */
+		"", "", "", "",
+		/* GPIO80 ~ GPIO83 */
+		"", "", "", "",
+		/* GPIO84 ~ GPIO87 */
+		"", "", "", "",
+		/* GPIO88 ~ GPIO91 */
+		"", "", "", "",
+		/* GPIO92 ~ GPIO95 */
+		"", "", "", "PIN_27",
+		/* GPIO96 ~ GPIO99 */
+		"PIN_28", "", "", "",
+		/* GPIO100 ~ GPIO103 */
+		"", "", "", "",
+		/* GPIO104 ~ GPIO107 */
+		"", "", "", "",
+		/* GPIO108 ~ GPIO111 */
+		"", "", "PIN_12", "PIN_35",
+		/* GPIO112 ~ GPIO115 */
+		"PIN_38", "PIN_40", "", "",
+		/* GPIO116 ~ GPIO119 */
+		"", "", "", "",
+		/* GPIO120 ~ GPIO123 */
+		"", "", "", "",
+		/* GPIO124 ~ GPIO127 */
+		"", "", "", "",
+		/* GPIO128 ~ GPIO131 */
+		"", "", "", "",
+		/* GPIO132 ~ GPIO135 */
+		"", "", "", "",
+		/* GPIO136 ~ GPIO139 */
+		"", "", "", "",
+		/* GPIO140 ~ GPIO143 */
+		"", "", "", "",
+		/* GPIO144 ~ GPIO147 */
+		"", "", "", "",
+		/* GPIO148 ~ GPIO149 */
+		"", "";
 
 	gpio_keys_default: gpio-keys-default-state {
 		pins = "gpio97";
