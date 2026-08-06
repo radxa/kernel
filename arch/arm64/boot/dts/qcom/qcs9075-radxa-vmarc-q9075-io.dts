@@ -206,6 +206,53 @@
 	};
 };
 
+&qup_spi16_default {
+	pins = "gpio86", "gpio87", "gpio88";
+	function = "qup2_se2";
+	drive-strength = <6>;
+	bias-disable;
+};
+
+&spi16 {
+	qcom,load-firmware;
+	qcom,xfer-mode = <1>;
+
+	num-cs = <2>;
+	cs-gpios = <&tlmm 89 GPIO_ACTIVE_LOW>,
+			   <&tlmm 90 GPIO_ACTIVE_LOW>;
+	
+	pinctrl-names = "default";
+	pinctrl-0 = <&qup_spi16_default &spi16_cs_gpio_state>;
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+
+	mcp2518fd_can2: can@0 {
+		compatible = "microchip,mcp2518fd";
+		reg = <0>;
+		clock-frequency = <40000000>;
+		spi-max-frequency = <5000000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&mcp2518fd_spi16_can0_int_state>;
+		interrupt-names = "can2_irq";
+		interrupts-extended = <&tlmm 78 IRQ_TYPE_LEVEL_LOW>;
+		status = "okay";
+	};
+
+	mcp2518fd_can3: can@1 {
+		compatible = "microchip,mcp2518fd";
+		reg = <1>;
+		clock-frequency = <40000000>;
+		spi-max-frequency = <5000000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&mcp2518fd_spi16_can1_int_state>;
+		interrupt-names = "can3_irq";
+		interrupts-extended = <&tlmm 79 IRQ_TYPE_LEVEL_LOW>;
+		status = "okay";
+	};
+};
+
 &uart9 {
 	qcom,load-firmware;
 	qcom,xfer-mode = <1>;
@@ -400,5 +447,27 @@
 		function = "normal";
 		output-high;
 		bias-pull-up;
+	};
+
+	spi16_cs_gpio_state: spi16-cs-gpio-state {
+		pins = "gpio89", "gpio90";
+		function = "gpio";
+		drive-strength = <6>;
+		bias-pull-up;
+		output-high;
+	};
+
+	mcp2518fd_spi16_can0_int_state: mcp2518fd-spi16-can0-int-state {
+		pins = "gpio78";
+		function = "gpio";
+		bias-pull-up;
+		input-enable;
+	};
+
+	mcp2518fd_spi16_can1_int_state: mcp2518fd-spi16-can1-int-state {
+		pins = "gpio79";
+		function = "gpio";
+		bias-pull-up;
+		input-enable;
 	};
 };
