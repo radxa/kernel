@@ -287,6 +287,12 @@ static void stmmac_global_err(struct stmmac_priv *priv)
 	stmmac_service_event_schedule(priv);
 }
 
+void stmmac_request_reset(struct stmmac_priv *priv)
+{
+	stmmac_global_err(priv);
+}
+EXPORT_SYMBOL_GPL(stmmac_request_reset);
+
 /**
  * stmmac_clk_csr_set - dynamically set the MDC clock
  * @priv: driver private structure
