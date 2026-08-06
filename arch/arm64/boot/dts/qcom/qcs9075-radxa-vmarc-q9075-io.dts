@@ -101,17 +101,6 @@
 		regulator-always-on;
 	};
 
-	switch_to_ekey_usb_regulator: switch-to-ekey-usb-regulator {
-		compatible = "regulator-fixed";
-		regulator-name = "switch_to_ekey_usb";
-		gpio = <&pmm8654au_2_gpios 11 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&switch_to_ekey_usb>;
-		enable-active-high;
-		regulator-boot-on;
-		regulator-always-on;
-	};
-
 	gpio_keys: gpio-keys {
 		compatible = "gpio-keys";
 		pinctrl-0 = <&gpio_keys_default>;
