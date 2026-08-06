@@ -2089,6 +2089,7 @@ void msm_dp_ctrl_phy_exit(struct msm_dp_ctrl *msm_dp_ctrl)
 	phy = ctrl->phy;
 
 	msm_dp_ctrl_phy_reset(ctrl);
+	msm_dp_ctrl_phy_power_off(ctrl);
 	phy_exit(phy);
 }
 
