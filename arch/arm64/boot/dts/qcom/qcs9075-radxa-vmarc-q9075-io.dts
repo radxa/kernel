@@ -97,7 +97,6 @@
 		pinctrl-0 = <&vcc_1v8_reboot_en_state>;
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <1800000>;
-		regulator-boot-on;
 		enable-active-high;
 		regulator-always-on;
 	};
