@@ -147,6 +147,7 @@ struct qcom_ethqos {
 	struct phy *serdes_phy;
 	unsigned int speed;
 	int serdes_speed;
+	bool link_speed_valid;
 	phy_interface_t phy_mode;
 	struct reset_control *serdes_reset;
 
@@ -948,15 +949,27 @@ static void ethqos_xpcs_validate_link_post_reset(struct qcom_ethqos *ethqos)
 	}
 }
 
+static bool ethqos_needs_speed_change_reset(unsigned int old_speed,
+					    unsigned int new_speed)
+{
+	return old_speed != new_speed &&
+	       (old_speed == SPEED_2500 || new_speed == SPEED_2500);
+}
+
 static void ethqos_fix_mac_speed(void *priv_n, unsigned int speed, unsigned int mode)
 {
 	struct qcom_ethqos *ethqos = priv_n;
 	struct net_device *dev = platform_get_drvdata(ethqos->pdev);
 	struct stmmac_priv *priv = netdev_priv(dev);
+	unsigned int old_speed = ethqos->speed;
+	bool reset_needed;
+
+	reset_needed = ethqos->link_speed_valid &&
+		       ethqos_needs_speed_change_reset(old_speed, speed);
 
 	qcom_ethqos_set_sgmii_loopback(ethqos, false);
-	ethqos->speed = speed;
 	ethqos_update_link_clk(ethqos, speed);
+	ethqos->speed = speed;
 	ethqos_configure(ethqos);
 
 	if (priv->hw->phylink_pcs) {
@@ -964,6 +977,14 @@ static void ethqos_fix_mac_speed(void *priv_n, unsigned int speed, unsigned int 
 				  priv->plat->phy_interface, speed,
 				  DUPLEX_FULL);
 		ethqos_xpcs_validate_link_post_reset(ethqos);
+	}
+
+	ethqos->link_speed_valid = true;
+
+	if (reset_needed) {
+		netdev_info(dev, "reset adapter after %uMbps to %uMbps link speed change\n",
+			    old_speed, speed);
+		stmmac_request_reset(priv);
 	}
 }
 
