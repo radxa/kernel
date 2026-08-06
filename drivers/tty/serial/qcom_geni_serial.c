@@ -1243,6 +1243,11 @@ static int qcom_geni_serial_startup(struct uart_port *uport)
 		if (ret)
 			return ret;
 	}
+
+	if (uport->rs485.flags & SER_RS485_ENABLED)
+		qcom_geni_set_rts_pin(uport,
+				      !!(uport->rs485.flags & SER_RS485_RTS_AFTER_SEND));
+
 	enable_irq(uport->irq);
 
 	return 0;
@@ -1601,12 +1606,12 @@ static void qcom_geni_serial_pm(struct uart_port *uport,
 static int qcom_geni_rs485_config(struct uart_port *uport,
 				  struct ktermios *termios, struct serial_rs485 *rs485)
 {
-	/* When RS485 is enabled, keep the RTS pin in ACTIVE state
-	 * and revert back to auto flow control mode, i.e. flow control
-	 * managed by the QUP HW once RS485 is disabled.
+	/* Initialize RTS to its idle state when RS485 is enabled and revert
+	 * to QUP-managed automatic flow control once RS485 is disabled.
 	 */
 	if (rs485->flags & SER_RS485_ENABLED)
-		qcom_geni_set_rts_pin(uport, true);
+		qcom_geni_set_rts_pin(uport,
+				      !!(rs485->flags & SER_RS485_RTS_AFTER_SEND));
 	else
 		writel(0, uport->membase + SE_UART_MANUAL_RFR);
 
