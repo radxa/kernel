@@ -11,11 +11,20 @@
  * - Due to the fact that exact behavior depends on the underlying
  *   clock driver, various limitations are possible.
  * - Underlying clock may not be able to give 0% or 100% duty cycle
- *   (constant off or on), exact behavior will depend on the clock.
+ *   (constant off or on), exact behavior will depend on the clock,
+ *   unless a gpio pinctrl state is supplied.
  * - When the PWM is disabled, the clock will be disabled as well,
- *   line state will depend on the clock.
+ *   line state will depend on the clock, unless a gpio pinctrl
+ *   state is supplied.
  * - The clk API doesn't expose the necessary calls to implement
  *   .get_state().
+ *
+ * Optionally, a GPIO descriptor and pinctrl states ("default" and
+ * "gpio") can be provided. When a constant output level is needed
+ * (0% duty, 100% duty, or disabled), the driver switches the pin to
+ * GPIO mode and drives the appropriate level. For normal PWM output
+ * the pin is switched back to its clock function mux. If no GPIO is
+ * provided, the driver falls back to the original clock-only behavior.
  */
 
 #include <linux/kernel.h>
@@ -25,12 +34,18 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/clk.h>
+#include <linux/gpio/consumer.h>
+#include <linux/pinctrl/consumer.h>
 #include <linux/pwm.h>
 
 struct pwm_clk_chip {
 	struct pwm_chip chip;
 	struct clk *clk;
 	bool clk_enabled;
+	struct pinctrl *pinctrl;
+	struct pinctrl_state *pins_default;
+	struct pinctrl_state *pins_gpio;
+	struct gpio_desc *gpiod;
 };
 
 #define to_pwm_clk_chip(_chip) container_of(_chip, struct pwm_clk_chip, chip)
@@ -43,14 +58,38 @@ static int pwm_clk_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 	u32 rate;
 	u64 period = state->period;
 	u64 duty_cycle = state->duty_cycle;
+	bool constant_level = false;
+	int gpio_value = 0;
 
 	if (!state->enabled) {
-		if (pwm->state.enabled) {
+		constant_level = true;
+		gpio_value = 0;
+	} else if (state->duty_cycle == 0) {
+		constant_level = true;
+		gpio_value = (state->polarity == PWM_POLARITY_INVERSED) ? 1 : 0;
+	} else if (state->duty_cycle >= state->period) {
+		constant_level = true;
+		gpio_value = (state->polarity == PWM_POLARITY_INVERSED) ? 0 : 1;
+	}
+
+	if (constant_level) {
+		if (pcchip->gpiod)
+			gpiod_direction_output(pcchip->gpiod, gpio_value);
+		if (pcchip->clk_enabled) {
 			clk_disable(pcchip->clk);
 			pcchip->clk_enabled = false;
 		}
+		if (pcchip->gpiod) {
+			pinctrl_select_state(pcchip->pinctrl, pcchip->pins_gpio);
+			gpiod_direction_output(pcchip->gpiod, gpio_value);
+		}
 		return 0;
-	} else if (!pwm->state.enabled) {
+	}
+
+	if (pcchip->gpiod)
+		pinctrl_select_state(pcchip->pinctrl, pcchip->pins_default);
+
+	if (!pcchip->clk_enabled) {
 		ret = clk_enable(pcchip->clk);
 		if (ret)
 			return ret;
@@ -92,6 +131,44 @@ static int pwm_clk_probe(struct platform_device *pdev)
 	if (IS_ERR(pcchip->clk))
 		return dev_err_probe(&pdev->dev, PTR_ERR(pcchip->clk),
 				     "Failed to get clock\n");
+
+	pcchip->pinctrl = devm_pinctrl_get(&pdev->dev);
+	if (IS_ERR(pcchip->pinctrl)) {
+		ret = PTR_ERR(pcchip->pinctrl);
+		pcchip->pinctrl = NULL;
+		if (ret == -EPROBE_DEFER)
+			return ret;
+	} else {
+		pcchip->pins_default = pinctrl_lookup_state(pcchip->pinctrl,
+							    PINCTRL_STATE_DEFAULT);
+		pcchip->pins_gpio = pinctrl_lookup_state(pcchip->pinctrl, "gpio");
+		if (IS_ERR(pcchip->pins_default) || IS_ERR(pcchip->pins_gpio))
+			pcchip->pinctrl = NULL;
+	}
+
+	/*
+	 * Switch to GPIO pinctrl state before requesting the GPIO. The driver
+	 * core has already applied the default state, which muxes the pin to the
+	 * clock function and claims it. Release that claim first so gpiolib can
+	 * request the pin.
+	 */
+	if (pcchip->pinctrl)
+		pinctrl_select_state(pcchip->pinctrl, pcchip->pins_gpio);
+
+	pcchip->gpiod = devm_gpiod_get_optional(&pdev->dev, NULL, GPIOD_ASIS);
+	if (IS_ERR(pcchip->gpiod))
+		return dev_err_probe(&pdev->dev, PTR_ERR(pcchip->gpiod),
+				     "Failed to get gpio\n");
+
+	/*
+	 * If pinctrl states were found but no GPIO was provided, the pin is stuck
+	 * in GPIO mode from the switch above. Restore the default mux and fall
+	 * back to clock-only operation.
+	 */
+	if (pcchip->pinctrl && !pcchip->gpiod) {
+		pinctrl_select_state(pcchip->pinctrl, pcchip->pins_default);
+		pcchip->pinctrl = NULL;
+	}
 
 	pcchip->chip.dev = &pdev->dev;
 	pcchip->chip.ops = &pwm_clk_ops;
