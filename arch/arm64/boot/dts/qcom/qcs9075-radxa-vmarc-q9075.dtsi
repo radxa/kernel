@@ -719,6 +719,11 @@
 	status = "okay";
 };
 
+&qupv3_id_3 {
+	firmware-name = "qupv3fw.elf";
+	status = "okay";
+};
+
 &remoteproc_adsp {
 	firmware-name = "qcom/sa8775p/adsp.mbn";
 	status = "okay";
