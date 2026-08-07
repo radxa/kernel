@@ -89,6 +89,19 @@
 		regulator-always-on;
 	};
 
+	vcc_1v8_io_regulator: vcc-1v8-io-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_1v8_io";
+		gpio = <&tlmm 73 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&vcc_1v8_io_en_state>;
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
 	switch_to_ekey_usb_regulator: switch-to-ekey-usb-regulator {
 		compatible = "regulator-fixed";
 		regulator-name = "switch_to_ekey_usb";
@@ -229,6 +242,13 @@
 		pins = "gpio97";
 		function = "gpio";
 		drive-strength = <2>;
+		bias-pull-up;
+	};
+
+	vcc_1v8_io_en_state: vcc-1v8-io-en-state {
+		pins = "gpio73";
+		function = "gpio";
+		output-high;
 		bias-pull-up;
 	};
 };
