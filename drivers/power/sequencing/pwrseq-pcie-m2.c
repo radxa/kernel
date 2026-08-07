@@ -33,10 +33,13 @@ struct pwrseq_pcie_m2_ctx {
 	struct regulator_bulk_data *regs;
 	size_t num_vregs;
 	struct notifier_block nb;
+	struct notifier_block usb_nb;
 	struct gpio_desc *w_disable1_gpio;
 	struct gpio_desc *w_disable2_gpio;
 	unsigned int w_disable2_refcnt;
 	struct mutex w_disable2_lock;
+	struct mutex serdev_lock;
+	bool usb_bt_seen;
 	struct serdev_device *serdev;
 	struct of_changeset *ocs;
 	struct device *dev;
@@ -82,6 +85,7 @@ static int pwrseq_pci_m2_e_bt_enable(struct pwrseq_device *pwrseq)
 static int pwrseq_pci_m2_e_bt_disable(struct pwrseq_device *pwrseq)
 {
 	struct pwrseq_pcie_m2_ctx *ctx = pwrseq_device_get_drvdata(pwrseq);
+	int ret;
 
 	guard(mutex)(&ctx->w_disable2_lock);
 
@@ -91,7 +95,11 @@ static int pwrseq_pci_m2_e_bt_disable(struct pwrseq_device *pwrseq)
 	if (--ctx->w_disable2_refcnt)
 		return 0;
 
-	return gpiod_set_value_cansleep(ctx->w_disable2_gpio, 1);
+	ret = gpiod_set_value_cansleep(ctx->w_disable2_gpio, 1);
+	if (!ret)
+		msleep(100);
+
+	return ret;
 }
 
 /*
@@ -334,6 +342,9 @@ static bool pwrseq_pcie_m2_has_usb_bt(struct pwrseq_pcie_m2_ctx *ctx)
 {
 	struct pwrseq_pcie_m2_usb_match match;
 
+	if (ctx->usb_bt_seen)
+		return true;
+
 	struct device_node *ep __free(device_node) =
 			of_graph_get_endpoint_by_regs(ctx->of_node, 2, 0);
 	if (!ep)
@@ -363,7 +374,7 @@ static bool pwrseq_pcie_m2_has_usb_bt(struct pwrseq_pcie_m2_ctx *ctx)
 #else
 static bool pwrseq_pcie_m2_has_usb_bt(struct pwrseq_pcie_m2_ctx *ctx)
 {
-	return false;
+	return ctx->usb_bt_seen;
 }
 #endif
 
@@ -373,6 +384,7 @@ static int pwrseq_pcie_m2_create_serdev(struct pwrseq_pcie_m2_ctx *ctx,
 	struct serdev_controller *serdev_ctrl;
 	struct device *dev = ctx->dev;
 	int ret;
+	guard(mutex)(&ctx->serdev_lock);
 
 	struct device_node *serdev_parent __free(device_node) =
 		of_graph_get_remote_node(dev_of_node(ctx->dev), 3, 0);
@@ -380,6 +392,7 @@ static int pwrseq_pcie_m2_create_serdev(struct pwrseq_pcie_m2_ctx *ctx,
 		return 0;
 
 	if (pwrseq_pcie_m2_has_usb_bt(ctx)) {
+		ctx->usb_bt_seen = true;
 		dev_dbg(dev,
 			"Bluetooth is attached over USB, skipping UART serdev\n");
 		return 0;
@@ -430,7 +443,7 @@ err_put_ctrl:
 	return ret;
 }
 
-static void pwrseq_pcie_m2_remove_serdev(struct pwrseq_pcie_m2_ctx *ctx)
+static void pwrseq_pcie_m2_remove_serdev_locked(struct pwrseq_pcie_m2_ctx *ctx)
 {
 	if (ctx->serdev) {
 		device_remove_of_node(&ctx->serdev->dev);
@@ -445,6 +458,60 @@ static void pwrseq_pcie_m2_remove_serdev(struct pwrseq_pcie_m2_ctx *ctx)
 		ctx->ocs = NULL;
 	}
 }
+
+static void pwrseq_pcie_m2_remove_serdev(struct pwrseq_pcie_m2_ctx *ctx)
+{
+	guard(mutex)(&ctx->serdev_lock);
+
+	pwrseq_pcie_m2_remove_serdev_locked(ctx);
+}
+
+#if IS_ENABLED(CONFIG_USB)
+static int pwrseq_pcie_m2_usb_notify(struct notifier_block *nb,
+				     unsigned long action, void *data)
+{
+	struct pwrseq_pcie_m2_ctx *ctx =
+		container_of(nb, struct pwrseq_pcie_m2_ctx, usb_nb);
+	struct usb_device *udev = data;
+	struct pwrseq_pcie_m2_usb_match match;
+
+	if (action != USB_DEVICE_ADD)
+		return NOTIFY_DONE;
+
+	struct device_node *ep __free(device_node) =
+			of_graph_get_endpoint_by_regs(ctx->of_node, 2, 0);
+	if (!ep)
+		return NOTIFY_DONE;
+
+	struct device_node *usb_port __free(device_node) =
+			of_graph_get_remote_port(ep);
+	if (!usb_port || of_property_read_u32(usb_port, "reg", &match.port))
+		return NOTIFY_DONE;
+
+	struct device_node *ports __free(device_node) = of_get_parent(usb_port);
+	if (!ports)
+		return NOTIFY_DONE;
+
+	struct device_node *hub __free(device_node) = of_get_parent(ports);
+	if (!hub)
+		return NOTIFY_DONE;
+
+	match.hub = hub;
+	if (!pwrseq_pcie_m2_match_usb_bt(udev, &match))
+		return NOTIFY_DONE;
+
+	guard(mutex)(&ctx->serdev_lock);
+
+	ctx->usb_bt_seen = true;
+	if (ctx->serdev) {
+		dev_info(ctx->dev,
+			 "USB Bluetooth detected, removing UART Bluetooth\n");
+		pwrseq_pcie_m2_remove_serdev_locked(ctx);
+	}
+
+	return NOTIFY_OK;
+}
+#endif
 
 static const struct pci_device_id pcie_m2_serdev_ids[] = {
 	{ /* QCNFA765A with QCA2066 */
@@ -495,6 +562,11 @@ static int pwrseq_m2_pcie_notify(struct notifier_block *nb, unsigned long action
 		/* Destroy serdev device for matched devices */
 		if (pci_match_id(pcie_m2_serdev_ids, pdev))
 			pwrseq_pcie_m2_remove_serdev(ctx);
+
+		break;
+	case BUS_NOTIFY_REMOVED_DEVICE:
+		if (pci_match_id(pcie_m2_serdev_ids, pdev))
+			ctx->usb_bt_seen = false;
 
 		break;
 	}
@@ -563,6 +635,10 @@ static int pwrseq_pcie_m2_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
+	ret = devm_mutex_init(dev, &ctx->serdev_lock);
+	if (ret)
+		return ret;
+
 	/*
 	 * Currently, of_regulator_bulk_get_all() is the only regulator API that
 	 * allows to get all supplies in the devicetree node without manually
@@ -610,6 +686,11 @@ static int pwrseq_pcie_m2_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_free_regulators;
 
+#if IS_ENABLED(CONFIG_USB)
+	ctx->usb_nb.notifier_call = pwrseq_pcie_m2_usb_notify;
+	usb_register_notify(&ctx->usb_nb);
+#endif
+
 	return 0;
 
 err_free_regulators:
@@ -622,6 +703,9 @@ static void pwrseq_pcie_m2_remove(struct platform_device *pdev)
 {
 	struct pwrseq_pcie_m2_ctx *ctx = platform_get_drvdata(pdev);
 
+#if IS_ENABLED(CONFIG_USB)
+	usb_unregister_notify(&ctx->usb_nb);
+#endif
 	bus_unregister_notifier(&pci_bus_type, &ctx->nb);
 	pwrseq_pcie_m2_remove_serdev(ctx);
 
