@@ -89,12 +89,12 @@
 		regulator-always-on;
 	};
 
-	vcc_1v8_reboot_en_regulator: vcc-1v8-reboot-en-regulator {
+	vcc_1v8_io_regulator: vcc-1v8-io-regulator {
 		compatible = "regulator-fixed";
-		regulator-name = "vcc_1v8_reboot_enbale";
+		regulator-name = "vcc_1v8_io";
 		gpio = <&tlmm 73 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&vcc_1v8_reboot_en_state>;
+		pinctrl-0 = <&vcc_1v8_io_en_state>;
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <1800000>;
 		enable-active-high;
@@ -434,7 +434,7 @@
 		bias-disable;
 	};
 
-	vcc_1v8_reboot_en_state: vcc-1v8-reboot-en-state {
+	vcc_1v8_io_en_state: vcc-1v8-en-state {
 		pins = "gpio73";
 		function = "normal";
 		output-high;
