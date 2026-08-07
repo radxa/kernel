@@ -108,7 +108,7 @@
 		pinctrl-0 = <&status_led_state>, <&power_led_state>;
 
 		status-led {
-			lable = "status:led";
+			label = "status:led";
 			gpios = <&pmm8654au_1_gpios 11 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "heartbeat";
 			function = LED_FUNCTION_STATUS;
@@ -116,7 +116,7 @@
 		};
 
 		power-led {
-			lable = "power:led";
+			label = "power:led";
 			gpios = <&tlmm 98 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "none";
 			function = LED_FUNCTION_POWER;
