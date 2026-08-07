@@ -41,6 +41,7 @@ config POWER_SEQUENCING_PCIE_M2
 	depends on OF
 	depends on PCI
 	depends on SERIAL_DEV_BUS
+	depends on USB || !USB
 	select OF_DYNAMIC
 	help
 	  Say Y here to enable the power sequencing driver for PCIe M.2

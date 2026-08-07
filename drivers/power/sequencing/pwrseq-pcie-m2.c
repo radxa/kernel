@@ -20,6 +20,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/serdev.h>
 #include <linux/slab.h>
+#include <linux/usb.h>
 
 struct pwrseq_pci_dev {
 	struct serdev_device *serdev;
@@ -39,10 +40,12 @@ struct pwrseq_pcie_m2_ctx {
 	struct regulator_bulk_data *regs;
 	size_t num_vregs;
 	struct notifier_block nb;
+	struct notifier_block usb_nb;
 	struct gpio_desc *w_disable1_gpio;
 	struct gpio_desc *w_disable2_gpio;
 	unsigned int w_disable2_refcnt;
 	struct mutex w_disable2_lock;
+	bool usb_bt_seen;
 	struct device *dev;
 	struct list_head pci_devices;
 	struct mutex list_lock;
@@ -88,6 +91,7 @@ static int pwrseq_pci_m2_e_bt_enable(struct pwrseq_device *pwrseq)
 static int pwrseq_pci_m2_e_bt_disable(struct pwrseq_device *pwrseq)
 {
 	struct pwrseq_pcie_m2_ctx *ctx = pwrseq_device_get_drvdata(pwrseq);
+	int ret;
 
 	guard(mutex)(&ctx->w_disable2_lock);
 
@@ -97,7 +101,11 @@ static int pwrseq_pci_m2_e_bt_disable(struct pwrseq_device *pwrseq)
 	if (--ctx->w_disable2_refcnt)
 		return 0;
 
-	return gpiod_set_value_cansleep(ctx->w_disable2_gpio, 1);
+	ret = gpiod_set_value_cansleep(ctx->w_disable2_gpio, 1);
+	if (!ret)
+		msleep(100);
+
+	return ret;
 }
 
 /*
@@ -321,6 +329,96 @@ err_destroy_changeset:
 	return ret;
 }
 
+#if IS_ENABLED(CONFIG_USB)
+static bool pwrseq_pcie_m2_is_bt_iface(struct usb_device *udev)
+{
+	struct usb_host_config *conf = udev->actconfig;
+	unsigned int i;
+
+	if (udev->descriptor.bDeviceClass == USB_CLASS_WIRELESS_CONTROLLER &&
+	    udev->descriptor.bDeviceSubClass == 0x01 &&
+	    udev->descriptor.bDeviceProtocol == 0x01)
+		return true;
+
+	if (!conf)
+		return false;
+
+	for (i = 0; i < conf->desc.bNumInterfaces; i++) {
+		struct usb_interface *intf = conf->interface[i];
+		struct usb_host_interface *alt;
+
+		if (!intf)
+			continue;
+
+		alt = intf->cur_altsetting;
+		if (alt &&
+		    alt->desc.bInterfaceClass == USB_CLASS_WIRELESS_CONTROLLER &&
+		    alt->desc.bInterfaceSubClass == 0x01 &&
+		    alt->desc.bInterfaceProtocol == 0x01)
+			return true;
+	}
+
+	return false;
+}
+
+struct pwrseq_pcie_m2_usb_match {
+	struct device_node *hub;
+	u32 port;
+};
+
+static int pwrseq_pcie_m2_match_usb_bt(struct usb_device *udev, void *data)
+{
+	struct pwrseq_pcie_m2_usb_match *match = data;
+
+	if (!udev->parent || dev_of_node(&udev->parent->dev) != match->hub)
+		return 0;
+
+	if (udev->portnum != match->port)
+		return 0;
+
+	return pwrseq_pcie_m2_is_bt_iface(udev);
+}
+
+static bool pwrseq_pcie_m2_has_usb_bt(struct pwrseq_pcie_m2_ctx *ctx)
+{
+	struct pwrseq_pcie_m2_usb_match match;
+
+	if (ctx->usb_bt_seen)
+		return true;
+
+	struct device_node *ep __free(device_node) =
+			of_graph_get_endpoint_by_regs(ctx->of_node, 2, 0);
+	if (!ep)
+		return false;
+
+	struct device_node *usb_port __free(device_node) =
+			of_graph_get_remote_port(ep);
+	if (!usb_port)
+		return false;
+
+	if (of_property_read_u32(usb_port, "reg", &match.port))
+		return false;
+
+	struct device_node *ports __free(device_node) =
+			of_get_parent(usb_port);
+	if (!ports)
+		return false;
+
+	struct device_node *hub __free(device_node) = of_get_parent(ports);
+	if (!hub)
+		return false;
+
+	match.hub = hub;
+
+	return usb_for_each_dev(&match, pwrseq_pcie_m2_match_usb_bt) != 0;
+}
+#else
+static bool pwrseq_pcie_m2_has_usb_bt(struct pwrseq_pcie_m2_ctx *ctx)
+{
+	return ctx->usb_bt_seen;
+}
+#endif
+
 static int pwrseq_pcie_m2_create_serdev_one(struct pwrseq_pcie_m2_ctx *ctx,
 					struct pci_dev *pdev)
 {
@@ -333,6 +431,13 @@ static int pwrseq_pcie_m2_create_serdev_one(struct pwrseq_pcie_m2_ctx *ctx,
 		of_graph_get_remote_node(dev_of_node(ctx->dev), 3, 0);
 	if (!serdev_parent)
 		return 0;
+
+	if (pwrseq_pcie_m2_has_usb_bt(ctx)) {
+		ctx->usb_bt_seen = true;
+		dev_dbg(dev,
+			"Bluetooth is attached over USB, skipping UART serdev\n");
+		return 0;
+	}
 
 	serdev_ctrl = of_find_serdev_controller_by_node(serdev_parent);
 	if (!serdev_ctrl)
@@ -463,14 +568,61 @@ static int pwrseq_pcie_m2_notify(struct notifier_block *nb, unsigned long action
 		}
 		break;
 	case BUS_NOTIFY_REMOVED_DEVICE:
-		if (pci_match_id(pwrseq_m2_pci_ids, pdev))
+		if (pci_match_id(pwrseq_m2_pci_ids, pdev)) {
+			ctx->usb_bt_seen = false;
 			pwrseq_pcie_m2_remove_serdev(ctx, pdev);
+		}
 
 		break;
 	}
 
 	return NOTIFY_OK;
 }
+
+#if IS_ENABLED(CONFIG_USB)
+static int pwrseq_pcie_m2_usb_notify(struct notifier_block *nb,
+				     unsigned long action, void *data)
+{
+	struct pwrseq_pcie_m2_ctx *ctx =
+		container_of(nb, struct pwrseq_pcie_m2_ctx, usb_nb);
+	struct usb_device *udev = data;
+	struct pwrseq_pcie_m2_usb_match match;
+
+	if (action != USB_DEVICE_ADD)
+		return NOTIFY_DONE;
+
+	struct device_node *ep __free(device_node) =
+			of_graph_get_endpoint_by_regs(ctx->of_node, 2, 0);
+	if (!ep)
+		return NOTIFY_DONE;
+
+	struct device_node *usb_port __free(device_node) =
+			of_graph_get_remote_port(ep);
+	if (!usb_port || of_property_read_u32(usb_port, "reg", &match.port))
+		return NOTIFY_DONE;
+
+	struct device_node *ports __free(device_node) = of_get_parent(usb_port);
+	if (!ports)
+		return NOTIFY_DONE;
+
+	struct device_node *hub __free(device_node) = of_get_parent(ports);
+	if (!hub)
+		return NOTIFY_DONE;
+
+	match.hub = hub;
+	if (!pwrseq_pcie_m2_match_usb_bt(udev, &match))
+		return NOTIFY_DONE;
+
+	ctx->usb_bt_seen = true;
+	if (!list_empty(&ctx->pci_devices)) {
+		dev_info(ctx->dev,
+			 "USB Bluetooth detected, removing UART Bluetooth\n");
+		pwrseq_pcie_m2_remove_serdev(ctx, NULL);
+	}
+
+	return NOTIFY_OK;
+}
+#endif
 
 static bool pwrseq_pcie_m2_check_remote_node(struct device *dev, u8 port, u8 endpoint,
 					     const char *node)
@@ -627,6 +779,11 @@ static int pwrseq_pcie_m2_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_remove_serdev;
 
+#if IS_ENABLED(CONFIG_USB)
+	ctx->usb_nb.notifier_call = pwrseq_pcie_m2_usb_notify;
+	usb_register_notify(&ctx->usb_nb);
+#endif
+
 	return 0;
 
 err_remove_serdev:
@@ -644,6 +801,9 @@ static void pwrseq_pcie_m2_remove(struct platform_device *pdev)
 {
 	struct pwrseq_pcie_m2_ctx *ctx = platform_get_drvdata(pdev);
 
+#if IS_ENABLED(CONFIG_USB)
+	usb_unregister_notify(&ctx->usb_nb);
+#endif
 	bus_unregister_notifier(&pci_bus_type, &ctx->nb);
 	pwrseq_pcie_m2_remove_serdev(ctx, NULL);
 	mutex_destroy(&ctx->list_lock);
