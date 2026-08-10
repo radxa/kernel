@@ -11,6 +11,11 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/phy.h>
+#include <linux/property.h>
+
+#define VEND1_CHIP_CTRL			0x2
+#define   VEND1_CHIP_CTRL_XFI_ACCESS	BIT(15)
+#define   VEND1_CHIP_CTRL_SXGMII_MODE	BIT(13)
 
 #define VEND1_GLB_REG_CPU_RESET_ADDR_LO_BASEADDR 0x3
 #define VEND1_GLB_REG_CPU_RESET_ADDR_HI_BASEADDR 0x4
@@ -68,6 +73,37 @@
 #define IPC_CMD_TEMP_MON		0x15 /* Temperature monitoring function */
 #define IPC_CMD_SET_LED			0x23 /* Set led */
 
+#define IPC_OPCODE_DBGCMD		0x16
+#define IPC_OPCODE_POLL			0x17
+#define IPC_OPCODE_WBUF			0x18
+#define IPC_OPCODE_RBUF			0x19
+
+#define IPC_DBGCMD_DPC			0x8b
+
+#define IPC_DBGCMD_SDS			0x96
+
+#define IPC_SDS_RST			26
+
+#define IPC_DPC_SDS_SET_CFG		0x2
+#define IPC_DPC_SDS_GET_CFG		0x3
+#define IPC_DPC_ETH_STS_HW_UPD_CFG	0x8
+#define IPC_DPC_FC_SET			0xd
+
+#define AEON_SDS_PCS_SEL_NORMAL		0
+#define AEON_SDS_PCS_SEL_64B66B		1
+#define AEON_SDS_SPD_1G			0
+#define AEON_SDS_SPD_10G		3
+
+#define AEON_CU_AN_TOP_SPD_10M	0x02
+#define AEON_CU_AN_TOP_SPD_100M	0x04
+#define AEON_CU_AN_TOP_SPD_1G	0x08
+#define AEON_CU_AN_TOP_SPD_2500M	0x10
+#define AEON_CU_AN_TOP_SPD_5G	0x20
+#define AEON_CU_AN_TOP_SPD_10G	0x40
+
+#define AEON_DPC_MAX_POLL		100
+#define AEON_DPC_RBUF_MAX		144
+
 #define VEND1_IPC_STS			0x5802
 #define   AEON_IPC_STS_PARITY		BIT(15)
 #define   AEON_IPC_STS_SIZE		GENMASK(14, 10)
@@ -105,6 +141,8 @@
 /* CFG DIRECT sub command */
 #define IPC_CFG_PARAM_DIRECT_NG_PHYCTRL	0x1
 #define IPC_CFG_PARAM_DIRECT_CU_AN	0x2
+#define IPC_CMD_CFG_CU_AN_RESTART	0xa
+#define IPC_CMD_CFG_CU_AN_TOP_SPD	0xc
 #define IPC_CFG_PARAM_DIRECT_SDS_PCS	0x3
 #define IPC_CFG_PARAM_DIRECT_AUTO_EEE	0x4
 #define IPC_CFG_PARAM_DIRECT_SDS_PMA	0x5
@@ -120,6 +158,30 @@
 #define IPC_CMD_TEMP_MON_GET		0x4
 
 #define AS21XXX_MDIO_AN_C22		0xffe0
+
+#define AS22XXX_SDS_MII_ADV_LINK		BIT(15)
+#define AS22XXX_SDS_MII_ADV_ACK		BIT(14)
+#define AS22XXX_SDS_MII_ADV_REMOTE_FAULT	BIT(13)
+#define AS22XXX_SDS_MII_ADV_FULL		BIT(12)
+#define AS22XXX_SDS_MII_ADV_SPEED		GENMASK(11, 10)
+#define AS22XXX_SDS_MII_ADV_EEE		BIT(9)
+#define AS22XXX_SDS_MII_ADV_EEE_CLK_STOP	BIT(8)
+#define AS22XXX_SDS_MII_ADV_RESERVED_7		BIT(7)
+#define AS22XXX_SDS_MII_ADV_SELECTOR		BIT(0)
+#define AS22XXX_SDS_MII_ADV_CONTROL_MASK	(AS22XXX_SDS_MII_ADV_LINK | \
+						 AS22XXX_SDS_MII_ADV_ACK | \
+						 AS22XXX_SDS_MII_ADV_REMOTE_FAULT | \
+						 AS22XXX_SDS_MII_ADV_FULL | \
+						 AS22XXX_SDS_MII_ADV_SPEED | \
+						 AS22XXX_SDS_MII_ADV_RESERVED_7 | \
+						 AS22XXX_SDS_MII_ADV_SELECTOR)
+
+#define AS22XXX_SDS_PCS_STS20		0x0020
+#define   AS22XXX_SDS_PCS_LINK_UP	BIT(12)
+#define   AS22XXX_SDS_PCS_HIGH_BER	BIT(1)
+#define   AS22XXX_SDS_PCS_BLOCK_LOCK	BIT(0)
+#define AS22XXX_SDS_READY_POLL_US	100000
+#define AS22XXX_SDS_READY_TIMEOUT_US	10000000
 
 #define PHY_ID_AS21XXX			0x75009410
 /* AS21xxx ID Legend
@@ -182,6 +244,12 @@ enum as21xxx_led_event {
 	VEND1_LED_REG_A_EVENT_OFF,
 };
 
+enum as22xxx_system_sync_state {
+	AS22XXX_SYSTEM_SYNC_IDLE,
+	AS22XXX_SYSTEM_SYNC_NEEDS_PHY_ENABLE,
+	AS22XXX_SYSTEM_SYNC_WAIT_PHY_ENABLE,
+};
+
 struct as21xxx_led_pattern_info {
 	unsigned int pattern;
 	u16 val;
@@ -189,8 +257,16 @@ struct as21xxx_led_pattern_info {
 
 struct as21xxx_priv {
 	bool parity_status;
+	bool mode_switch;
 	/* Protect concurrent IPC access */
 	struct mutex ipc_lock;
+
+	struct mutex sds_lock;
+
+	phy_interface_t sds_interface;
+	int sds_speed;
+
+	enum as22xxx_system_sync_state system_sync_state;
 };
 
 static struct as21xxx_led_pattern_info as21xxx_led_supported_pattern[] = {
@@ -457,9 +533,9 @@ static int aeon_ipc_send_cmd(struct phy_device *phydev,
  * If data not NULL, return number of Bytes received from IPC or
  * a negative error.
  */
-static int aeon_ipc_send_msg(struct phy_device *phydev,
-			     u16 opcode, u16 *data, unsigned int data_len,
-			     u16 *ret_data)
+static int aeon_ipc_send_msg_locked(struct phy_device *phydev, u16 opcode,
+				    u16 *data, unsigned int data_len,
+				    u16 *ret_data)
 {
 	struct as21xxx_priv *priv = phydev->priv;
 	unsigned int ret_size;
@@ -470,17 +546,18 @@ static int aeon_ipc_send_msg(struct phy_device *phydev,
 	/* IPC have a max of 8 register to transfer data,
 	 * make sure we never exceed this.
 	 */
-	if (data_len > AEON_IPC_DATA_MAX)
+	if (data_len > AEON_IPC_DATA_MAX || (data_len && !data))
 		return -EINVAL;
-
-	for (i = 0; i < data_len / sizeof(u16); i++)
-		phy_write_mmd(phydev, MDIO_MMD_VEND1, VEND1_IPC_DATA(i),
-			      data[i]);
 
 	cmd = FIELD_PREP(AEON_IPC_CMD_SIZE, data_len) |
 	      FIELD_PREP(AEON_IPC_CMD_OPCODE, opcode);
 
-	mutex_lock(&priv->ipc_lock);
+	for (i = 0; i < DIV_ROUND_UP(data_len, sizeof(u16)); i++) {
+		ret = phy_write_mmd(phydev, MDIO_MMD_VEND1, VEND1_IPC_DATA(i),
+				    data[i]);
+		if (ret)
+			goto out;
+	}
 
 	ret = aeon_ipc_send_cmd(phydev, priv, cmd, &ret_sts);
 	if (ret) {
@@ -489,7 +566,7 @@ static int aeon_ipc_send_msg(struct phy_device *phydev,
 		goto out;
 	}
 
-	if (!data)
+	if (!ret_data)
 		goto out;
 
 	if ((ret_sts & AEON_IPC_STS_STATUS) == AEON_IPC_STS_STATUS_ERROR) {
@@ -519,9 +596,181 @@ static int aeon_ipc_send_msg(struct phy_device *phydev,
 	ret = ret_size;
 
 out:
+	return ret;
+}
+
+static int aeon_ipc_send_msg(struct phy_device *phydev, u16 opcode, u16 *data,
+			     unsigned int data_len, u16 *ret_data)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	int ret;
+
+	mutex_lock(&priv->ipc_lock);
+	ret = aeon_ipc_send_msg_locked(phydev, opcode, data, data_len,
+				       ret_data);
 	mutex_unlock(&priv->ipc_lock);
 
 	return ret;
+}
+
+static int aeon_ipc_sync_parity(struct phy_device *phydev,
+				struct as21xxx_priv *priv);
+static int aeon_ipc_sync_parity_locked(struct phy_device *phydev,
+				       struct as21xxx_priv *priv);
+
+static int aeon_cfg_xfer(struct phy_device *phydev, u16 section, u16 sub,
+			 const void *payload, unsigned int payload_len,
+			 void *rbuf, unsigned int rbytes)
+{
+	u16 wbuf[AEON_IPC_DATA_NUM_REGISTERS] = {};
+	u16 data[AEON_IPC_DATA_NUM_REGISTERS] = {};
+	struct as21xxx_priv *priv = phydev->priv;
+	unsigned int i, done, chunk;
+	u16 cmd, hdr[3], ret_sts = 0;
+	u8 *out = rbuf;
+	int ret, iter;
+
+	if (payload_len > sizeof(wbuf) || rbytes > AEON_DPC_RBUF_MAX)
+		return -EINVAL;
+
+	hdr[0] = (section << 8) | sub;
+	hdr[1] = payload_len;
+	hdr[2] = 0;
+
+	mutex_lock(&priv->ipc_lock);
+
+	ret = aeon_ipc_send_msg_locked(phydev, IPC_OPCODE_DBGCMD, hdr,
+				       sizeof(hdr), data);
+	if (ret < 0) {
+		phydev_err(phydev,
+			   "firmware command %02x/%02x start failed: %d\n",
+			   section, sub, ret);
+		goto out;
+	}
+
+	ret = aeon_ipc_sync_parity_locked(phydev, priv);
+	if (ret)
+		goto out;
+
+	if (payload && payload_len) {
+		memcpy(wbuf, payload, payload_len);
+		ret = aeon_ipc_send_msg_locked(phydev, IPC_OPCODE_WBUF, wbuf,
+					       payload_len, data);
+		if (ret < 0) {
+			phydev_err(phydev,
+				   "firmware command %02x/%02x payload failed: %d\n",
+				   section, sub, ret);
+			goto out;
+		}
+
+		ret = aeon_ipc_sync_parity_locked(phydev, priv);
+		if (ret)
+			goto out;
+	}
+
+	for (iter = 0; iter < AEON_DPC_MAX_POLL; iter++) {
+		cmd = FIELD_PREP(AEON_IPC_CMD_OPCODE, IPC_OPCODE_POLL);
+		ret = aeon_ipc_send_cmd(phydev, priv, cmd, &ret_sts);
+		if (ret) {
+			phydev_err(phydev, "firmware command %02x/%02x poll failed: %d sts %04x\n",
+				   section, sub, ret, ret_sts);
+			goto out;
+		}
+
+		ret = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_IPC_DATA(0));
+		if (ret < 0)
+			goto out;
+		if (ret)
+			break;
+	}
+
+	if (iter == AEON_DPC_MAX_POLL) {
+		phydev_err(phydev, "firmware command %02x/%02x timed out\n",
+			   section, sub);
+		ret = -ETIMEDOUT;
+		goto out;
+	}
+
+	ret = 0;
+	if (!rbuf || !rbytes)
+		goto out_sync;
+
+	for (done = 0; done < rbytes; done += chunk) {
+		chunk = min_t(unsigned int, rbytes - done, AEON_IPC_DATA_MAX);
+
+		cmd = FIELD_PREP(AEON_IPC_CMD_OPCODE, IPC_OPCODE_RBUF);
+		ret = aeon_ipc_send_cmd(phydev, priv, cmd, &ret_sts);
+		if (ret) {
+			phydev_err(phydev, "firmware command %02x/%02x result failed: %d sts %04x\n",
+				   section, sub, ret, ret_sts);
+			goto out;
+		}
+
+		for (i = 0; i < AEON_IPC_DATA_NUM_REGISTERS; i++) {
+			ret = phy_read_mmd(phydev, MDIO_MMD_VEND1,
+					   VEND1_IPC_DATA(i));
+			if (ret < 0)
+				goto out;
+
+			data[i] = ret;
+		}
+
+		memcpy(out + done, data, chunk);
+	}
+
+	ret = 0;
+
+out_sync:
+	ret = aeon_ipc_sync_parity_locked(phydev, priv);
+
+out:
+	mutex_unlock(&priv->ipc_lock);
+	return ret;
+}
+
+static int aeon_dpc_cmd(struct phy_device *phydev, u16 sub,
+			const void *payload, unsigned int payload_len)
+{
+	return aeon_cfg_xfer(phydev, IPC_DBGCMD_DPC, sub, payload, payload_len,
+			     NULL, 0);
+}
+
+static int aeon_dpc_query(struct phy_device *phydev, u16 sub, void *rbuf,
+			  unsigned int rbytes)
+{
+	return aeon_cfg_xfer(phydev, IPC_DBGCMD_DPC, sub, NULL, 0, rbuf,
+			     rbytes);
+}
+
+static int aeon_dpc_fc_apply_mode(struct phy_device *phydev, u8 pcs_sel)
+{
+	u8 enable = pcs_sel == AEON_SDS_PCS_SEL_NORMAL;
+
+	return aeon_dpc_cmd(phydev, IPC_DPC_FC_SET, &enable, sizeof(enable));
+}
+
+static int aeon_dpc_sds_get(struct phy_device *phydev, u8 *pcs_sel,
+			    u8 *sds_spd)
+{
+	u8 cfg[AEON_IPC_DATA_MAX] = {};
+	int ret;
+
+	ret = aeon_dpc_query(phydev, IPC_DPC_SDS_GET_CFG, cfg, sizeof(cfg));
+	if (ret)
+		return ret;
+
+	*pcs_sel = cfg[0];
+	*sds_spd = cfg[1];
+
+	return 0;
+}
+
+static int aeon_dpc_sds_set(struct phy_device *phydev, u8 pcs_sel, u8 sds_spd)
+{
+	u16 payload = pcs_sel | (sds_spd << 8);
+
+	return aeon_dpc_cmd(phydev, IPC_DPC_SDS_SET_CFG, &payload,
+			    sizeof(payload));
 }
 
 static int aeon_ipc_noop(struct phy_device *phydev,
@@ -540,24 +789,22 @@ static int aeon_ipc_noop(struct phy_device *phydev,
  * to handle the packet only for the second one. This way
  * we make sure we are sync for every next cmd.
  */
-static int aeon_ipc_sync_parity(struct phy_device *phydev,
-				struct as21xxx_priv *priv)
+static int aeon_ipc_sync_parity_locked(struct phy_device *phydev,
+				       struct as21xxx_priv *priv)
 {
-	u16 ret_sts;
+	u16 ret_sts = 0;
 	int ret;
 
-	mutex_lock(&priv->ipc_lock);
-
 	/* Send NOP with no parity */
-	aeon_ipc_noop(phydev, priv, NULL);
+	ret = aeon_ipc_noop(phydev, priv, NULL);
+	if (ret)
+		return ret;
 
 	/* Reset packet parity */
 	priv->parity_status = false;
 
 	/* Send second NOP with no parity */
 	ret = aeon_ipc_noop(phydev, priv, &ret_sts);
-
-	mutex_unlock(&priv->ipc_lock);
 
 	/* We expect to return -EINVAL */
 	if (ret != -EINVAL)
@@ -572,26 +819,43 @@ static int aeon_ipc_sync_parity(struct phy_device *phydev,
 	return 0;
 }
 
-static int aeon_ipc_get_fw_version(struct phy_device *phydev)
+static int aeon_ipc_sync_parity(struct phy_device *phydev,
+				struct as21xxx_priv *priv)
 {
-	u16 ret_data[AEON_IPC_DATA_NUM_REGISTERS], data[1];
-	char fw_version[AEON_IPC_DATA_MAX + 1];
 	int ret;
 
-	data[0] = IPC_INFO_VERSION;
+	mutex_lock(&priv->ipc_lock);
+	ret = aeon_ipc_sync_parity_locked(phydev, priv);
+	mutex_unlock(&priv->ipc_lock);
+
+	return ret;
+}
+
+static int aeon_ipc_get_fw_version(struct phy_device *phydev)
+{
+	u16 ret_data[AEON_IPC_DATA_NUM_REGISTERS], data[] = { IPC_INFO_VERSION };
+	int ret;
 
 	ret = aeon_ipc_send_msg(phydev, IPC_CMD_INFO, data,
 				sizeof(data), ret_data);
-	if (ret < 0)
-		return ret;
 
-	/* Make sure FW version is NULL terminated */
-	memcpy(fw_version, ret_data, ret);
-	fw_version[ret] = '\0';
+	return ret < 0 ? ret : 0;
+}
 
-	phydev_info(phydev, "Firmware Version: %s\n", fw_version);
+static int aeon_ipc_phy_enable_mode(struct phy_device *phydev, bool enable)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	u16 data[] = { IPC_SYS_CPU_PHY_ENABLE, enable };
+	int ret;
 
-	return 0;
+	mutex_lock(&priv->ipc_lock);
+	ret = aeon_ipc_sync_parity_locked(phydev, priv);
+	if (!ret)
+		ret = aeon_ipc_send_msg_locked(phydev, IPC_CMD_SYS_CPU, data,
+					       sizeof(data), NULL);
+	mutex_unlock(&priv->ipc_lock);
+
+	return ret;
 }
 
 static int aeon_dpc_ra_enable(struct phy_device *phydev)
@@ -603,6 +867,74 @@ static int aeon_dpc_ra_enable(struct phy_device *phydev)
 
 	return aeon_ipc_send_msg(phydev, IPC_CMD_CFG_PARAM, data,
 				 sizeof(data), NULL);
+}
+
+static int aeon_dpc_eth_sts_hw_update(struct phy_device *phydev, bool enable)
+{
+	u8 value = enable ? 1 : 0;
+
+	return aeon_dpc_cmd(phydev, IPC_DPC_ETH_STS_HW_UPD_CFG, &value,
+			    sizeof(value));
+}
+
+static int as22xxx_restart_an(struct phy_device *phydev)
+{
+	u16 data[3];
+
+	data[0] = IPC_CFG_PARAM_DIRECT;
+	data[1] = IPC_CFG_PARAM_DIRECT_CU_AN;
+	data[2] = IPC_CMD_CFG_CU_AN_RESTART;
+
+	return aeon_ipc_send_msg(phydev, IPC_CMD_CFG_PARAM, data,
+				 sizeof(data), NULL);
+}
+
+static int as22xxx_set_top_speed(struct phy_device *phydev)
+{
+	u16 data[4] = {
+		IPC_CFG_PARAM_DIRECT,
+		IPC_CFG_PARAM_DIRECT_CU_AN,
+		IPC_CMD_CFG_CU_AN_TOP_SPD,
+		AEON_CU_AN_TOP_SPD_10M,
+	};
+	unsigned long *advertising = phydev->advertising;
+
+	if (linkmode_test_bit(ETHTOOL_LINK_MODE_10000baseT_Full_BIT,
+			      advertising))
+		data[3] = AEON_CU_AN_TOP_SPD_10G;
+	else if (linkmode_test_bit(ETHTOOL_LINK_MODE_5000baseT_Full_BIT,
+				   advertising))
+		data[3] = AEON_CU_AN_TOP_SPD_5G;
+	else if (linkmode_test_bit(ETHTOOL_LINK_MODE_2500baseT_Full_BIT,
+				   advertising))
+		data[3] = AEON_CU_AN_TOP_SPD_2500M;
+	else if (linkmode_test_bit(ETHTOOL_LINK_MODE_1000baseT_Full_BIT,
+				   advertising))
+		data[3] = AEON_CU_AN_TOP_SPD_1G;
+	else if (linkmode_test_bit(ETHTOOL_LINK_MODE_100baseT_Full_BIT,
+				   advertising))
+		data[3] = AEON_CU_AN_TOP_SPD_100M;
+
+	return aeon_ipc_send_msg(phydev, IPC_CMD_CFG_PARAM, data,
+				 sizeof(data), NULL);
+}
+
+static int as22xxx_config_aneg(struct phy_device *phydev)
+{
+	int ret;
+
+	if (phydev->autoneg == AUTONEG_DISABLE)
+		return genphy_c45_pma_setup_forced(phydev);
+
+	ret = genphy_c45_an_config_aneg(phydev);
+	if (ret < 0)
+		return ret;
+
+	ret = as22xxx_set_top_speed(phydev);
+	if (ret)
+		return ret;
+
+	return as22xxx_restart_an(phydev);
 }
 
 static int as21xxx_probe(struct phy_device *phydev)
@@ -618,6 +950,9 @@ static int as21xxx_probe(struct phy_device *phydev)
 
 	ret = devm_mutex_init(&phydev->mdio.dev,
 			      &priv->ipc_lock);
+	if (ret)
+		return ret;
+	ret = devm_mutex_init(&phydev->mdio.dev, &priv->sds_lock);
 	if (ret)
 		return ret;
 
@@ -868,8 +1203,859 @@ static void as22xxx_read_speed(struct phy_device *phydev, int bmcr)
 	}
 }
 
+static phy_interface_t as22xxx_speed_interface(int speed)
+{
+	switch (speed) {
+	case SPEED_10:
+	case SPEED_100:
+	case SPEED_1000:
+		return PHY_INTERFACE_MODE_SGMII;
+
+	case SPEED_2500:
+	case SPEED_5000:
+	case SPEED_10000:
+		return PHY_INTERFACE_MODE_USXGMII;
+
+	default:
+		return PHY_INTERFACE_MODE_NA;
+	}
+}
+
+static int as22xxx_interface_sds(phy_interface_t interface, u8 *pcs_sel,
+				 u8 *sds_spd)
+{
+	switch (interface) {
+	case PHY_INTERFACE_MODE_SGMII:
+		*pcs_sel = AEON_SDS_PCS_SEL_NORMAL;
+		*sds_spd = AEON_SDS_SPD_1G;
+		return 0;
+
+	case PHY_INTERFACE_MODE_USXGMII:
+
+		*pcs_sel = AEON_SDS_PCS_SEL_64B66B;
+		*sds_spd = AEON_SDS_SPD_10G;
+		return 0;
+
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int as22xxx_program_system_side(struct phy_device *phydev,
+				       phy_interface_t interface,
+				       u8 pcs_sel, u8 sds_spd);
+static int as22xxx_sds_mii_config(struct phy_device *phydev,
+				  phy_interface_t interface, int speed);
+
+static bool as22xxx_update_interface(struct phy_device *phydev)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	phy_interface_t interface;
+	u8 pcs_sel, sds_spd;
+
+	if (!priv->mode_switch || !phydev->link)
+		return true;
+
+	interface = as22xxx_speed_interface(phydev->speed);
+	if (interface == PHY_INTERFACE_MODE_NA)
+		return true;
+
+	if (interface == priv->sds_interface) {
+		if (interface == PHY_INTERFACE_MODE_SGMII &&
+		    phydev->speed != priv->sds_speed) {
+			if (as22xxx_sds_mii_config(phydev, interface,
+						 phydev->speed))
+				return false;
+			if (aeon_dpc_ra_enable(phydev))
+				return false;
+
+			priv->sds_speed = phydev->speed;
+		}
+
+		phydev->interface = interface;
+		return true;
+	}
+
+	if (as22xxx_interface_sds(interface, &pcs_sel, &sds_spd))
+		return true;
+
+	if (as22xxx_program_system_side(phydev, interface, pcs_sel, sds_spd))
+		return false;
+
+	priv->sds_interface = interface;
+	priv->sds_speed = phydev->speed;
+	phydev->interface = interface;
+
+	return true;
+}
+
+static int as22xxx_select_system_side(struct phy_device *phydev,
+				      phy_interface_t interface);
+static int as22xxx_select_system_side(struct phy_device *phydev,
+				      phy_interface_t interface)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	u16 want = interface == PHY_INTERFACE_MODE_USXGMII ?
+			   VEND1_CHIP_CTRL_SXGMII_MODE :
+			   0;
+	int ret, result = 0;
+
+	mutex_lock(&priv->sds_lock);
+
+	ret = phy_modify_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL,
+			     VEND1_CHIP_CTRL_SXGMII_MODE, want);
+	if (ret < 0) {
+		result = ret;
+		goto out;
+	}
+
+	ret = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (ret < 0) {
+		result = ret;
+		goto out;
+	}
+	if ((ret & VEND1_CHIP_CTRL_SXGMII_MODE) != want) {
+		phydev_err(phydev,
+			   "system-side Chip Control personality did not take for %s (chip_ctrl=%04x)\n",
+			   phy_modes(interface), ret);
+		result = -EIO;
+		goto out;
+	}
+
+out:
+	mutex_unlock(&priv->sds_lock);
+	return result;
+}
+
+static int as22xxx_sds_mii_config(struct phy_device *phydev,
+				  phy_interface_t interface, int speed)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	u16 mask = BMCR_ANENABLE | BMCR_ANRESTART | BMCR_SPEED1000 |
+		   BMCR_SPEED100 | BMCR_FULLDPLX;
+	u16 want, adv_speed = 0, adv_want = 0;
+	int orig, paged, val, adv, adv_readback, restored;
+	int ret = 0;
+
+	if (interface == PHY_INTERFACE_MODE_SGMII) {
+		switch (speed) {
+		case SPEED_10:
+			adv_speed = FIELD_PREP(AS22XXX_SDS_MII_ADV_SPEED, 0);
+			break;
+		case SPEED_100:
+			adv_speed = FIELD_PREP(AS22XXX_SDS_MII_ADV_SPEED, 1);
+			break;
+		case SPEED_1000:
+			adv_speed = FIELD_PREP(AS22XXX_SDS_MII_ADV_SPEED, 2);
+			break;
+		default:
+			return -EOPNOTSUPP;
+		}
+		want = mii_bmcr_encode_fixed(speed, DUPLEX_FULL);
+	} else if (interface == PHY_INTERFACE_MODE_USXGMII) {
+		switch (speed) {
+		case SPEED_2500:
+			adv_speed = MDIO_USXGMII_2500;
+			break;
+		case SPEED_5000:
+			adv_speed = MDIO_USXGMII_5000;
+			break;
+		case SPEED_10000:
+			adv_speed = MDIO_USXGMII_10G;
+			break;
+		default:
+			return -EOPNOTSUPP;
+		}
+
+		want = BMCR_SPEED100 | BMCR_SPEED1000 | BMCR_FULLDPLX;
+
+		adv_want = MDIO_USXGMII_LINK | MDIO_USXGMII_FULL_DUPLEX |
+			   adv_speed | AS22XXX_SDS_MII_ADV_SELECTOR;
+	} else {
+		return -EOPNOTSUPP;
+	}
+
+	mutex_lock(&priv->sds_lock);
+
+	orig = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (orig < 0) {
+		ret = orig;
+		goto out_unlock;
+	}
+
+	ret = phy_write_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL,
+			    orig | VEND1_CHIP_CTRL_XFI_ACCESS);
+	if (ret)
+		goto out_restore;
+
+	paged = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (paged < 0) {
+		ret = paged;
+		goto out_restore;
+	}
+	if (!(paged & VEND1_CHIP_CTRL_XFI_ACCESS)) {
+		ret = -EIO;
+		goto out_restore;
+	}
+
+	ret = phy_modify_mmd(phydev, MDIO_MMD_AN,
+			     AS21XXX_MDIO_AN_C22 + MII_BMCR,
+			     BMCR_ANENABLE | BMCR_ANRESTART, 0);
+	if (ret < 0)
+		goto out_restore;
+
+	if (interface == PHY_INTERFACE_MODE_SGMII) {
+		adv = phy_read_mmd(phydev, MDIO_MMD_AN,
+				   AS21XXX_MDIO_AN_C22 + MII_ADVERTISE);
+		if (adv < 0) {
+			ret = adv;
+			goto out_restore;
+		}
+		adv_want = (adv & ~AS22XXX_SDS_MII_ADV_CONTROL_MASK) |
+			   AS22XXX_SDS_MII_ADV_LINK |
+			   AS22XXX_SDS_MII_ADV_FULL |
+			   adv_speed |
+			   AS22XXX_SDS_MII_ADV_SELECTOR;
+
+		ret = phy_modify_mmd(phydev, MDIO_MMD_AN,
+				     AS21XXX_MDIO_AN_C22 + MII_ADVERTISE,
+				     AS22XXX_SDS_MII_ADV_CONTROL_MASK,
+				     adv_want);
+		if (ret < 0)
+			goto out_restore;
+
+		adv_readback = phy_read_mmd(phydev, MDIO_MMD_AN,
+					    AS21XXX_MDIO_AN_C22 + MII_ADVERTISE);
+		if (adv_readback < 0) {
+			ret = adv_readback;
+			goto out_restore;
+		}
+		if ((adv_readback & AS22XXX_SDS_MII_ADV_CONTROL_MASK) !=
+		    (adv_want & AS22XXX_SDS_MII_ADV_CONTROL_MASK)) {
+			phydev_err(phydev,
+				   "SGMII MII advertisement did not take (read %04x, want %04x)\n",
+				   adv_readback, adv_want);
+			ret = -EIO;
+			goto out_restore;
+		}
+	} else {
+		ret = phy_write_mmd(phydev, MDIO_MMD_AN,
+				    AS21XXX_MDIO_AN_C22 + MII_ADVERTISE,
+				    adv_want);
+		if (ret)
+			goto out_restore;
+
+		adv_readback = phy_read_mmd(phydev, MDIO_MMD_AN,
+					    AS21XXX_MDIO_AN_C22 + MII_ADVERTISE);
+		if (adv_readback < 0) {
+			ret = adv_readback;
+			goto out_restore;
+		}
+		if (adv_readback != adv_want) {
+			phydev_err(phydev,
+				   "USXGMII MII advertisement did not take for %d Mbps (read %04x, want %04x)\n",
+				   speed, adv_readback, adv_want);
+			ret = -EIO;
+			goto out_restore;
+		}
+	}
+
+	ret = phy_modify_mmd(phydev, MDIO_MMD_AN,
+			     AS21XXX_MDIO_AN_C22 + MII_BMCR, mask, want);
+	if (ret < 0)
+		goto out_restore;
+
+	val = phy_read_mmd(phydev, MDIO_MMD_AN,
+			   AS21XXX_MDIO_AN_C22 + MII_BMCR);
+	if (val < 0) {
+		ret = val;
+		goto out_restore;
+	}
+	if ((val & mask) != want) {
+		phydev_err(phydev,
+			   "SerDes MII fixed control did not take for %d Mbps (read %04x, want %04x)\n",
+			   speed, val, want);
+		ret = -EIO;
+		goto out_restore;
+	}
+
+	want |= BMCR_ANENABLE;
+	ret = phy_modify_mmd(phydev, MDIO_MMD_AN,
+			     AS21XXX_MDIO_AN_C22 + MII_BMCR, mask,
+			     want | BMCR_ANRESTART);
+	if (ret < 0)
+		goto out_restore;
+
+	ret = read_poll_timeout(phy_read_mmd, val,
+				val < 0 || !(val & BMCR_ANRESTART),
+				1000, 100000, false, phydev, MDIO_MMD_AN,
+				AS21XXX_MDIO_AN_C22 + MII_BMCR);
+	if (val < 0) {
+		ret = val;
+		goto out_restore;
+	}
+	if (ret) {
+		phydev_err(phydev,
+			   "SerDes MII AN restart did not self-clear for %d Mbps (read %04x)\n",
+			   speed, val);
+		goto out_restore;
+	}
+	if ((val & mask) != want) {
+		phydev_err(phydev,
+			   "SerDes MII control did not take for %d Mbps (read %04x, want %04x)\n",
+			   speed, val, want);
+		ret = -EIO;
+		goto out_restore;
+	}
+
+	adv_readback = phy_read_mmd(phydev, MDIO_MMD_AN,
+				    AS21XXX_MDIO_AN_C22 + MII_ADVERTISE);
+	if (adv_readback < 0) {
+		ret = adv_readback;
+		goto out_restore;
+	}
+	if ((interface == PHY_INTERFACE_MODE_SGMII &&
+	     (adv_readback & AS22XXX_SDS_MII_ADV_CONTROL_MASK) !=
+	     (adv_want & AS22XXX_SDS_MII_ADV_CONTROL_MASK)) ||
+	    (interface == PHY_INTERFACE_MODE_USXGMII &&
+	     adv_readback != adv_want)) {
+		phydev_err(phydev,
+			   "%s MII advertisement changed after AN restart (read %04x, want %04x)\n",
+			   phy_modes(interface), adv_readback, adv_want);
+		ret = -EIO;
+		goto out_restore;
+	}
+
+out_restore:
+	restored = phy_write_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL,
+				 orig);
+	if (!restored)
+		restored = phy_read_mmd(phydev, MDIO_MMD_VEND1,
+					VEND1_CHIP_CTRL);
+	if (restored != orig) {
+		phydev_err(phydev,
+			   "SerDes MII config failed to restore chip_ctrl %04x (readback/err %d)\n",
+			   orig, restored);
+		if (!ret)
+			ret = restored < 0 ? restored : -EIO;
+	}
+
+out_unlock:
+	mutex_unlock(&priv->sds_lock);
+	return ret;
+}
+
+static int as22xxx_sds_pcs_reset(struct phy_device *phydev)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	int orig, paged, after, restored;
+	int ret = 0;
+
+	mutex_lock(&priv->sds_lock);
+
+	orig = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (orig < 0) {
+		ret = orig;
+		goto out_unlock;
+	}
+
+	ret = phy_write_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL,
+			    orig | VEND1_CHIP_CTRL_XFI_ACCESS);
+	if (ret)
+		goto out_restore;
+
+	paged = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (paged < 0) {
+		ret = paged;
+		goto out_restore;
+	}
+	if (!(paged & VEND1_CHIP_CTRL_XFI_ACCESS)) {
+		ret = -EIO;
+		goto out_restore;
+	}
+
+	ret = phy_modify_mmd(phydev, MDIO_MMD_PCS, MDIO_CTRL1,
+			     MDIO_CTRL1_RESET, MDIO_CTRL1_RESET);
+	if (ret < 0)
+		goto out_restore;
+
+	ret = phy_read_mmd_poll_timeout(phydev, MDIO_MMD_PCS, MDIO_CTRL1, after,
+					!(after & MDIO_CTRL1_RESET), 5000,
+					1000000, true);
+	if (ret)
+		goto out_restore;
+
+out_restore:
+	restored = phy_write_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL, orig);
+	if (!restored)
+		restored =
+			phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (restored != orig) {
+		phydev_err(phydev,
+			   "SerDes PCS reset failed to restore chip_ctrl %04x (readback/err %d)\n",
+			   orig, restored);
+		if (!ret)
+			ret = restored < 0 ? restored : -EIO;
+	}
+
+out_unlock:
+	mutex_unlock(&priv->sds_lock);
+	return ret;
+}
+
+static int as22xxx_sds_pma_reset(struct phy_device *phydev)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	int orig, paged, after, restored;
+	int ret = 0;
+
+	mutex_lock(&priv->sds_lock);
+
+	orig = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (orig < 0) {
+		ret = orig;
+		goto out_unlock;
+	}
+
+	ret = phy_write_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL,
+			    orig | VEND1_CHIP_CTRL_XFI_ACCESS);
+	if (ret)
+		goto out_restore;
+
+	paged = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (paged < 0) {
+		ret = paged;
+		goto out_restore;
+	}
+	if (!(paged & VEND1_CHIP_CTRL_XFI_ACCESS)) {
+		ret = -EIO;
+		goto out_restore;
+	}
+
+	ret = phy_modify_mmd(phydev, MDIO_MMD_PMAPMD, MDIO_CTRL1,
+			     MDIO_CTRL1_RESET, MDIO_CTRL1_RESET);
+	if (ret < 0)
+		goto out_restore;
+
+	ret = phy_read_mmd_poll_timeout(phydev, MDIO_MMD_PMAPMD, MDIO_CTRL1,
+					after,
+					!(after & MDIO_CTRL1_RESET),
+					5000, 1000000, true);
+	if (ret)
+		goto out_restore;
+
+out_restore:
+	restored = phy_write_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL, orig);
+	if (!restored)
+		restored =
+			phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (restored != orig) {
+		phydev_err(phydev,
+			   "SerDes PMA reset failed to restore chip_ctrl %04x (readback/err %d)\n",
+			   orig, restored);
+		if (!ret)
+			ret = restored < 0 ? restored : -EIO;
+	}
+
+out_unlock:
+	mutex_unlock(&priv->sds_lock);
+	return ret;
+}
+
+static int as22xxx_sds_10g_ctrl_restore(struct phy_device *phydev)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	int orig, paged, pma_after, pcs_after, restored;
+	int ret = 0;
+
+	mutex_lock(&priv->sds_lock);
+
+	orig = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (orig < 0) {
+		ret = orig;
+		goto out_unlock;
+	}
+
+	ret = phy_write_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL,
+			    orig | VEND1_CHIP_CTRL_XFI_ACCESS);
+	if (ret)
+		goto out_restore;
+
+	paged = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (paged < 0) {
+		ret = paged;
+		goto out_restore;
+	}
+	if (!(paged & VEND1_CHIP_CTRL_XFI_ACCESS)) {
+		ret = -EIO;
+		goto out_restore;
+	}
+
+	ret = phy_modify_mmd(phydev, MDIO_MMD_PMAPMD, MDIO_CTRL1,
+			     MDIO_CTRL1_SPEEDSEL, MDIO_CTRL1_SPEED10G);
+	if (ret < 0)
+		goto out_restore;
+	ret = phy_modify_mmd(phydev, MDIO_MMD_PCS, MDIO_CTRL1,
+			     MDIO_CTRL1_SPEEDSEL, MDIO_CTRL1_SPEED10G);
+	if (ret < 0)
+		goto out_restore;
+
+	pma_after = phy_read_mmd(phydev, MDIO_MMD_PMAPMD, MDIO_CTRL1);
+	if (pma_after < 0) {
+		ret = pma_after;
+		goto out_restore;
+	}
+	pcs_after = phy_read_mmd(phydev, MDIO_MMD_PCS, MDIO_CTRL1);
+	if (pcs_after < 0) {
+		ret = pcs_after;
+		goto out_restore;
+	}
+	if ((pma_after & MDIO_CTRL1_SPEEDSEL) != MDIO_CTRL1_SPEED10G ||
+	    (pcs_after & MDIO_CTRL1_SPEEDSEL) != MDIO_CTRL1_SPEED10G) {
+		phydev_err(phydev,
+			   "SerDes 10G controls did not take: PMA %04x, PCS %04x\n",
+			   pma_after, pcs_after);
+		ret = -EIO;
+		goto out_restore;
+	}
+
+out_restore:
+	restored = phy_write_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL, orig);
+	if (!restored)
+		restored =
+			phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (restored != orig) {
+		phydev_err(phydev,
+			   "SerDes 10G control restore failed to restore chip_ctrl %04x (readback/err %d)\n",
+			   orig, restored);
+		if (!ret)
+			ret = restored < 0 ? restored : -EIO;
+	}
+
+out_unlock:
+	mutex_unlock(&priv->sds_lock);
+	return ret;
+}
+
+static int as22xxx_check_sds_config(struct phy_device *phydev, u8 pcs_sel,
+				    u8 sds_spd)
+{
+	u8 rb_pcs_sel, rb_sds_spd;
+	int ret;
+
+	ret = aeon_dpc_sds_get(phydev, &rb_pcs_sel, &rb_sds_spd);
+	if (ret)
+		return ret;
+
+	if (rb_pcs_sel != pcs_sel || rb_sds_spd != sds_spd) {
+		phydev_err(phydev,
+			   "SDS config mismatch: expected %u/%u, read %u/%u\n",
+			   pcs_sel, sds_spd, rb_pcs_sel, rb_sds_spd);
+		return -EIO;
+	}
+
+	return 0;
+}
+
+static int as22xxx_stage_system_side(struct phy_device *phydev,
+				     phy_interface_t interface,
+				     u8 pcs_sel, u8 sds_spd)
+{
+	int ret;
+
+	ret = aeon_dpc_sds_set(phydev, pcs_sel, sds_spd);
+	if (ret) {
+		phydev_err(phydev, "failed to stage SDS config for %s: %d\n",
+			   phy_modes(interface), ret);
+		return ret;
+	}
+
+	return as22xxx_check_sds_config(phydev, pcs_sel, sds_spd);
+}
+
+static int as22xxx_program_system_side(struct phy_device *phydev,
+				       phy_interface_t interface,
+				       u8 pcs_sel, u8 sds_spd)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	bool upshift = interface == PHY_INTERFACE_MODE_USXGMII &&
+		       priv->sds_interface == PHY_INTERFACE_MODE_SGMII;
+	u8 sds_id = 0;
+	int ret;
+
+	ret = as22xxx_select_system_side(phydev, interface);
+	if (ret)
+		return ret;
+
+	ret = as22xxx_stage_system_side(phydev, interface, pcs_sel, sds_spd);
+	if (ret)
+		return ret;
+
+	if (interface == PHY_INTERFACE_MODE_SGMII || upshift) {
+		ret = as22xxx_sds_mii_config(phydev, interface, phydev->speed);
+		if (ret)
+			return ret;
+	}
+
+	if (interface == PHY_INTERFACE_MODE_USXGMII) {
+		ret = as22xxx_select_system_side(phydev, interface);
+		if (ret)
+			return ret;
+
+		if (upshift) {
+			ret = as22xxx_sds_pma_reset(phydev);
+			if (ret)
+				return ret;
+
+			ret = as22xxx_check_sds_config(phydev, pcs_sel, sds_spd);
+			if (ret)
+				return ret;
+		}
+
+		ret = aeon_cfg_xfer(phydev, IPC_DBGCMD_SDS, IPC_SDS_RST,
+				    &sds_id, sizeof(sds_id), NULL, 0);
+		if (ret)
+			return ret;
+
+		ret = aeon_dpc_ra_enable(phydev);
+		if (ret) {
+			phydev_err(phydev,
+				   "failed to enable USXGMII rate adaptor: %d\n",
+				   ret);
+			return ret;
+		}
+
+		ret = as22xxx_check_sds_config(phydev, pcs_sel, sds_spd);
+		if (ret)
+			return ret;
+	}
+
+	ret = aeon_dpc_fc_apply_mode(phydev, pcs_sel);
+	if (ret) {
+		phydev_err(phydev, "failed to set system-side flow control: %d\n",
+			   ret);
+		return ret;
+	}
+
+	ret = as22xxx_select_system_side(phydev, interface);
+	if (ret)
+		return ret;
+
+	if (upshift) {
+		ret = as22xxx_sds_10g_ctrl_restore(phydev);
+		if (ret)
+			return ret;
+
+		ret = as22xxx_sds_pcs_reset(phydev);
+		if (ret)
+			return ret;
+
+		ret = as22xxx_check_sds_config(phydev, pcs_sel, sds_spd);
+		if (ret)
+			return ret;
+
+		ret = aeon_dpc_ra_enable(phydev);
+		if (ret) {
+			phydev_err(phydev,
+				   "failed to restore USXGMII rate adaptor: %d\n",
+				   ret);
+			return ret;
+		}
+
+		ret = aeon_dpc_fc_apply_mode(phydev, pcs_sel);
+		if (ret)
+			return ret;
+
+		ret = as22xxx_select_system_side(phydev, interface);
+		if (ret)
+			return ret;
+
+		ret = as22xxx_check_sds_config(phydev, pcs_sel, sds_spd);
+		if (ret)
+			return ret;
+
+		ret = as22xxx_sds_10g_ctrl_restore(phydev);
+		if (ret)
+			return ret;
+
+		ret = as22xxx_sds_mii_config(phydev, interface, phydev->speed);
+		if (ret)
+			return ret;
+
+		priv->system_sync_state =
+			AS22XXX_SYSTEM_SYNC_NEEDS_PHY_ENABLE;
+	} else if (interface == PHY_INTERFACE_MODE_SGMII) {
+		priv->system_sync_state = AS22XXX_SYSTEM_SYNC_IDLE;
+	}
+
+	return 0;
+}
+
+static int as22xxx_usxgmii_ready_paged(struct phy_device *phydev, int *pcs_sts,
+				       int *mii_sts)
+{
+	int val;
+
+	*pcs_sts = phy_read_mmd(phydev, MDIO_MMD_PCS, AS22XXX_SDS_PCS_STS20);
+	if (*pcs_sts < 0)
+		return *pcs_sts;
+
+	val = phy_read_mmd(phydev, MDIO_MMD_AN, AS21XXX_MDIO_AN_C22 + MII_BMSR);
+	if (val < 0)
+		return val;
+	*mii_sts = phy_read_mmd(phydev, MDIO_MMD_AN,
+				AS21XXX_MDIO_AN_C22 + MII_BMSR);
+	if (*mii_sts < 0)
+		return *mii_sts;
+
+	return ((*pcs_sts &
+		 (AS22XXX_SDS_PCS_LINK_UP | AS22XXX_SDS_PCS_HIGH_BER |
+		  AS22XXX_SDS_PCS_BLOCK_LOCK)) ==
+			(AS22XXX_SDS_PCS_LINK_UP |
+			 AS22XXX_SDS_PCS_BLOCK_LOCK) &&
+		(*mii_sts & (BMSR_ANEGCOMPLETE | BMSR_LSTATUS | BMSR_RFAULT)) ==
+			(BMSR_ANEGCOMPLETE | BMSR_LSTATUS));
+}
+
+static int as22xxx_usxgmii_ready_once(struct phy_device *phydev, int *pcs_sts,
+				      int *mii_sts)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	int orig, paged, chip_ctrl, restore, restored;
+	int restore_err = 0, ret;
+
+	mutex_lock(&priv->sds_lock);
+
+	orig = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (orig < 0) {
+		ret = orig;
+		goto unlock;
+	}
+
+	ret = phy_write_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL,
+			    orig | VEND1_CHIP_CTRL_XFI_ACCESS);
+	if (ret)
+		goto out_restore;
+
+	paged = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (paged < 0) {
+		ret = paged;
+		goto out_restore;
+	}
+	if (!(paged & VEND1_CHIP_CTRL_XFI_ACCESS)) {
+		ret = -EIO;
+		goto out_restore;
+	}
+
+	ret = as22xxx_usxgmii_ready_paged(phydev, pcs_sts, mii_sts);
+
+out_restore:
+
+	chip_ctrl = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (chip_ctrl < 0) {
+		restore_err = chip_ctrl;
+		restore = orig;
+	} else {
+		restore = (chip_ctrl & ~VEND1_CHIP_CTRL_XFI_ACCESS) |
+			  (orig & VEND1_CHIP_CTRL_XFI_ACCESS);
+	}
+
+	restored =
+		phy_write_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL, restore);
+	if (!restored)
+		restored =
+			phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_CHIP_CTRL);
+	if (restored < 0 || ((restored ^ orig) & VEND1_CHIP_CTRL_XFI_ACCESS)) {
+		phydev_err(phydev,
+			   "USXGMII readiness sample failed to restore XFI gate from chip_ctrl %04x (readback/err %d)\n",
+			   orig, restored);
+		if (ret >= 0)
+			ret = restored < 0 ? restored : -EIO;
+	} else if (restore_err && ret >= 0) {
+		ret = restore_err;
+	}
+
+unlock:
+	mutex_unlock(&priv->sds_lock);
+	return ret;
+}
+
+static int as22xxx_wait_usxgmii_ready(struct phy_device *phydev)
+{
+	int pcs_sts = 0, mii_sts = 0;
+	int ready = 0, ret;
+
+	ret = read_poll_timeout(as22xxx_usxgmii_ready_once, ready, ready,
+				AS22XXX_SDS_READY_POLL_US,
+				AS22XXX_SDS_READY_TIMEOUT_US, false,
+				phydev, &pcs_sts, &mii_sts);
+	if (ready < 0)
+		ret = ready;
+
+	if (ret)
+		phydev_err(phydev,
+			   "system-side USXGMII did not become ready: PCS_STS20=%04x MII_STS=%04x: %d\n",
+			   pcs_sts, mii_sts, ret);
+
+	return ret;
+}
+
+static int as22xxx_config_inband(struct phy_device *phydev, unsigned int modes)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	int ret;
+
+	if (modes != LINK_INBAND_BYPASS)
+		return -EOPNOTSUPP;
+
+	if (!priv->mode_switch ||
+	    priv->system_sync_state == AS22XXX_SYSTEM_SYNC_IDLE)
+		return 0;
+
+	if (phydev->interface != PHY_INTERFACE_MODE_USXGMII ||
+	    priv->sds_interface != PHY_INTERFACE_MODE_USXGMII)
+		return -EINVAL;
+
+	if (priv->system_sync_state ==
+	    AS22XXX_SYSTEM_SYNC_NEEDS_PHY_ENABLE) {
+		ret = aeon_ipc_phy_enable_mode(phydev, false);
+		if (ret)
+			return ret;
+
+		ret = aeon_ipc_phy_enable_mode(phydev, true);
+		if (ret)
+			return ret;
+
+		priv->system_sync_state =
+			AS22XXX_SYSTEM_SYNC_WAIT_PHY_ENABLE;
+
+		ret = aeon_ipc_get_fw_version(phydev);
+		if (ret)
+			return ret;
+
+		return as22xxx_stage_system_side(phydev,
+						PHY_INTERFACE_MODE_USXGMII,
+						AEON_SDS_PCS_SEL_64B66B,
+						AEON_SDS_SPD_10G);
+	}
+
+	ret = as22xxx_wait_usxgmii_ready(phydev);
+	if (ret)
+		return ret;
+
+	ret = as22xxx_check_sds_config(phydev,
+				       AEON_SDS_PCS_SEL_64B66B,
+				       AEON_SDS_SPD_10G);
+	if (ret)
+		return ret;
+
+	priv->system_sync_state = AS22XXX_SYSTEM_SYNC_IDLE;
+	return 0;
+}
+
 static int as22xxx_read_status(struct phy_device *phydev)
 {
+	struct as21xxx_priv *priv = phydev->priv;
 	int bmcr, old_link = phydev->link;
 	int ret;
 
@@ -877,7 +2063,9 @@ static int as22xxx_read_status(struct phy_device *phydev)
 	if (ret)
 		return ret;
 
-	if (phydev->autoneg == AUTONEG_ENABLE && old_link && phydev->link)
+	if (!priv->mode_switch && phydev->autoneg == AUTONEG_ENABLE && old_link &&
+	    phydev->link &&
+	    priv->sds_interface != PHY_INTERFACE_MODE_NA)
 		return 0;
 
 	phydev->speed = SPEED_UNKNOWN;
@@ -902,6 +2090,9 @@ static int as22xxx_read_status(struct phy_device *phydev)
 		linkmode_zero(phydev->lp_advertising);
 		as22xxx_read_speed(phydev, bmcr);
 	}
+
+	if (!as22xxx_update_interface(phydev))
+		phydev->link = 0;
 
 	return 0;
 }
@@ -957,7 +2148,6 @@ static int as21xxx_led_hw_control_get(struct phy_device *phydev, u8 index,
 			return 0;
 		}
 
-	/* Should be impossible */
 	return -EINVAL;
 }
 
@@ -1100,28 +2290,14 @@ static int as22xxx_match_phy_device(struct phy_device *phydev,
 	return phy_id == PHY_ID_AS22XXX;
 }
 
-static int as22xxx_probe(struct phy_device *phydev)
+static int as22xxx_bringup(struct phy_device *phydev)
 {
-	struct as21xxx_priv *priv;
+	struct as21xxx_priv *priv = phydev->priv;
 	int ret;
 
-	/* Gen2 keeps its generic PHY ID before and after firmware load and may
-	 * expose only PMA/PMD initially. Force the MMD bitmap used by generic C45
-	 * helpers, then load firmware from probe and wait for IPC to come alive.
-	 */
-	phydev->c45_ids.mmds_present |= MDIO_DEVS_PMAPMD | MDIO_DEVS_PCS |
-					MDIO_DEVS_AN;
-
-	priv = devm_kzalloc(&phydev->mdio.dev,
-			    sizeof(*priv), GFP_KERNEL);
-	if (!priv)
-		return -ENOMEM;
-	phydev->priv = priv;
-
-	ret = devm_mutex_init(&phydev->mdio.dev,
-			      &priv->ipc_lock);
-	if (ret)
-		return ret;
+	priv->sds_interface = PHY_INTERFACE_MODE_NA;
+	priv->sds_speed = SPEED_UNKNOWN;
+	priv->system_sync_state = AS22XXX_SYSTEM_SYNC_IDLE;
 
 	ret = aeon_firmware_load(phydev);
 	if (ret)
@@ -1143,7 +2319,74 @@ static int as22xxx_probe(struct phy_device *phydev)
 	if (ret)
 		return ret;
 
+	if (priv->mode_switch) {
+		ret = as22xxx_program_system_side(phydev,
+						  PHY_INTERFACE_MODE_USXGMII,
+						  AEON_SDS_PCS_SEL_64B66B,
+						  AEON_SDS_SPD_10G);
+		if (ret)
+			return ret;
+
+		priv->sds_interface = PHY_INTERFACE_MODE_USXGMII;
+		priv->sds_speed = SPEED_UNKNOWN;
+	}
+
+	if (priv->mode_switch) {
+		ret = aeon_dpc_eth_sts_hw_update(phydev, true);
+		if (ret) {
+			phydev_err(phydev,
+				   "failed to enable DPC Ethernet-status hardware follow: %d\n",
+				   ret);
+			return ret;
+		}
+	}
+
 	return 0;
+}
+
+static int as22xxx_config_init(struct phy_device *phydev)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+
+	if (priv->mode_switch) {
+		phy_interface_zero(phydev->possible_interfaces);
+		__set_bit(PHY_INTERFACE_MODE_USXGMII,
+			  phydev->possible_interfaces);
+		__set_bit(PHY_INTERFACE_MODE_SGMII,
+			  phydev->possible_interfaces);
+	}
+
+	if (!aeon_ipc_sync_parity(phydev, priv))
+		return 0;
+
+	return as22xxx_bringup(phydev);
+}
+
+static int as22xxx_probe(struct phy_device *phydev)
+{
+	struct as21xxx_priv *priv;
+	int ret;
+
+	phydev->c45_ids.mmds_present |= MDIO_DEVS_PMAPMD | MDIO_DEVS_PCS |
+					MDIO_DEVS_AN;
+
+	priv = devm_kzalloc(&phydev->mdio.dev,
+			    sizeof(*priv), GFP_KERNEL);
+	if (!priv)
+		return -ENOMEM;
+	phydev->priv = priv;
+	priv->mode_switch = device_property_read_bool(&phydev->mdio.dev,
+						      "sgmii-usxgmii-switch-quirk");
+
+	ret = devm_mutex_init(&phydev->mdio.dev,
+			      &priv->ipc_lock);
+	if (ret)
+		return ret;
+	ret = devm_mutex_init(&phydev->mdio.dev, &priv->sds_lock);
+	if (ret)
+		return ret;
+
+	return as22xxx_bringup(phydev);
 }
 
 static struct phy_driver as21xxx_drivers[] = {
@@ -1282,6 +2525,9 @@ static struct phy_driver as21xxx_drivers[] = {
 		.name		= "Aeonsemi AS22XXX",
 		.probe		= as22xxx_probe,
 		.match_phy_device = as22xxx_match_phy_device,
+		.config_init	= as22xxx_config_init,
+		.config_aneg	= as22xxx_config_aneg,
+		.config_inband	= as22xxx_config_inband,
 		.read_status	= as22xxx_read_status,
 		.led_brightness_set = as21xxx_led_brightness_set,
 		.led_hw_is_supported = as21xxx_led_hw_is_supported,
