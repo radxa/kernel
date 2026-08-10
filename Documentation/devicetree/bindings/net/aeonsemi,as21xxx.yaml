@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/net/aeonsemi,as21xxx.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Aeonsemi AS21XXX Ethernet PHY
+title: Aeonsemi AS21xxx and AS22xxx Ethernet PHYs
 
 maintainers:
   - Christian Marangi <ansuelsmth@gmail.com>
@@ -22,6 +22,10 @@ description: |
     - Manually provided firmware loaded from a file in the filesystem.
 
   Each PHY can support up to 5 LEDs.
+
+  AS22xxx PHYs retain the ID 0x7500 0x94a1 after firmware has booted.
+  Set firmware-name when the host loads firmware over MDIO instead of
+  booting from an attached SPI flash.
 
   AS2xxx PHY Name logic:
 
@@ -54,6 +58,7 @@ select:
           - ethernet-phy-id7500.9472
           - ethernet-phy-id7500.9482
           - ethernet-phy-id7500.9492
+          - ethernet-phy-id7500.94a1
   required:
     - compatible
 
@@ -78,8 +83,15 @@ then:
   required:
     - firmware-name
 else:
-  properties:
-    firmware-name: false
+  if:
+    not:
+      properties:
+        compatible:
+          contains:
+            const: ethernet-phy-id7500.94a1
+  then:
+    properties:
+      firmware-name: false
 
 unevaluatedProperties: false
 
