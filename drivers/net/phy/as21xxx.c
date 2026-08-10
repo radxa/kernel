@@ -106,6 +106,15 @@
 /* CFG DIRECT sub command */
 #define IPC_CFG_PARAM_DIRECT_NG_PHYCTRL	0x1
 #define IPC_CFG_PARAM_DIRECT_CU_AN	0x2
+#define IPC_CFG_CU_AN_RESTART		0xa
+#define IPC_CFG_CU_AN_TOP_SPD		0xc
+
+#define AEON_CU_AN_TOP_SPD_10M		BIT(1)
+#define AEON_CU_AN_TOP_SPD_100M		BIT(2)
+#define AEON_CU_AN_TOP_SPD_1G		BIT(3)
+#define AEON_CU_AN_TOP_SPD_2500M		BIT(4)
+#define AEON_CU_AN_TOP_SPD_5G		BIT(5)
+#define AEON_CU_AN_TOP_SPD_10G		BIT(6)
 #define IPC_CFG_PARAM_DIRECT_SDS_PCS	0x3
 #define IPC_CFG_PARAM_DIRECT_AUTO_EEE	0x4
 #define IPC_CFG_PARAM_DIRECT_SDS_PMA	0x5
@@ -803,6 +812,72 @@ done:
 	return 0;
 }
 
+static int as22xxx_config_aneg(struct phy_device *phydev)
+{
+	u16 data[4] = { IPC_CFG_PARAM_DIRECT, IPC_CFG_PARAM_DIRECT_CU_AN,
+			IPC_CFG_CU_AN_TOP_SPD, AEON_CU_AN_TOP_SPD_10M };
+	bool changed;
+	int ret;
+	u16 adv;
+
+	if (phydev->autoneg == AUTONEG_DISABLE)
+		return genphy_c45_pma_setup_forced(phydev);
+
+	if (linkmode_test_bit(ETHTOOL_LINK_MODE_10000baseT_Full_BIT,
+			      phydev->advertising))
+		data[3] = AEON_CU_AN_TOP_SPD_10G;
+	else if (linkmode_test_bit(ETHTOOL_LINK_MODE_5000baseT_Full_BIT,
+				   phydev->advertising))
+		data[3] = AEON_CU_AN_TOP_SPD_5G;
+	else if (linkmode_test_bit(ETHTOOL_LINK_MODE_2500baseT_Full_BIT,
+				   phydev->advertising))
+		data[3] = AEON_CU_AN_TOP_SPD_2500M;
+	else if (linkmode_test_bit(ETHTOOL_LINK_MODE_1000baseT_Full_BIT,
+				   phydev->advertising))
+		data[3] = AEON_CU_AN_TOP_SPD_1G;
+	else if (linkmode_test_bit(ETHTOOL_LINK_MODE_100baseT_Full_BIT,
+				   phydev->advertising) ||
+		 linkmode_test_bit(ETHTOOL_LINK_MODE_100baseT_Half_BIT,
+				   phydev->advertising))
+		data[3] = AEON_CU_AN_TOP_SPD_100M;
+
+	ret = aeon_ipc_send_msg(phydev, IPC_CMD_CFG_PARAM, data,
+				sizeof(data), NULL);
+	if (ret < 0)
+		return ret;
+
+	data[2] = IPC_CFG_CU_AN_RESTART;
+	ret = aeon_ipc_send_msg(phydev, IPC_CMD_CFG_PARAM, data,
+				3 * sizeof(*data), NULL);
+	if (ret < 0)
+		return ret;
+
+	/* Firmware restart restores its default advertisement. Apply the
+	 * requested modes afterwards, including the mapped C22 gigabit bits.
+	 */
+	ret = genphy_c45_an_config_aneg(phydev);
+	if (ret < 0)
+		return ret;
+	changed = ret > 0;
+
+	adv = linkmode_adv_to_mii_ctrl1000_t(phydev->advertising);
+	ret = phy_modify_mmd_changed(phydev, MDIO_MMD_AN,
+				     AS21XXX_MDIO_AN_C22 + MII_CTRL1000,
+				     ADVERTISE_1000FULL | ADVERTISE_1000HALF,
+				     adv);
+	if (ret < 0)
+		return ret;
+	changed |= ret > 0;
+
+	ret = phy_set_bits_mmd(phydev, MDIO_MMD_AN,
+			       AS21XXX_MDIO_AN_C22 + MII_BMCR,
+			       BMCR_ANENABLE | BMCR_ANRESTART);
+	if (ret < 0)
+		return ret;
+
+	return genphy_c45_check_and_restart_aneg(phydev, changed);
+}
+
 static int as22xxx_read_lpa(struct phy_device *phydev)
 {
 	int lpa, ret;
@@ -903,7 +978,7 @@ static int as22xxx_read_status(struct phy_device *phydev)
 			ret = as22xxx_read_speed(phydev, bmcr);
 			if (ret)
 				return ret;
-			phy_resolve_aneg_linkmode(phydev);
+			phy_resolve_aneg_pause(phydev);
 		}
 	} else {
 		linkmode_zero(phydev->lp_advertising);
@@ -1271,6 +1346,7 @@ static struct phy_driver as21xxx_drivers[] = {
 		PHY_ID_MATCH_EXACT(PHY_ID_AS22XXX),
 		.name		= "Aeonsemi AS22XXX",
 		.probe		= as22xxx_probe,
+		.config_aneg	= as22xxx_config_aneg,
 		.read_status	= as22xxx_read_status,
 		.led_brightness_set = as21xxx_led_brightness_set,
 		.led_hw_is_supported = as21xxx_led_hw_is_supported,
