@@ -725,6 +725,8 @@ static const struct freq_tbl ftbl_gcc_gp1_clk_src[] = {
 	F(5000, P_BI_TCXO, 16, 1, 240),
 	F(10000, P_BI_TCXO, 16, 1, 120),
 	F(20000, P_BI_TCXO, 16, 1, 60),
+	F(25000, P_BI_TCXO, 16, 1, 48),
+	F(40000, P_BI_TCXO, 16, 1, 30),
 	F(100000, P_BI_TCXO, 16, 1, 12),
 	F(100000000, P_GCC_GPLL0_OUT_MAIN, 6, 0, 0),
 	F(200000000, P_GCC_GPLL0_OUT_MAIN, 3, 0, 0),
