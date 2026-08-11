@@ -270,6 +270,12 @@
 
 #define PCIE_RAS_DES_EVENT_COUNTER_DATA		0xc
 
+/* SD-EQ (Gen5 32 GT/s per-lane pre/post cursor equalization) registers */
+#define PCIE_RAS_DES_SD_EQ_CONTROL1		0xd0
+#define PCIE_RAS_DES_SD_EQ_CONTROL1_LANE_SEL	GENMASK(3, 0)
+#define PCIE_RAS_DES_SD_EQ_STATUS2		0xe4
+#define PCIE_RAS_DES_SD_EQ_STATUS3		0xe8
+
 /* PTM register definitions */
 #define PTM_RES_REQ_CTRL		0x8
 #define PTM_RES_CCONTEXT_VALID		BIT(0)

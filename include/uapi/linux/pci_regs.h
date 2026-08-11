@@ -1176,12 +1176,14 @@
 #define PCI_SECPCI_LE_CTRL	0x0c /* Lane Equalization Control Register */
 
 /* Physical Layer 16.0 GT/s */
+#define PCI_PL_16GT_STATUS	0x0c	/* 16.0 GT/s Status Register */
 #define PCI_PL_16GT_LE_CTRL	0x20	/* Lane Equalization Control Register */
 #define  PCI_PL_16GT_LE_CTRL_DSP_TX_PRESET_MASK		0x0000000F
 #define  PCI_PL_16GT_LE_CTRL_USP_TX_PRESET_MASK		0x000000F0
 #define  PCI_PL_16GT_LE_CTRL_USP_TX_PRESET_SHIFT	4
 
 /* Physical Layer 32.0 GT/s */
+#define PCI_PL_32GT_STATUS	0x0c	/* 32.0 GT/s Status Register */
 #define PCI_PL_32GT_LE_CTRL	0x20	/* Lane Equalization Control Register */
 
 /* Physical Layer 64.0 GT/s */
