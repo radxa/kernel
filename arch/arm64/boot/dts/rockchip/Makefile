@@ -21,6 +21,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3308-evb-dmic-pdm-v13.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3308-roc-cc.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3308-rock-pi-s.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3308-rock-s0.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3308-radxa-rcore-rk3308-io.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3308b-evb-amic-v10.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3308b-evb-amic-v10-amp.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3308bs-evb-amic-v11.dtb
