@@ -7,11 +7,13 @@
 #include <linux/clk-provider.h>
 #include <linux/delay.h>
 #include <linux/err.h>
+#include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
 #include <linux/kernel.h>
 #include <linux/mfd/syscon.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/phy/pcie.h>
@@ -3304,6 +3306,10 @@ struct qmp_pcie {
 	struct device *dev;
 
 	const struct qmp_phy_cfg *cfg;
+	struct regmap *tcsr_4ln_map;
+	phys_addr_t tcsr_4ln_addr;
+	u32 tcsr_4ln_offset;
+	u32 tcsr_4ln_bit;
 	bool tcsr_4ln_config;
 	bool skip_init;
 
@@ -4724,6 +4730,64 @@ static void qmp_pcie_init_registers(struct qmp_pcie *qmp, const struct qmp_phy_c
 	qmp_configure(qmp->dev, ln_shrd, tbls->ln_shrd, tbls->ln_shrd_num);
 }
 
+static DEFINE_MUTEX(qmp_pcie_tcsr_lock);
+
+static int qmp_pcie_configure_4ln(struct phy *phy)
+{
+	struct qmp_pcie *qmp = phy_get_drvdata(phy);
+	u32 mask, num_lanes, old, new;
+	int ret;
+
+	if (!qmp->tcsr_4ln_map)
+		return 0;
+
+	num_lanes = phy_get_bus_width(phy);
+	if (!num_lanes)
+		return 0;
+
+	if (num_lanes != 2 && num_lanes != 4) {
+		dev_err(qmp->dev, "invalid lane configuration %u, expected 2 or 4\n",
+			num_lanes);
+		return -EINVAL;
+	}
+
+	mask = BIT(qmp->tcsr_4ln_bit);
+
+	mutex_lock(&qmp_pcie_tcsr_lock);
+
+	ret = regmap_read(qmp->tcsr_4ln_map, qmp->tcsr_4ln_offset, &old);
+	if (ret) {
+		dev_err(qmp->dev, "failed to read 4ln configuration: %d\n", ret);
+		goto out_unlock;
+	}
+
+	new = num_lanes == 4 ? old | mask : old & ~mask;
+	if (new != old) {
+#if IS_REACHABLE(CONFIG_QCOM_SCM)
+		if (!qcom_scm_is_available())
+			ret = -EPROBE_DEFER;
+		else
+			ret = qcom_scm_io_writel(qmp->tcsr_4ln_addr, new);
+#else
+		ret = -EOPNOTSUPP;
+#endif
+		if (ret) {
+			dev_err_probe(qmp->dev, ret,
+				      "failed to write 4ln configuration via SCM\n");
+			goto out_unlock;
+		}
+	}
+
+	qmp->tcsr_4ln_config = num_lanes == 4;
+	dev_dbg(qmp->dev, "configured %u lanes (4ln_config_sel = %d)\n",
+		num_lanes, qmp->tcsr_4ln_config);
+
+out_unlock:
+	mutex_unlock(&qmp_pcie_tcsr_lock);
+
+	return ret;
+}
+
 static int qmp_pcie_init(struct phy *phy)
 {
 	struct qmp_pcie *qmp = phy_get_drvdata(phy);
@@ -4959,6 +5023,7 @@ static int qmp_pcie_set_mode(struct phy *phy, enum phy_mode mode, int submode)
 }
 
 static const struct phy_ops qmp_pcie_phy_ops = {
+	.init		= qmp_pcie_configure_4ln,
 	.power_on	= qmp_pcie_enable,
 	.power_off	= qmp_pcie_disable,
 	.set_mode	= qmp_pcie_set_mode,
@@ -5239,33 +5304,69 @@ static int qmp_pcie_parse_dt_legacy(struct qmp_pcie *qmp, struct device_node *np
 
 static int qmp_pcie_get_4ln_config(struct qmp_pcie *qmp)
 {
-	struct regmap *tcsr;
-	unsigned int args[2];
+	struct of_phandle_args args;
+	struct resource res;
 	int ret;
 
-	tcsr = syscon_regmap_lookup_by_phandle_args(qmp->dev->of_node,
-						    "qcom,4ln-config-sel",
-						    ARRAY_SIZE(args), args);
-	if (IS_ERR(tcsr)) {
-		ret = PTR_ERR(tcsr);
+	ret = of_parse_phandle_with_fixed_args(qmp->dev->of_node,
+					       "qcom,4ln-config-sel", 2, 0,
+					       &args);
+	if (ret) {
 		if (ret == -ENOENT)
 			return 0;
 
-		dev_err(qmp->dev, "failed to lookup syscon: %d\n", ret);
+		dev_err(qmp->dev, "failed to parse 4ln-config-sel: %d\n", ret);
 		return ret;
 	}
 
-	ret = regmap_test_bits(tcsr, args[0], BIT(args[1]));
+	qmp->tcsr_4ln_map = syscon_node_to_regmap(args.np);
+	if (IS_ERR(qmp->tcsr_4ln_map)) {
+		ret = PTR_ERR(qmp->tcsr_4ln_map);
+		dev_err(qmp->dev, "failed to lookup syscon: %d\n", ret);
+		goto out_put_node;
+	}
+
+	if (args.args[1] >= 32) {
+		ret = -EINVAL;
+		dev_err(qmp->dev, "invalid 4ln configuration bit %u\n",
+			args.args[1]);
+		goto out_put_node;
+	}
+
+	ret = of_address_to_resource(args.np, 0, &res);
+	if (ret) {
+		dev_err(qmp->dev, "failed to get syscon resource: %d\n", ret);
+		goto out_put_node;
+	}
+	if (resource_size(&res) < sizeof(u32) ||
+	    args.args[0] > resource_size(&res) - sizeof(u32)) {
+		ret = -EINVAL;
+		dev_err(qmp->dev, "4ln configuration offset %#x out of range\n",
+			args.args[0]);
+		goto out_put_node;
+	}
+
+	qmp->tcsr_4ln_offset = args.args[0];
+	qmp->tcsr_4ln_bit = args.args[1];
+	qmp->tcsr_4ln_addr = res.start + args.args[0];
+
+	ret = regmap_test_bits(qmp->tcsr_4ln_map, qmp->tcsr_4ln_offset,
+			       BIT(qmp->tcsr_4ln_bit));
 	if (ret < 0) {
 		dev_err(qmp->dev, "failed to read tcsr: %d\n", ret);
-		return ret;
+		goto out_put_node;
 	}
 
 	qmp->tcsr_4ln_config = ret;
 
 	dev_dbg(qmp->dev, "4ln_config_sel = %d\n", qmp->tcsr_4ln_config);
 
-	return 0;
+	ret = 0;
+
+out_put_node:
+	of_node_put(args.np);
+
+	return ret;
 }
 
 static int qmp_pcie_parse_dt(struct qmp_pcie *qmp)
@@ -5300,7 +5401,7 @@ static int qmp_pcie_parse_dt(struct qmp_pcie *qmp)
 		qmp->rx2 = base + offs->rx2;
 	}
 
-	if (qmp->cfg->lanes >= 4 && qmp->tcsr_4ln_config) {
+	if (qmp->cfg->lanes >= 4 && qmp->tcsr_4ln_map) {
 		qmp->port_b = devm_platform_ioremap_resource(pdev, 1);
 		if (IS_ERR(qmp->port_b))
 			return PTR_ERR(qmp->port_b);

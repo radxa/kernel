@@ -72,6 +72,7 @@ config PHY_QCOM_QMP_PCIE
 	tristate "Qualcomm QMP PCIe PHY Driver"
 	depends on PCI || COMPILE_TEST
 	select GENERIC_PHY
+	select QCOM_SCM if ARCH_QCOM
 	default PHY_QCOM_QMP
 	help
 	  Enable this to support the QMP PCIe PHY transceiver that is used
