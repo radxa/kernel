@@ -216,7 +216,7 @@ static void iris_sys_error_handler(struct work_struct *work)
 			container_of(work, struct iris_core, sys_error_handler.work);
 
 	iris_core_deinit(core);
-	iris_core_init(core);
+	complete_all(&core->sys_error_done);
 }
 
 static int iris_probe(struct platform_device *pdev)
@@ -234,6 +234,8 @@ static int iris_probe(struct platform_device *pdev)
 	core->state = IRIS_CORE_DEINIT;
 	mutex_init(&core->lock);
 	init_completion(&core->core_init_done);
+	init_completion(&core->sys_error_done);
+	complete_all(&core->sys_error_done);
 
 	core->response_packet = devm_kzalloc(core->dev, IFACEQ_CORE_PKT_SIZE, GFP_KERNEL);
 	if (!core->response_packet)
