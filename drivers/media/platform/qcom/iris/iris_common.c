@@ -33,9 +33,6 @@ void iris_set_ts_metadata(struct iris_inst *inst, struct vb2_v4l2_buffer *vbuf)
 	struct vb2_buffer *vb = &vbuf->vb2_buf;
 	u64 ts_us = vb->timestamp;
 
-	if (inst->metadata_idx >= ARRAY_SIZE(inst->tss))
-		inst->metadata_idx = 0;
-
 	do_div(ts_us, NSEC_PER_USEC);
 
 	inst->tss[inst->metadata_idx].flags = vbuf->flags & mask;
@@ -44,6 +41,8 @@ void iris_set_ts_metadata(struct iris_inst *inst, struct vb2_v4l2_buffer *vbuf)
 	inst->tss[inst->metadata_idx].ts_ns = vb->timestamp;
 
 	inst->metadata_idx++;
+	if (inst->metadata_idx >= ARRAY_SIZE(inst->tss))
+		inst->metadata_idx = 0;
 }
 
 int iris_process_streamon_input(struct iris_inst *inst)
