@@ -8,6 +8,7 @@
 
 #include "iris_core.h"
 #include "iris_firmware.h"
+#include "iris_instance.h"
 #include "iris_state.h"
 #include "iris_vpu_common.h"
 
@@ -32,6 +33,40 @@ void iris_core_deinit(struct iris_core *core)
 	mutex_unlock(&core->lock);
 
 	pm_runtime_put_sync(core->dev);
+}
+
+bool iris_core_prepare_deinit(struct iris_core *core)
+{
+	struct iris_inst *instance;
+	bool prepare = false;
+
+	mutex_lock(&core->lock);
+	if (core->state == IRIS_CORE_INIT) {
+		reinit_completion(&core->sys_error_done);
+		core->state = IRIS_CORE_ERROR;
+		list_for_each_entry(instance, &core->instances, list)
+			iris_inst_change_state(instance, IRIS_INST_ERROR);
+		prepare = true;
+	}
+	mutex_unlock(&core->lock);
+
+	return prepare;
+}
+
+void iris_core_deinit_on_error(struct iris_core *core)
+{
+	if (!iris_core_prepare_deinit(core)) {
+		iris_wait_for_sys_error(core);
+		return;
+	}
+
+	iris_core_deinit(core);
+	complete_all(&core->sys_error_done);
+}
+
+void iris_wait_for_sys_error(struct iris_core *core)
+{
+	wait_for_completion(&core->sys_error_done);
 }
 
 static int iris_wait_for_system_response(struct iris_core *core)

@@ -117,6 +117,7 @@ struct iris_core {
 	struct iris_core_power			power;
 	const struct iris_hfi_sys_ops		*hfi_sys_ops;
 	struct completion			core_init_done;
+	struct completion			sys_error_done;
 	u32					intr_status;
 	struct delayed_work			sys_error_handler;
 	struct list_head			instances;
@@ -127,5 +128,8 @@ struct iris_core {
 
 int iris_core_init(struct iris_core *core);
 void iris_core_deinit(struct iris_core *core);
+bool iris_core_prepare_deinit(struct iris_core *core);
+void iris_core_deinit_on_error(struct iris_core *core);
+void iris_wait_for_sys_error(struct iris_core *core);
 
 #endif
