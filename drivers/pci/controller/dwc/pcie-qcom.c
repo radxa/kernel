@@ -2107,12 +2107,16 @@ static int qcom_pcie_parse_port(struct qcom_pcie *pcie, struct device_node *node
 {
 	struct device *dev = pcie->pci->dev;
 	struct qcom_pcie_port *port;
+	u32 num_lanes;
 	struct phy *phy;
 	int ret;
 
 	phy = devm_of_phy_get(dev, node, NULL);
 	if (IS_ERR(phy))
 		return PTR_ERR(phy);
+
+	if (!of_property_read_u32(dev->of_node, "num-lanes", &num_lanes))
+		phy_set_bus_width(phy, num_lanes);
 
 	port = devm_kzalloc(dev, sizeof(*port), GFP_KERNEL);
 	if (!port)
@@ -2178,12 +2182,16 @@ static int qcom_pcie_parse_legacy_binding(struct qcom_pcie *pcie)
 	struct device *dev = pcie->pci->dev;
 	struct qcom_pcie_perst *perst;
 	struct qcom_pcie_port *port;
+	u32 num_lanes;
 	struct phy *phy;
 	int ret;
 
 	phy = devm_phy_optional_get(dev, "pciephy");
 	if (IS_ERR(phy))
 		return PTR_ERR(phy);
+
+	if (phy && !of_property_read_u32(dev->of_node, "num-lanes", &num_lanes))
+		phy_set_bus_width(phy, num_lanes);
 
 	ret = phy_init(phy);
 	if (ret)
