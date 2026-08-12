@@ -61,7 +61,10 @@ int iris_core_init(struct iris_core *core)
 		goto exit;
 	} else if (core->state == IRIS_CORE_ERROR) {
 		ret = -EINVAL;
-		goto error;
+		goto exit;
+	} else if (!list_empty(&core->instances)) {
+		ret = -EBUSY;
+		goto exit;
 	}
 
 	core->state = IRIS_CORE_INIT;
@@ -88,6 +91,7 @@ int iris_core_init(struct iris_core *core)
 
 	core->iris_firmware_data->init_hfi_ops(core);
 
+	reinit_completion(&core->core_init_done);
 	ret = iris_hfi_core_init(core);
 	if (ret)
 		goto error_unload_fw;
