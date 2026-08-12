@@ -723,12 +723,9 @@ static int iris_destroy_internal_buffers(struct iris_inst *inst, u32 plane, bool
 	for (i = 0; i < len; i++) {
 		buffers = &inst->buffers[internal_buf_type[i]];
 		list_for_each_entry_safe(buf, next, &buffers->list, list) {
-			/*
-			 * during stream on, skip destroying internal(DPB) buffer
-			 * if firmware did not return it.
-			 * during close, destroy all buffers irrespectively.
-			 */
-			if (!force && buf->attr & BUF_ATTR_QUEUED)
+			if (!force && (buf->attr & BUF_ATTR_QUEUED ||
+			    (buf->type == BUF_DPB &&
+			     buf->attr & BUF_ATTR_PENDING_RELEASE)))
 				continue;
 
 			ret = iris_destroy_internal_buffer(inst, buf);
