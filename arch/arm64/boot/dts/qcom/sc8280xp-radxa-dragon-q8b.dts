@@ -1458,6 +1458,8 @@
 	pinctrl-1 = <&sdc2_sleep_state>;
 	pinctrl-names = "default", "sleep";
 
+	full-pwr-cycle;
+
 	vmmc-supply = <&vreg_l9c>;
 	vqmmc-supply = <&vreg_l6c>;
 
