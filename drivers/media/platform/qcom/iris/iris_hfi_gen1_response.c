@@ -218,7 +218,6 @@ static void
 iris_hfi_gen1_sys_event_notify(struct iris_core *core, void *packet)
 {
 	struct hfi_msg_event_notify_pkt *pkt = packet;
-	struct iris_inst *instance;
 
 	if (pkt->event_id == HFI_EVENT_SYS_ERROR) {
 		dev_err(core->dev, "sys error (type: %x, session id:%x, data1:%x, data2:%x)\n",
@@ -228,14 +227,8 @@ iris_hfi_gen1_sys_event_notify(struct iris_core *core, void *packet)
 		iris_hfi_sfr_print(core);
 	}
 
-	core->state = IRIS_CORE_ERROR;
-
-	mutex_lock(&core->lock);
-	list_for_each_entry(instance, &core->instances, list)
-		iris_inst_change_state(instance, IRIS_INST_ERROR);
-	mutex_unlock(&core->lock);
-
-	schedule_delayed_work(&core->sys_error_handler, msecs_to_jiffies(10));
+	if (iris_core_prepare_deinit(core))
+		schedule_delayed_work(&core->sys_error_handler, msecs_to_jiffies(10));
 }
 
 static void
