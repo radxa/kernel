@@ -448,6 +448,10 @@ static int iris_hfi_gen2_handle_release_internal_buffer(struct iris_inst *inst,
 		return -EINVAL;
 
 	buf->attr &= ~BUF_ATTR_QUEUED;
+	if (buf->type == BUF_DPB) {
+		buf->attr |= BUF_ATTR_PENDING_RELEASE;
+		return 0;
+	}
 
 	return iris_destroy_internal_buffer(inst, buf);
 }
