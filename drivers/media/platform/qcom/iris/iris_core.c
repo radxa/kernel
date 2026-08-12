@@ -3,6 +3,7 @@
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
+#include <linux/interrupt.h>
 #include <linux/pm_runtime.h>
 
 #include "iris_core.h"
@@ -18,8 +19,15 @@ void iris_core_deinit(struct iris_core *core)
 	if (core->state != IRIS_CORE_DEINIT) {
 		iris_fw_unload(core);
 		iris_vpu_power_off(core);
-		iris_hfi_queues_deinit(core);
-		core->state = IRIS_CORE_DEINIT;
+		mutex_unlock(&core->lock);
+
+		synchronize_irq(core->irq);
+
+		mutex_lock(&core->lock);
+		if (core->state != IRIS_CORE_DEINIT) {
+			iris_hfi_queues_deinit(core);
+			core->state = IRIS_CORE_DEINIT;
+		}
 	}
 	mutex_unlock(&core->lock);
 
