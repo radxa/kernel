@@ -1399,13 +1399,13 @@ static void qcom_glink_remove_rpmsg_device(struct qcom_glink *glink, struct glin
 {
 	struct rpmsg_channel_info chinfo;
 
-	if (channel->rpdev) {
-		strscpy_pad(chinfo.name, channel->name, sizeof(chinfo.name));
-		chinfo.src = RPMSG_ADDR_ANY;
-		chinfo.dst = RPMSG_ADDR_ANY;
-		rpmsg_unregister_device(glink->dev, &chinfo);
-	}
-	channel->rpdev = NULL;
+	if (!xchg(&channel->rpdev, NULL))
+		return;
+
+	strscpy_pad(chinfo.name, channel->name, sizeof(chinfo.name));
+	chinfo.src = RPMSG_ADDR_ANY;
+	chinfo.dst = RPMSG_ADDR_ANY;
+	rpmsg_unregister_device(glink->dev, &chinfo);
 }
 
 static void qcom_glink_destroy_ept(struct rpmsg_endpoint *ept)
@@ -1418,8 +1418,14 @@ static void qcom_glink_destroy_ept(struct rpmsg_endpoint *ept)
 	channel->ept.cb = NULL;
 	spin_unlock_irqrestore(&channel->recv_lock, flags);
 
-	/* Decouple the potential rpdev from the channel */
-	qcom_glink_remove_rpmsg_device(glink, channel);
+	/*
+	 * rpmsg core destroys the default endpoint with the rpdev's device lock
+	 * held. Defer unregistering that rpdev until CLOSE/CLOSE_ACK is received.
+	 * A manually created endpoint may own a different rpdev, which must be
+	 * removed now.
+	 */
+	if (channel->rpdev != ept->rpdev)
+		qcom_glink_remove_rpmsg_device(glink, channel);
 
 	qcom_glink_send_close_req(glink, channel);
 }
@@ -1676,6 +1682,7 @@ static int qcom_glink_rx_open(struct qcom_glink *glink, unsigned int rcid,
 		}
 
 		rpdev->ept = &channel->ept;
+		channel->ept.rpdev = rpdev;
 		strscpy(rpdev->id.name, name);
 		rpdev->src = RPMSG_ADDR_ANY;
 		rpdev->dst = RPMSG_ADDR_ANY;
@@ -1880,6 +1887,7 @@ static int qcom_glink_create_chrdev(struct qcom_glink *glink)
 	channel->rpdev = rpdev;
 
 	rpdev->ept = &channel->ept;
+	channel->ept.rpdev = rpdev;
 	rpdev->ops = &glink_device_ops;
 	rpdev->dev.parent = glink->dev;
 	rpdev->dev.release = qcom_glink_device_release;
