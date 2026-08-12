@@ -230,6 +230,7 @@ void iris_vb2_stop_streaming(struct vb2_queue *q)
 	int ret = 0;
 
 	inst = vb2_get_drv_priv(q);
+	iris_wait_for_sys_error(inst->core);
 
 	if (V4L2_TYPE_IS_CAPTURE(q->type) && inst->state == IRIS_INST_INIT)
 		return;
@@ -241,8 +242,12 @@ void iris_vb2_stop_streaming(struct vb2_queue *q)
 		goto exit;
 
 	ret = iris_session_streamoff(inst, q->type);
-	if (ret)
+	if (ret) {
+		mutex_unlock(&inst->lock);
+		iris_core_deinit_on_error(inst->core);
+		mutex_lock(&inst->lock);
 		goto exit;
+	}
 
 exit:
 	iris_helper_buffers_done(inst, q->type, VB2_BUF_STATE_ERROR);
