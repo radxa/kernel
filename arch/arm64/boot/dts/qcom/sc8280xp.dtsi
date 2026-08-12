@@ -3025,6 +3025,8 @@
 			resets = <&gcc GCC_PCIE_2B_PHY_BCR>;
 			reset-names = "phy";
 
+			qcom,4ln-config-sel = <&tcsr 0xa044 0>;
+
 			#clock-cells = <0>;
 			clock-output-names = "pcie_2b_pipe_clk";
 
