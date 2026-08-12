@@ -261,7 +261,8 @@ static u32 iris_yuv_buffer_size_qc08c(struct iris_inst *inst)
 	uv_plane = ALIGN(uv_stride * ALIGN(f->fmt.pix_mp.height / 2, UV_SCANLINE_ALIGN_QC08C),
 			 PIXELS_4K);
 
-	return ALIGN(y_meta_plane + y_plane + uv_meta_plane + uv_plane, PIXELS_4K);
+	return ALIGN(y_meta_plane + y_plane + uv_meta_plane + uv_plane +
+		     max_t(u32, SZ_16K, y_stride * 48), PIXELS_4K);
 }
 
 /*
