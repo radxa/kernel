@@ -77,13 +77,14 @@ allOf:
       properties:
         interrupts:
           minItems: 4
-          maxItems: 4
+          maxItems: 5
         interrupt-names:
           items:
             - const: msi0
             - const: msi1
             - const: msi2
             - const: msi3
+            - const: global
     else:
       properties:
         interrupts:
@@ -149,8 +150,9 @@ examples:
             interrupts = <GIC_SPI 86 IRQ_TYPE_LEVEL_HIGH>,
                          <GIC_SPI 523 IRQ_TYPE_LEVEL_HIGH>,
                          <GIC_SPI 524 IRQ_TYPE_LEVEL_HIGH>,
-                         <GIC_SPI 525 IRQ_TYPE_LEVEL_HIGH>;
-            interrupt-names = "msi0", "msi1", "msi2", "msi3";
+                         <GIC_SPI 525 IRQ_TYPE_LEVEL_HIGH>,
+                         <GIC_SPI 440 IRQ_TYPE_LEVEL_HIGH>;
+            interrupt-names = "msi0", "msi1", "msi2", "msi3", "global";
             #interrupt-cells = <1>;
             interrupt-map-mask = <0 0 0 0x7>;
             interrupt-map = <0 0 0 1 &intc 0 0 GIC_SPI 530 IRQ_TYPE_LEVEL_HIGH>,
