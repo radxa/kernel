@@ -29,6 +29,7 @@
 #include <linux/delay.h>
 #include <linux/kfifo.h>
 #include <linux/ratelimit.h>
+#include <linux/reboot.h>
 #include <linux/slab.h>
 #include <linux/vmcore_info.h>
 #include <acpi/apei.h>
@@ -129,6 +130,11 @@ struct aer_info {
 
 static bool pcie_aer_disable;
 static pci_ers_result_t aer_root_reset(struct pci_dev *dev);
+
+static bool aer_system_is_shutting_down(void)
+{
+	return system_state >= SYSTEM_HALT && system_state <= SYSTEM_RESTART;
+}
 
 void pci_no_aer(void)
 {
@@ -1439,6 +1445,21 @@ static void aer_isr_one_error(struct pci_dev *root,
 	}
 }
 
+static int aer_mark_device_disconnected(struct pci_dev *pdev, void *data)
+{
+	pci_dev_set_io_state(pdev, pci_channel_io_perm_failure);
+
+	return 0;
+}
+
+static void aer_mark_hierarchy_disconnected(struct pci_dev *root)
+{
+	pci_dev_set_io_state(root, pci_channel_io_perm_failure);
+
+	if (root->subordinate)
+		pci_walk_bus(root->subordinate, aer_mark_device_disconnected, NULL);
+}
+
 /**
  * aer_isr - consume errors detected by Root Port
  * @irq: IRQ assigned to Root Port
@@ -1451,6 +1472,19 @@ static irqreturn_t aer_isr(int irq, void *context)
 	struct pcie_device *dev = (struct pcie_device *)context;
 	struct aer_rpc *rpc = get_service_data(dev);
 	struct aer_err_source e_src;
+
+	/*
+	 * Error recovery cannot make progress once device_shutdown() has begun
+	 * and may race with endpoint shutdown callbacks.  Do not access config
+	 * space, but make the channel state visible before endpoint shutdown paths
+	 * attempt another config or MMIO access.
+	 */
+	if (unlikely(aer_system_is_shutting_down())) {
+		aer_mark_hierarchy_disconnected(rpc->rpd);
+		while (kfifo_get(&rpc->aer_fifo, &e_src))
+			;
+		return IRQ_HANDLED;
+	}
 
 	if (kfifo_is_empty(&rpc->aer_fifo))
 		return IRQ_NONE;
@@ -1475,12 +1509,27 @@ static irqreturn_t aer_irq(int irq, void *context)
 	int aer = rp->aer_cap;
 	struct aer_err_source e_src = {};
 
-	pci_read_config_dword(rp, aer + PCI_ERR_ROOT_STATUS, &e_src.status);
+	/*
+	 * device_shutdown() may already be tearing down the hierarchy.  Root Port
+	 * config space may no longer be accessible, so let the thread conservatively
+	 * mark the hierarchy disconnected without reading the interrupt source.
+	 */
+	if (unlikely(aer_system_is_shutting_down()))
+		return IRQ_WAKE_THREAD;
+
+	if (pci_read_config_dword(rp, aer + PCI_ERR_ROOT_STATUS,
+				  &e_src.status) != PCIBIOS_SUCCESSFUL)
+		return IRQ_HANDLED;
 	if (!(e_src.status & AER_ERR_STATUS_MASK))
 		return IRQ_NONE;
 
-	pci_read_config_dword(rp, aer + PCI_ERR_ROOT_ERR_SRC, &e_src.id);
-	pci_write_config_dword(rp, aer + PCI_ERR_ROOT_STATUS, e_src.status);
+	if (pci_read_config_dword(rp, aer + PCI_ERR_ROOT_ERR_SRC,
+				  &e_src.id) != PCIBIOS_SUCCESSFUL)
+		return IRQ_HANDLED;
+
+	if (pci_write_config_dword(rp, aer + PCI_ERR_ROOT_STATUS,
+				   e_src.status) != PCIBIOS_SUCCESSFUL)
+		return IRQ_HANDLED;
 
 	if (!kfifo_put(&rpc->aer_fifo, e_src))
 		return IRQ_HANDLED;
