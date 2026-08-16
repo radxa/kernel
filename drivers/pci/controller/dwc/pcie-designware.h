@@ -431,6 +431,7 @@ struct dw_pcie_rp {
 	bool			use_imsi_rx:1;
 	bool			keep_rp_msi_en:1;
 	bool			cfg0_io_shared:1;
+	bool			cfg_access_blocked;
 	u64			cfg0_base;
 	void __iomem		*va_cfg0_base;
 	u32			cfg0_size;

@@ -26,13 +26,20 @@ static inline void __iomem *pci_msix_desc_addr(struct msi_desc *desc)
 	return desc->pci.mask_base + desc->msi_index * PCI_MSIX_ENTRY_SIZE;
 }
 
+static inline bool pci_msix_desc_is_accessible(struct msi_desc *desc)
+{
+	struct pci_dev *pdev = to_pci_dev(desc->dev);
+
+	return !pci_channel_offline(pdev);
+}
+
 /*
  * This internal function does not flush PCI writes to the device.  All
  * users must ensure that they read from the device before either assuming
  * that the device state is up to date, or returning out of this file.
  * It does not affect the msi_desc::msix_ctrl cache either. Use with care!
  */
-static inline void pci_msix_write_vector_ctrl(struct msi_desc *desc, u32 ctrl)
+static inline void __pci_msix_write_vector_ctrl(struct msi_desc *desc, u32 ctrl)
 {
 	void __iomem *desc_addr = pci_msix_desc_addr(desc);
 
@@ -40,12 +47,25 @@ static inline void pci_msix_write_vector_ctrl(struct msi_desc *desc, u32 ctrl)
 		writel(ctrl, desc_addr + PCI_MSIX_ENTRY_VECTOR_CTRL);
 }
 
+static inline void pci_msix_write_vector_ctrl(struct msi_desc *desc, u32 ctrl)
+{
+	if (pci_msix_desc_is_accessible(desc))
+		__pci_msix_write_vector_ctrl(desc, ctrl);
+}
+
+static inline void
+pci_msix_write_vector_ctrl_flush(struct msi_desc *desc, u32 ctrl)
+{
+	if (pci_msix_desc_is_accessible(desc)) {
+		__pci_msix_write_vector_ctrl(desc, ctrl);
+		readl(desc->pci.mask_base);
+	}
+}
+
 static inline void pci_msix_mask(struct msi_desc *desc)
 {
 	desc->pci.msix_ctrl |= PCI_MSIX_ENTRY_CTRL_MASKBIT;
-	pci_msix_write_vector_ctrl(desc, desc->pci.msix_ctrl);
-	/* Flush write to device */
-	readl(desc->pci.mask_base);
+	pci_msix_write_vector_ctrl_flush(desc, desc->pci.msix_ctrl);
 }
 
 static inline void pci_msix_unmask(struct msi_desc *desc)

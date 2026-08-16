@@ -730,6 +730,9 @@ static void __iomem *dw_pcie_other_conf_map_bus(struct pci_bus *bus,
 	int type, ret;
 	u32 busdev;
 
+	if (READ_ONCE(pp->cfg_access_blocked))
+		return NULL;
+
 	/*
 	 * Checking whether the link is up here is a last line of defense
 	 * against platforms that forward errors on the system bus as
@@ -824,6 +827,9 @@ void __iomem *dw_pcie_own_conf_map_bus(struct pci_bus *bus, unsigned int devfn, 
 	struct dw_pcie_rp *pp = bus->sysdata;
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 
+	if (READ_ONCE(pp->cfg_access_blocked))
+		return NULL;
+
 	if (PCI_SLOT(devfn) > 0)
 		return NULL;
 
@@ -837,6 +843,9 @@ static void __iomem *dw_pcie_ecam_conf_map_bus(struct pci_bus *bus, unsigned int
 	struct dw_pcie_rp *pp = cfg->priv;
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 	unsigned int busn = bus->number;
+
+	if (READ_ONCE(pp->cfg_access_blocked))
+		return NULL;
 
 	if (busn > 0)
 		return pci_ecam_map_bus(bus, devfn, where);

@@ -163,9 +163,13 @@ void __pci_read_msi_msg(struct msi_desc *entry, struct msi_msg *msg)
 		if (WARN_ON_ONCE(entry->pci.msi_attrib.is_virtual))
 			return;
 
-		msg->address_lo = readl(base + PCI_MSIX_ENTRY_LOWER_ADDR);
-		msg->address_hi = readl(base + PCI_MSIX_ENTRY_UPPER_ADDR);
-		msg->data = readl(base + PCI_MSIX_ENTRY_DATA);
+		if (pci_msix_desc_is_accessible(entry)) {
+			msg->address_lo = readl(base + PCI_MSIX_ENTRY_LOWER_ADDR);
+			msg->address_hi = readl(base + PCI_MSIX_ENTRY_UPPER_ADDR);
+			msg->data = readl(base + PCI_MSIX_ENTRY_DATA);
+		} else {
+			*msg = entry->msg;
+		}
 	} else {
 		int pos = dev->msi_cap;
 		u16 data;
@@ -214,6 +218,9 @@ static inline void pci_write_msg_msix(struct msi_desc *desc, struct msi_msg *msg
 
 	if (desc->pci.msi_attrib.is_virtual)
 		return;
+
+	if (!pci_msix_desc_is_accessible(desc))
+		return;
 	/*
 	 * The specification mandates that the entry is masked
 	 * when the message is modified:
@@ -223,14 +230,15 @@ static inline void pci_write_msg_msix(struct msi_desc *desc, struct msi_msg *msg
 	 * undefined."
 	 */
 	if (unmasked)
-		pci_msix_write_vector_ctrl(desc, ctrl | PCI_MSIX_ENTRY_CTRL_MASKBIT);
+		__pci_msix_write_vector_ctrl(desc,
+					     ctrl | PCI_MSIX_ENTRY_CTRL_MASKBIT);
 
 	writel(msg->address_lo, base + PCI_MSIX_ENTRY_LOWER_ADDR);
 	writel(msg->address_hi, base + PCI_MSIX_ENTRY_UPPER_ADDR);
 	writel(msg->data, base + PCI_MSIX_ENTRY_DATA);
 
 	if (unmasked)
-		pci_msix_write_vector_ctrl(desc, ctrl);
+		__pci_msix_write_vector_ctrl(desc, ctrl);
 
 	/* Ensure that the writes are visible in the device */
 	readl(base + PCI_MSIX_ENTRY_DATA);
@@ -962,9 +970,7 @@ int pci_msix_write_tph_tag(struct pci_dev *pdev, unsigned int index, u16 tag)
 
 	msi_desc->pci.msix_ctrl &= ~PCI_MSIX_ENTRY_CTRL_ST;
 	msi_desc->pci.msix_ctrl |= FIELD_PREP(PCI_MSIX_ENTRY_CTRL_ST, tag);
-	pci_msix_write_vector_ctrl(msi_desc, msi_desc->pci.msix_ctrl);
-	/* Flush the write */
-	readl(pci_msix_desc_addr(msi_desc));
+	pci_msix_write_vector_ctrl_flush(msi_desc, msi_desc->pci.msix_ctrl);
 	return 0;
 }
 #endif
