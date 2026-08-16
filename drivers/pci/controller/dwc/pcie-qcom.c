@@ -1422,15 +1422,9 @@ static void qcom_pcie_init_ecam_blocker(struct qcom_pcie *pcie)
 {
 	struct dw_pcie_rp *pp = &pcie->pci->pp;
 	struct dw_pcie *pci = pcie->pci;
-	struct resource_entry *entry;
 	u64 blocker_base = pci->dbi_phys_addr + SZ_4K;
-	u64 blocker_limit = pp->cfg0_base + pp->cfg0_size - 1;
+	u64 blocker_limit = pci->dbi_phys_addr + SZ_1M - 1;
 	u32 val;
-
-	resource_list_for_each_entry(entry, &pp->bridge->windows) {
-		if (resource_type(entry->res) == IORESOURCE_MEM)
-			blocker_limit = max_t(u64, blocker_limit, entry->res->end);
-	}
 
 	/*
 	 * PARF_ECAM_BASE is the base of the complete ECAM aperture: DBI starts
