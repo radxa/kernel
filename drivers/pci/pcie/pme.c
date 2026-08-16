@@ -18,9 +18,15 @@
 #include <linux/interrupt.h>
 #include <linux/device.h>
 #include <linux/pm_runtime.h>
+#include <linux/reboot.h>
 
 #include "../pci.h"
 #include "portdrv.h"
+
+static bool pcie_pme_system_is_shutting_down(void)
+{
+	return system_state >= SYSTEM_HALT && system_state <= SYSTEM_RESTART;
+}
 
 /*
  * If this switch is set, MSI will not be used for PCIe PME signaling.  This
@@ -221,8 +227,11 @@ static void pcie_pme_work_fn(struct work_struct *work)
 	spin_lock_irq(&data->lock);
 
 	for (;;) {
-		if (data->noirq)
+		if (data->noirq ||
+		    unlikely(pcie_pme_system_is_shutting_down())) {
+			data->noirq = true;
 			break;
+		}
 
 		pcie_capability_read_dword(port, PCI_EXP_RTSTA, &rtsta);
 		if (PCI_POSSIBLE_ERROR(rtsta))
@@ -274,6 +283,13 @@ static irqreturn_t pcie_pme_irq(int irq, void *context)
 	data = get_service_data((struct pcie_device *)context);
 
 	spin_lock_irqsave(&data->lock, flags);
+	/* PME resume requests are no longer actionable during device shutdown. */
+	if (unlikely(pcie_pme_system_is_shutting_down())) {
+		data->noirq = true;
+		spin_unlock_irqrestore(&data->lock, flags);
+		return IRQ_HANDLED;
+	}
+
 	pcie_capability_read_dword(port, PCI_EXP_RTSTA, &rtsta);
 
 	if (PCI_POSSIBLE_ERROR(rtsta) || !(rtsta & PCI_EXP_RTSTA_PME)) {
