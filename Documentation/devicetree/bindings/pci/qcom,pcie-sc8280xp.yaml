@@ -52,11 +52,14 @@ properties:
       - const: cnoc_qx # Configuration NoC QX clock
 
   resets:
-    maxItems: 1
+    minItems: 1
+    maxItems: 2
 
   reset-names:
+    minItems: 1
     items:
       - const: pci
+      - const: link_down
 
 required:
   - interconnects
@@ -79,6 +82,7 @@ allOf:
           minItems: 4
           maxItems: 5
         interrupt-names:
+          minItems: 4
           items:
             - const: msi0
             - const: msi1
@@ -92,6 +96,10 @@ allOf:
         interrupt-names:
           items:
             - const: msi
+        resets:
+          maxItems: 1
+        reset-names:
+          maxItems: 1
 
 unevaluatedProperties: false
 
@@ -172,8 +180,9 @@ examples:
 
             power-domains = <&gcc PCIE_2A_GDSC>;
 
-            resets = <&gcc GCC_PCIE_2A_BCR>;
-            reset-names = "pci";
+            resets = <&gcc GCC_PCIE_2A_BCR>,
+                     <&gcc GCC_PCIE_2A_LINK_DOWN_BCR>;
+            reset-names = "pci", "link_down";
 
             perst-gpios = <&tlmm 143 GPIO_ACTIVE_LOW>;
             wake-gpios = <&tlmm 145 GPIO_ACTIVE_LOW>;
