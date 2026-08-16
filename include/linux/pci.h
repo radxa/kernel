@@ -39,6 +39,7 @@
 #include <linux/io.h>
 #include <linux/resource_ext.h>
 #include <linux/msi_api.h>
+#include <linux/mutex.h>
 #include <uapi/linux/pci.h>
 
 #include <linux/pci_ids.h>
@@ -640,6 +641,11 @@ struct pci_host_bridge {
 	void (*disable_device)(struct pci_host_bridge *bridge, struct pci_dev *dev);
 	int (*reset_root_port)(struct pci_host_bridge *bridge, struct pci_dev *dev);
 	void		*release_data;
+	struct mutex	recovery_lock; /* Serialize hierarchy error recovery */
+	struct pci_dev	*recovery_bridge;
+	unsigned int	recovery_generation;
+	pci_channel_state_t recovery_state;
+	unsigned int	recovery_result;
 	unsigned int	ignore_reset_delay:1;	/* For entire hierarchy */
 	unsigned int	no_ext_tags:1;		/* No Extended Tags */
 	unsigned int	no_inc_mrrs:1;		/* No Increase MRRS */

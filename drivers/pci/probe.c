@@ -687,6 +687,7 @@ static void pci_init_host_bridge(struct pci_host_bridge *bridge)
 	bridge->domain_nr = PCI_DOMAIN_NR_NOT_SET;
 	bridge->native_cxl_error = 1;
 	bridge->dev.type = &pci_host_bridge_type;
+	mutex_init(&bridge->recovery_lock);
 	pci_ide_init_host_bridge(bridge);
 
 	device_initialize(&bridge->dev);

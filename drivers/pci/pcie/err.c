@@ -108,6 +108,13 @@ static int report_normal_detected(struct pci_dev *dev, void *data)
 	return report_error_detected(dev, pci_channel_io_normal, data);
 }
 
+static int set_perm_failure_state(struct pci_dev *dev, void *data)
+{
+	pci_dev_set_io_state(dev, pci_channel_io_perm_failure);
+
+	return 0;
+}
+
 static int report_perm_failure_detected(struct pci_dev *dev, void *data)
 {
 	struct pci_driver *pdrv;
@@ -207,6 +214,17 @@ static void pci_walk_bridge(struct pci_dev *bridge,
 		cb(bridge, userdata);
 }
 
+static void pcie_record_recovery(struct pci_host_bridge *host,
+				 struct pci_dev *bridge,
+				 pci_channel_state_t state,
+				 pci_ers_result_t result)
+{
+	host->recovery_bridge = bridge;
+	host->recovery_state = state;
+	host->recovery_result = (__force unsigned int)result;
+	WRITE_ONCE(host->recovery_generation, host->recovery_generation + 1);
+}
+
 pci_ers_result_t pcie_do_recovery(struct pci_dev *dev,
 		pci_channel_state_t state,
 		pci_ers_result_t (*reset_subordinates)(struct pci_dev *pdev))
@@ -215,6 +233,9 @@ pci_ers_result_t pcie_do_recovery(struct pci_dev *dev,
 	struct pci_dev *bridge;
 	pci_ers_result_t status = PCI_ERS_RESULT_CAN_RECOVER;
 	struct pci_host_bridge *host = pci_find_host_bridge(dev->bus);
+	unsigned int recovery_generation;
+
+	recovery_generation = READ_ONCE(host->recovery_generation);
 
 	/*
 	 * If the error was detected by a Root Port, Downstream Port, RCEC,
@@ -232,6 +253,20 @@ pci_ers_result_t pcie_do_recovery(struct pci_dev *dev,
 		bridge = dev;
 	else
 		bridge = pci_upstream_bridge(dev);
+
+	/* AER, DPC and platform Link Down notifications may race. */
+	guard(mutex)(&host->recovery_lock);
+
+	/*
+	 * Coalesce notifications for the same hierarchy which arrived while an
+	 * equal or more severe recovery was already in progress. A frozen-channel
+	 * recovery also covers a concurrently queued normal-channel recovery.
+	 */
+	if (recovery_generation != host->recovery_generation &&
+	    host->recovery_bridge == bridge &&
+	    (host->recovery_state != pci_channel_io_normal ||
+	     state == pci_channel_io_normal))
+		return (__force pci_ers_result_t)host->recovery_result;
 
 	pci_walk_bridge(bridge, pci_pm_runtime_get_sync, NULL);
 
@@ -281,15 +316,18 @@ pci_ers_result_t pcie_do_recovery(struct pci_dev *dev,
 	pci_walk_bridge(bridge, pci_pm_runtime_put, NULL);
 
 	pci_info(bridge, "device recovery successful\n");
+	pcie_record_recovery(host, bridge, state, status);
 	return status;
 
 failed:
+	pci_walk_bridge(bridge, set_perm_failure_state, NULL);
 	pci_walk_bridge(bridge, pci_pm_runtime_put, NULL);
 
 	pci_walk_bridge(bridge, report_perm_failure_detected, NULL);
 
 	pci_info(bridge, "device recovery failed\n");
 
+	pcie_record_recovery(host, bridge, pci_channel_io_perm_failure, status);
 	return status;
 }
 EXPORT_SYMBOL_GPL(pcie_do_recovery);
