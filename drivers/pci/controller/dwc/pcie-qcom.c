@@ -9,6 +9,7 @@
  */
 
 #include <linux/clk.h>
+#include <linux/completion.h>
 #include <linux/crc8.h>
 #include <linux/debugfs.h>
 #include <linux/delay.h>
@@ -33,9 +34,11 @@
 #include <linux/phy/phy.h>
 #include <linux/regulator/consumer.h>
 #include <linux/reset.h>
+#include <linux/reboot.h>
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/units.h>
+#include <linux/workqueue.h>
 
 #include "../../pci.h"
 #include "../pci-host-common.h"
@@ -75,6 +78,9 @@
 #define PARF_L1SS_SLEEP_MODE_HANDLER_STATUS	0x4d0
 #define PARF_L1SS_SLEEP_MODE_HANDLER_CFG	0x4d4
 #define PARF_INT_ALL_2_STATUS			0x500
+#define PARF_LINK_DOWN_ECAM_BLOCK		0x608
+#define PARF_LINK_DOWN_ECAM_BLOCK_CMD		0x60c
+#define PARF_LINK_DOWN_ECAM_BLOCK_STATUS		0x610
 #define PARF_LINK_DOWN_AXI_ECAM_BLOCK_STATUS	0x630
 #define PARF_ATU_BASE_ADDR			0x634
 #define PARF_ATU_BASE_ADDR_HI			0x638
@@ -172,7 +178,18 @@
 /* PARF_INT_ALL_{STATUS/CLEAR/MASK} register fields */
 #define INT_ALL_LINK_DOWN			1
 #define PARF_INT_ALL_LINK_DOWN			BIT(INT_ALL_LINK_DOWN)
-#define PARF_INT_MSI_DEV_0_7			GENMASK(30, 23)
+#define PARF_INT_LINK_REQ_RST_FLUSH		BIT(12)
+
+/* PARF_LINK_DOWN_ECAM_BLOCK register fields */
+#define LINK_DOWN_ECAM_IGNORE_LINK_DOWN		BIT(5)
+#define LINK_DOWN_ECAM_CLK_REQ_OVERRIDE_VAL	BIT(8)
+#define LINK_DOWN_ECAM_CLK_REQ_OVERRIDE		BIT(7)
+#define LINK_DOWN_ECAM_BLOCK_DBI_EN		BIT(2)
+#define LINK_DOWN_ECAM_AUTO_RELEASE_EN		BIT(1)
+#define LINK_DOWN_ECAM_AUTO_BLOCK_EN		BIT(0)
+
+/* PARF_LINK_DOWN_ECAM_BLOCK_CMD register fields */
+#define LINK_DOWN_ECAM_SW_BLOCK_TRAFFIC		BIT(2)
 
 /* PARF_NO_SNOOP_OVERRIDE register fields */
 #define WR_NO_SNOOP_OVERRIDE_EN			BIT(1)
@@ -211,7 +228,9 @@
 						PCIE_CAP_SLOT_POWER_LIMIT_SCALE)
 
 #define PERST_DELAY_US				1000
-#define FLUSH_TIMEOUT_US			100
+#define LINK_DOWN_TSTOP_US			1000
+#define LINK_DOWN_FLUSH_TIMEOUT_US		100000
+#define LINK_REQ_RST_TIMEOUT_MS			100
 
 /* Dump buffer size for the link-down register dump */
 #define QCOM_PCIE_DUMP_BUF_SIZE			SZ_8K
@@ -230,6 +249,7 @@ static const u32 qcom_pcie_parf_dump_regs[] = {
 };
 
 static const u32 qcom_pcie_ext_parf_dump_regs[] = {
+	PARF_LTSSM,
 	PARF_PM_STTS,
 	PARF_PM_STTS_1,
 	PARF_INT_ALL_STATUS,
@@ -330,21 +350,25 @@ struct qcom_pcie_ops {
 	int (*config_sid)(struct qcom_pcie *pcie);
 };
 
- /**
-  * struct qcom_pcie_cfg - Per SoC config struct
-  * @ops: qcom PCIe ops structure
-  * @override_no_snoop: Override NO_SNOOP attribute in TLP to enable cache
-  * snooping
-  * @firmware_managed: Set if the Root Complex is firmware managed
-  * @has_ext_parf_regs: Set if the PARF block implements the extended
-  * register set used by qcom_pcie_dump_regs().
-  */
+/**
+ * struct qcom_pcie_cfg - Per SoC config struct
+ * @ops: qcom PCIe ops structure
+ * @override_no_snoop: Override NO_SNOOP attribute in TLP to enable cache
+ * snooping
+ * @firmware_managed: Set if the Root Complex is firmware managed
+ * @no_l0s: Set if the controller does not support the L0s link state
+ * @has_ext_parf_regs: Set if the PARF block implements the extended
+ * register set used by qcom_pcie_dump_regs().
+ * @has_link_down_recovery: Set if the controller implements the Link Down
+ * ECAM blocker and Q2A flush sequence.
+ */
 struct qcom_pcie_cfg {
 	const struct qcom_pcie_ops *ops;
 	bool override_no_snoop;
 	bool firmware_managed;
 	bool no_l0s;
 	bool has_ext_parf_regs;
+	bool has_link_down_recovery;
 };
 
 struct qcom_pcie_perst {
@@ -367,8 +391,15 @@ struct qcom_pcie {
 	struct icc_path *icc_cpu;
 	const struct qcom_pcie_cfg *cfg;
 	struct dentry *debugfs;
+	struct work_struct link_down_work;
+	struct completion link_req_rst;
+	struct notifier_block reboot_nb;
+	struct reset_control *link_down_reset;
 	struct list_head ports;
+	atomic_long_t global_irq_status;
 	int global_irq;
+	bool global_irq_enabled;
+	bool shutting_down;
 	bool suspended;
 	bool use_pm_opp;
 };
@@ -1029,9 +1060,19 @@ static int qcom_pcie_get_resources_2_7_0(struct qcom_pcie *pcie)
 	struct device *dev = pci->dev;
 	int ret;
 
-	res->rst = devm_reset_control_array_get_exclusive(dev);
+	if (pcie->cfg->has_link_down_recovery)
+		res->rst = devm_reset_control_get_exclusive(dev, "pci");
+	else
+		res->rst = devm_reset_control_array_get_exclusive(dev);
 	if (IS_ERR(res->rst))
 		return PTR_ERR(res->rst);
+
+	if (pcie->cfg->has_link_down_recovery) {
+		pcie->link_down_reset =
+			devm_reset_control_get_optional_exclusive(dev, "link_down");
+		if (IS_ERR(pcie->link_down_reset))
+			return PTR_ERR(pcie->link_down_reset);
+	}
 
 	res->supplies[0].supply = "vdda";
 	res->supplies[1].supply = "vddpe-3v3";
@@ -1379,21 +1420,61 @@ static int qcom_pcie_phy_power_on(struct qcom_pcie *pcie)
 
 static void qcom_pcie_init_ecam_blocker(struct qcom_pcie *pcie)
 {
+	struct dw_pcie_rp *pp = &pcie->pci->pp;
 	struct dw_pcie *pci = pcie->pci;
+	struct resource_entry *entry;
+	u64 blocker_base = pci->dbi_phys_addr + SZ_4K;
+	u64 blocker_limit = pp->cfg0_base + pp->cfg0_size - 1;
+	u32 val;
 
-	/* ECAM base must match the DBI base address */
-	writel(lower_32_bits(pci->dbi_phys_addr), pcie->parf + PARF_ECAM_BASE);
-	writel(upper_32_bits(pci->dbi_phys_addr), pcie->parf + PARF_ECAM_BASE_HI);
+	resource_list_for_each_entry(entry, &pp->bridge->windows) {
+		if (resource_type(entry->res) == IORESOURCE_MEM)
+			blocker_limit = max_t(u64, blocker_limit, entry->res->end);
+	}
 
-	writel(0, pcie->parf + PARF_BLOCK_SLV_AXI_WR_BASE);
-	writel(0, pcie->parf + PARF_BLOCK_SLV_AXI_WR_BASE_HI);
-	writel(U32_MAX, pcie->parf + PARF_BLOCK_SLV_AXI_WR_LIMIT);
-	writel(U32_MAX, pcie->parf + PARF_BLOCK_SLV_AXI_WR_LIMIT_HI);
+	/*
+	 * PARF_ECAM_BASE is the base of the complete ECAM aperture: DBI starts
+	 * at offset 0 and the downstream configuration window at offset 1 MiB.
+	 */
+	writel(lower_32_bits(pci->dbi_phys_addr),
+	       pcie->parf + PARF_ECAM_BASE);
+	writel(upper_32_bits(pci->dbi_phys_addr),
+	       pcie->parf + PARF_ECAM_BASE_HI);
 
-	writel(0, pcie->parf + PARF_BLOCK_SLV_AXI_RD_BASE);
-	writel(0, pcie->parf + PARF_BLOCK_SLV_AXI_RD_BASE_HI);
-	writel(U32_MAX, pcie->parf + PARF_BLOCK_SLV_AXI_RD_LIMIT);
-	writel(U32_MAX, pcie->parf + PARF_BLOCK_SLV_AXI_RD_LIMIT_HI);
+	/* Keep the Root Port's 4 KiB DBI aperture available for recovery. */
+	writel(lower_32_bits(blocker_base),
+	       pcie->parf + PARF_BLOCK_SLV_AXI_WR_BASE);
+	writel(upper_32_bits(blocker_base),
+	       pcie->parf + PARF_BLOCK_SLV_AXI_WR_BASE_HI);
+	writel(lower_32_bits(blocker_limit),
+	       pcie->parf + PARF_BLOCK_SLV_AXI_WR_LIMIT);
+	writel(upper_32_bits(blocker_limit),
+	       pcie->parf + PARF_BLOCK_SLV_AXI_WR_LIMIT_HI);
+
+	writel(lower_32_bits(blocker_base),
+	       pcie->parf + PARF_BLOCK_SLV_AXI_RD_BASE);
+	writel(upper_32_bits(blocker_base),
+	       pcie->parf + PARF_BLOCK_SLV_AXI_RD_BASE_HI);
+	writel(lower_32_bits(blocker_limit),
+	       pcie->parf + PARF_BLOCK_SLV_AXI_RD_LIMIT);
+	writel(upper_32_bits(blocker_limit),
+	       pcie->parf + PARF_BLOCK_SLV_AXI_RD_LIMIT_HI);
+
+	/* Keep the hardware Link Down blocker and automatic release enabled. */
+	val = readl(pcie->parf + PARF_LINK_DOWN_ECAM_BLOCK);
+	val |= LINK_DOWN_ECAM_BLOCK_DBI_EN |
+	       LINK_DOWN_ECAM_AUTO_RELEASE_EN |
+	       LINK_DOWN_ECAM_AUTO_BLOCK_EN;
+	val &= ~LINK_DOWN_ECAM_IGNORE_LINK_DOWN;
+	writel(val, pcie->parf + PARF_LINK_DOWN_ECAM_BLOCK);
+
+	/* Keep recovery traffic blocked until the link is known to be usable. */
+	val = readl(pcie->parf + PARF_SYS_CTRL);
+	if (READ_ONCE(pp->cfg_access_blocked))
+		val |= ECAM_BLOCKER_EN;
+	else
+		val &= ~ECAM_BLOCKER_EN;
+	writel(val, pcie->parf + PARF_SYS_CTRL);
 }
 
 static void qcom_pcie_enable_ecam_blocker(struct qcom_pcie *pcie)
@@ -1406,6 +1487,92 @@ static void qcom_pcie_enable_ecam_blocker(struct qcom_pcie *pcie)
 
 	/* Flush the write so the blocker is enabled before this function returns */
 	readl(pcie->parf + PARF_SYS_CTRL);
+}
+
+static void qcom_pcie_block_link_down_accesses(struct qcom_pcie *pcie)
+{
+	struct dw_pcie_rp *pp = &pcie->pci->pp;
+	u32 val;
+
+	/*
+	 * Stop new config accesses before arming the hardware backstop. An access
+	 * already in flight is handled by the Q2A Link Down flush state machine.
+	 */
+	WRITE_ONCE(pp->cfg_access_blocked, true);
+	qcom_pcie_enable_ecam_blocker(pcie);
+
+	/*
+	 * The range blocker is now an immediate backstop for downstream traffic.
+	 * Also ask the Q2A state machine to block DBI and non-DBI traffic and
+	 * ignore another Link Down while recovery is in progress.
+	 */
+	val = readl(pcie->parf + PARF_LINK_DOWN_ECAM_BLOCK);
+	val |= LINK_DOWN_ECAM_IGNORE_LINK_DOWN;
+	writel(val, pcie->parf + PARF_LINK_DOWN_ECAM_BLOCK);
+
+	writel(LINK_DOWN_ECAM_SW_BLOCK_TRAFFIC,
+	       pcie->parf + PARF_LINK_DOWN_ECAM_BLOCK_CMD);
+}
+
+static void qcom_pcie_unblock_accesses(struct qcom_pcie *pcie)
+{
+	struct dw_pcie_rp *pp = &pcie->pci->pp;
+	u32 val;
+
+	val = readl(pcie->parf + PARF_SYS_CTRL);
+	val &= ~ECAM_BLOCKER_EN;
+	writel(val, pcie->parf + PARF_SYS_CTRL);
+	readl(pcie->parf + PARF_SYS_CTRL);
+
+	WRITE_ONCE(pp->cfg_access_blocked, false);
+}
+
+static int qcom_pcie_mark_device_frozen(struct pci_dev *pdev, void *data)
+{
+	pci_dev_set_io_state(pdev, pci_channel_io_frozen);
+
+	return 0;
+}
+
+static int qcom_pcie_reboot_notifier(struct notifier_block *nb,
+				     unsigned long action, void *data)
+{
+	struct qcom_pcie *pcie = container_of(nb, struct qcom_pcie, reboot_nb);
+	struct dw_pcie_rp *pp = &pcie->pci->pp;
+	bool accesses_blocked;
+
+	/*
+	 * The reboot notifier runs before device_shutdown(). Do not let an
+	 * in-flight recovery reopen config access while endpoint drivers are
+	 * shutting down.
+	 */
+	WRITE_ONCE(pcie->shutting_down, true);
+	cancel_work_sync(&pcie->link_down_work);
+	mutex_lock(&pp->bridge->recovery_lock);
+	mutex_unlock(&pp->bridge->recovery_lock);
+
+	accesses_blocked = READ_ONCE(pp->cfg_access_blocked);
+	if (!accesses_blocked &&
+	    ((readl_relaxed(pcie->parf + PARF_INT_ALL_STATUS) &
+	      PARF_INT_ALL_LINK_DOWN) || !dw_pcie_link_up(pcie->pci))) {
+		qcom_pcie_block_link_down_accesses(pcie);
+		accesses_blocked = true;
+	}
+
+	/*
+	 * Preserve an orderly endpoint shutdown while the link is healthy.  If
+	 * Link Down recovery had already started (or the link is already down),
+	 * tell endpoint shutdown paths that the channel is unusable and retain the
+	 * hardware blocker. A healthy link remains fully accessible so endpoint
+	 * drivers can perform their normal shutdown handshake.
+	 */
+	if (accesses_blocked) {
+		pci_walk_bus(pp->bridge->bus,
+			     qcom_pcie_mark_device_frozen, NULL);
+		qcom_pcie_block_link_down_accesses(pcie);
+	}
+
+	return NOTIFY_DONE;
 }
 
 static int qcom_pcie_host_init(struct dw_pcie_rp *pp)
@@ -1442,7 +1609,8 @@ static int qcom_pcie_host_init(struct dw_pcie_rp *pp)
 	dw_pcie_remove_capability(pcie->pci, PCI_CAP_ID_MSIX);
 	dw_pcie_remove_ext_capability(pcie->pci, PCI_EXT_CAP_ID_DPC);
 
-	qcom_pcie_init_ecam_blocker(pcie);
+	if (pcie->cfg->has_link_down_recovery)
+		qcom_pcie_init_ecam_blocker(pcie);
 	qcom_pcie_perst_deassert(pcie);
 
 	if (pcie->cfg->ops->config_sid) {
@@ -1451,7 +1619,8 @@ static int qcom_pcie_host_init(struct dw_pcie_rp *pp)
 			goto err_assert_reset;
 	}
 
-	pp->bridge->reset_root_port = qcom_pcie_reset_root_port;
+	if (pcie->cfg->has_link_down_recovery)
+		pp->bridge->reset_root_port = qcom_pcie_reset_root_port;
 
 	return 0;
 
@@ -1631,6 +1800,14 @@ static const struct qcom_pcie_cfg cfg_sc8280xp = {
 	.no_l0s = true,
 	.override_no_snoop = true,
 	.has_ext_parf_regs = true,
+};
+
+static const struct qcom_pcie_cfg cfg_sc8280xp_link_down = {
+	.ops = &ops_1_21_0,
+	.no_l0s = true,
+	.override_no_snoop = true,
+	.has_ext_parf_regs = true,
+	.has_link_down_recovery = true,
 };
 
 static const struct qcom_pcie_cfg cfg_fw_managed = {
@@ -1829,13 +2006,24 @@ static size_t qcom_pcie_dump_reg_table(void __iomem *base, const u32 *regs,
  * Returns the number of bytes written into @buf.
  */
 static size_t qcom_pcie_fill_dump_buf(struct qcom_pcie *pcie, char *buf,
-				      size_t buf_size)
+				      size_t buf_size, u32 irq_status,
+				      bool dump_dbi)
 {
 	struct dw_pcie *pci = pcie->pci;
 	u16 exp_cap, aer_cap, l1ss_cap, secpci_cap, pl16gt_cap, pl32gt_cap;
 	size_t len = 0;
 	int col = 0;
 	u32 val;
+
+	len += scnprintf(buf + len, buf_size - len,
+			 "Captured PARF_INT_ALL_STATUS: 0x%08x\n\n",
+			 irq_status);
+
+	if (!dump_dbi) {
+		len += scnprintf(buf + len, buf_size - len,
+				 "DBI registers: skipped after Link Down\n");
+		goto dump_parf;
+	}
 
 	len += scnprintf(buf + len, buf_size - len, "DBI registers:\n");
 
@@ -1945,10 +2133,32 @@ static size_t qcom_pcie_fill_dump_buf(struct qcom_pcie *pcie, char *buf,
 	if (col % QCOM_PCIE_DUMP_REGS_PER_LINE)
 		len += scnprintf(buf + len, buf_size - len, "\n");
 
+dump_parf:
 	len += scnprintf(buf + len, buf_size - len, "\nPARF registers:\n");
-	len += qcom_pcie_dump_reg_table(pcie->parf, qcom_pcie_parf_dump_regs,
-					ARRAY_SIZE(qcom_pcie_parf_dump_regs),
-					buf + len, buf_size - len);
+	if (pcie->cfg->has_ext_parf_regs)
+		len += qcom_pcie_dump_reg_table(pcie->parf,
+						qcom_pcie_ext_parf_dump_regs,
+						ARRAY_SIZE(qcom_pcie_ext_parf_dump_regs),
+						buf + len, buf_size - len);
+	else
+		len += qcom_pcie_dump_reg_table(pcie->parf,
+						qcom_pcie_parf_dump_regs,
+						ARRAY_SIZE(qcom_pcie_parf_dump_regs),
+						buf + len, buf_size - len);
+
+	if (pcie->cfg->has_link_down_recovery) {
+		int q2a_col = 0;
+
+		len += scnprintf(buf + len, buf_size - len,
+				 "Q2A Link Down blocker:\n");
+		len += qcom_pcie_dump_reg_val(buf + len, buf_size - len,
+					      &q2a_col,
+					      PARF_LINK_DOWN_ECAM_BLOCK_STATUS,
+					      readl_relaxed(pcie->parf +
+							    PARF_LINK_DOWN_ECAM_BLOCK_STATUS));
+		if (q2a_col % QCOM_PCIE_DUMP_REGS_PER_LINE)
+			len += scnprintf(buf + len, buf_size - len, "\n");
+	}
 
 	if (!pcie->mhi)
 		return len;
@@ -1970,7 +2180,7 @@ static size_t qcom_pcie_fill_dump_buf(struct qcom_pcie *pcie, char *buf,
  * the buffer to the devcoredump framework so it is accessible under
  * /sys/class/devcoredump/ for offline analysis.
  */
-static void qcom_pcie_dump_regs(struct qcom_pcie *pcie)
+static void qcom_pcie_dump_regs(struct qcom_pcie *pcie, u32 irq_status)
 {
 	struct device *dev = pcie->pci->dev;
 	bool storage_ep = qcom_pcie_has_storage_ep(pcie);
@@ -1981,7 +2191,8 @@ static void qcom_pcie_dump_regs(struct qcom_pcie *pcie)
 	if (!buf)
 		return;
 
-	len = qcom_pcie_fill_dump_buf(pcie, buf, QCOM_PCIE_DUMP_BUF_SIZE);
+	len = qcom_pcie_fill_dump_buf(pcie, buf, QCOM_PCIE_DUMP_BUF_SIZE,
+				      irq_status, false);
 
 	if (storage_ep) {
 		dev_err(dev, "PCIe Link Down register dump:\n%s", buf);
@@ -1994,6 +2205,8 @@ static void qcom_pcie_dump_regs(struct qcom_pcie *pcie)
 static int qcom_pcie_regdump_show(struct seq_file *s, void *data)
 {
 	struct qcom_pcie *pcie = (struct qcom_pcie *)dev_get_drvdata(s->private);
+	struct dw_pcie_rp *pp = &pcie->pci->pp;
+	bool dump_dbi;
 	char *buf;
 	size_t len;
 
@@ -2001,7 +2214,11 @@ static int qcom_pcie_regdump_show(struct seq_file *s, void *data)
 	if (!buf)
 		return -ENOMEM;
 
-	len = qcom_pcie_fill_dump_buf(pcie, buf, QCOM_PCIE_DUMP_BUF_SIZE);
+	dump_dbi = !READ_ONCE(pp->cfg_access_blocked);
+	len = qcom_pcie_fill_dump_buf(pcie, buf, QCOM_PCIE_DUMP_BUF_SIZE,
+				      readl_relaxed(pcie->parf +
+						    PARF_INT_ALL_STATUS),
+				      dump_dbi);
 	seq_write(s, buf, len);
 
 	vfree(buf);
@@ -2014,6 +2231,51 @@ static int qcom_pcie_regdump_show(struct seq_file *s, void *data)
  * this function ignores the 'pci_dev' associated with the Root Port and just
  * resets the host bridge, which in turn resets the Root Port also.
  */
+static int qcom_pcie_link_down_hot_reset(struct qcom_pcie *pcie)
+{
+	struct qcom_pcie_port *port;
+	int deassert_ret;
+	int ret;
+
+	/* Old DTs rely on the full host reset below. */
+	if (!pcie->link_down_reset)
+		return 0;
+
+	ret = reset_control_assert(pcie->link_down_reset);
+	if (ret)
+		return ret;
+
+	list_for_each_entry(port, &pcie->ports, list) {
+		ret = phy_reset(port->phy);
+		if (ret)
+			break;
+	}
+
+	deassert_ret = reset_control_deassert(pcie->link_down_reset);
+	if (!ret)
+		ret = deassert_ret;
+
+	return ret;
+}
+
+static void qcom_pcie_disable_global_irq(struct qcom_pcie *pcie)
+{
+	if (!pcie->global_irq || !pcie->global_irq_enabled)
+		return;
+
+	disable_irq(pcie->global_irq);
+	pcie->global_irq_enabled = false;
+}
+
+static void qcom_pcie_enable_global_irq(struct qcom_pcie *pcie)
+{
+	if (!pcie->global_irq || pcie->global_irq_enabled)
+		return;
+
+	pcie->global_irq_enabled = true;
+	enable_irq(pcie->global_irq);
+}
+
 static int qcom_pcie_reset_root_port(struct pci_host_bridge *bridge,
 				  struct pci_dev *pdev)
 {
@@ -2021,30 +2283,123 @@ static int qcom_pcie_reset_root_port(struct pci_host_bridge *bridge,
 	struct qcom_pcie *pcie = dev_get_drvdata(dev);
 	struct dw_pcie *pci = pcie->pci;
 	struct dw_pcie_rp *pp = &pci->pp;
+	u32 clk_req_override;
+	u32 cgc_disable;
 	u32 val;
 	int ret;
 
-	/* Wait for the pending transactions to be completed */
-	ret = readl_relaxed_poll_timeout(pcie->parf + PARF_STATUS, val,
-					 val & FLUSH_COMPLETED, 10,
-					 FLUSH_TIMEOUT_US);
-	if (ret) {
-		dev_err(dev, "Flush completion failed: %d\n", ret);
-		return ret;
+	if (READ_ONCE(pcie->shutting_down))
+		return -ESHUTDOWN;
+
+	/* Fatal AER may reach this callback without a preceding Link Down IRQ. */
+	if (!READ_ONCE(pp->cfg_access_blocked)) {
+		reinit_completion(&pcie->link_req_rst);
+		qcom_pcie_block_link_down_accesses(pcie);
 	}
 
-	/* Clear the FLUSH_MODE to allow the core to be reset */
+	/*
+	 * Allow the last transaction to reach the subordinate interface before
+	 * checking FLUSH_COMPLETED. The TRM requires Tstop to be at least 1 ms;
+	 * the Q2A state register is for debug only and is not a completion
+	 * handshake.
+	 */
+	usleep_range(LINK_DOWN_TSTOP_US, LINK_DOWN_TSTOP_US + 100);
+
+	ret = readl_relaxed_poll_timeout(pcie->parf + PARF_STATUS, val,
+					 val & FLUSH_COMPLETED, 10,
+					 LINK_DOWN_FLUSH_TIMEOUT_US);
+	if (ret) {
+		dev_err(dev, "Flush completion failed: status=%#x q2a=%#x: %d\n",
+			val, readl_relaxed(pcie->parf +
+					   PARF_LINK_DOWN_ECAM_BLOCK_STATUS), ret);
+		goto err_disable_irq;
+	}
+
+	/* Leave flush mode only after Q2A and the AXI interface have drained. */
 	val = readl(pcie->parf + PARF_LTSSM);
 	val |= SW_CLEAR_FLUSH_MODE;
 	writel(val, pcie->parf + PARF_LTSSM);
 
-	/* Wait for the FLUSH_MODE to clear */
 	ret = readl_relaxed_poll_timeout(pcie->parf + PARF_LTSSM, val,
 					 !(val & FLUSH_MODE), 10,
-					 FLUSH_TIMEOUT_US);
+					 LINK_DOWN_FLUSH_TIMEOUT_US);
 	if (ret) {
-		dev_err(dev, "Flush mode clear failed: %d\n", ret);
-		return ret;
+		dev_err(dev, "Flush mode clear failed: ltssm=%#x q2a=%#x: %d\n",
+			val, readl_relaxed(pcie->parf +
+					   PARF_LINK_DOWN_ECAM_BLOCK_STATUS), ret);
+		goto err_disable_irq;
+	}
+
+	/*
+	 * Force the subordinate bridge clock request high to disable GCC's
+	 * power-active gating, then disable the internal manager/subordinate CGCs.
+	 * Both are required for LINK_REQ_RST_FLUSH to reach the global interrupt.
+	 */
+	val = readl(pcie->parf + PARF_LINK_DOWN_ECAM_BLOCK);
+	clk_req_override = val & (LINK_DOWN_ECAM_CLK_REQ_OVERRIDE |
+				  LINK_DOWN_ECAM_CLK_REQ_OVERRIDE_VAL);
+	val |= LINK_DOWN_ECAM_CLK_REQ_OVERRIDE |
+	       LINK_DOWN_ECAM_CLK_REQ_OVERRIDE_VAL;
+	writel(val, pcie->parf + PARF_LINK_DOWN_ECAM_BLOCK);
+
+	val = readl(pcie->parf + PARF_SYS_CTRL);
+	cgc_disable = val & (MSTR_ACLK_CGC_DIS | SLV_ACLK_CGC_DIS);
+	val |= MSTR_ACLK_CGC_DIS | SLV_ACLK_CGC_DIS;
+	writel(val, pcie->parf + PARF_SYS_CTRL);
+
+	if (pcie->global_irq && pcie->global_irq_enabled) {
+		if (wait_for_completion_timeout(&pcie->link_req_rst,
+						msecs_to_jiffies(LINK_REQ_RST_TIMEOUT_MS)))
+			ret = 0;
+		else
+			ret = -ETIMEDOUT;
+	} else {
+		ret = readl_relaxed_poll_timeout(pcie->parf +
+						 PARF_INT_ALL_STATUS, val,
+						 val & PARF_INT_LINK_REQ_RST_FLUSH,
+						 10,
+						 LINK_REQ_RST_TIMEOUT_MS * 1000);
+		if (!ret)
+			writel_relaxed(PARF_INT_LINK_REQ_RST_FLUSH,
+				       pcie->parf + PARF_INT_ALL_CLEAR);
+	}
+	if (ret) {
+		/* Cover an event that was latched before its IRQ was observed. */
+		val = readl_relaxed(pcie->parf + PARF_INT_ALL_STATUS);
+		if (val & PARF_INT_LINK_REQ_RST_FLUSH) {
+			writel_relaxed(PARF_INT_LINK_REQ_RST_FLUSH,
+				       pcie->parf + PARF_INT_ALL_CLEAR);
+			ret = 0;
+		}
+	}
+
+	/* Restore the GCC vote override before re-enabling the internal CGCs. */
+	val = readl(pcie->parf + PARF_LINK_DOWN_ECAM_BLOCK);
+	val &= ~(LINK_DOWN_ECAM_CLK_REQ_OVERRIDE |
+		 LINK_DOWN_ECAM_CLK_REQ_OVERRIDE_VAL);
+	val |= clk_req_override;
+	writel(val, pcie->parf + PARF_LINK_DOWN_ECAM_BLOCK);
+
+	val = readl(pcie->parf + PARF_SYS_CTRL);
+	val &= ~(MSTR_ACLK_CGC_DIS | SLV_ACLK_CGC_DIS);
+	val |= cgc_disable;
+	writel(val, pcie->parf + PARF_SYS_CTRL);
+
+	if (ret) {
+		dev_err(dev, "Link request reset timed out: status=%#x q2a=%#x\n",
+			readl_relaxed(pcie->parf + PARF_INT_ALL_STATUS),
+			readl_relaxed(pcie->parf +
+				      PARF_LINK_DOWN_ECAM_BLOCK_STATUS));
+		goto err_disable_irq;
+	}
+
+	/* Reset-generated events are stale and must not queue another recovery. */
+	qcom_pcie_disable_global_irq(pcie);
+
+	ret = qcom_pcie_link_down_hot_reset(pcie);
+	if (ret) {
+		dev_err(dev, "Link Down hot reset failed: %d\n", ret);
+		goto err_disable_irq;
 	}
 
 	qcom_pcie_host_deinit(pp);
@@ -2052,30 +2407,64 @@ static int qcom_pcie_reset_root_port(struct pci_host_bridge *bridge,
 	ret = qcom_pcie_host_init(pp);
 	if (ret) {
 		dev_err(dev, "Host init failed\n");
-		return ret;
+		goto err_disable_irq;
 	}
 
 	ret = dw_pcie_setup_rc(pp);
 	if (ret)
-		return ret;
+		goto err_disable_irq;
 
-	/*
-	 * Re-enable global IRQ events as the PARF_INT_ALL_MASK register is
-	 * non-sticky.
-	 */
+	/* Drop only recovery events generated by the reset itself. */
 	if (pcie->global_irq)
-		writel_relaxed(PARF_INT_ALL_LINK_DOWN | PARF_INT_MSI_DEV_0_7,
-				pcie->parf + PARF_INT_ALL_MASK);
+		writel_relaxed(PARF_INT_ALL_LINK_DOWN |
+				PARF_INT_LINK_REQ_RST_FLUSH,
+			       pcie->parf + PARF_INT_ALL_CLEAR);
 
 	qcom_pcie_start_link(pci);
 
 	ret = dw_pcie_wait_for_link(pci);
 	if (ret)
-		return ret;
+		goto err_disable_irq;
+
+	/* PARF_INT_ALL_MASK is non-sticky; restore it after link training. */
+	if (pcie->global_irq) {
+		writel_relaxed(PARF_INT_ALL_LINK_DOWN |
+				PARF_INT_LINK_REQ_RST_FLUSH,
+				pcie->parf + PARF_INT_ALL_MASK);
+
+		val = readl_relaxed(pcie->parf + PARF_INT_ALL_STATUS);
+		if ((val & PARF_INT_ALL_LINK_DOWN) || !dw_pcie_link_up(pci)) {
+			atomic_long_or(val | PARF_INT_ALL_LINK_DOWN,
+				       &pcie->global_irq_status);
+			dev_err(dev, "Link went down again during recovery: status=%#x\n",
+				val);
+			ret = -ENOLINK;
+			goto err_disable_irq;
+		}
+
+		writel_relaxed(val & PARF_INT_LINK_REQ_RST_FLUSH,
+			       pcie->parf + PARF_INT_ALL_CLEAR);
+	}
+
+	if (READ_ONCE(pcie->shutting_down)) {
+		ret = -ESHUTDOWN;
+		goto err_disable_irq;
+	}
+
+	qcom_pcie_unblock_accesses(pcie);
+	if (pcie->global_irq) {
+		atomic_long_set(&pcie->global_irq_status, 0);
+		qcom_pcie_enable_global_irq(pcie);
+	}
 
 	dev_dbg(dev, "Root Port reset completed\n");
 
 	return 0;
+
+err_disable_irq:
+	qcom_pcie_disable_global_irq(pcie);
+
+	return ret;
 }
 
 static int qcom_pcie_link_transition_count(struct seq_file *s, void *data)
@@ -2117,28 +2506,90 @@ static void qcom_pcie_init_debugfs(struct qcom_pcie *pcie)
 				    qcom_pcie_regdump_show);
 }
 
-static irqreturn_t qcom_pcie_global_irq_thread(int irq, void *data)
+static void qcom_pcie_link_down_work(struct work_struct *work)
 {
-	struct qcom_pcie *pcie = data;
+	struct qcom_pcie *pcie = container_of(work, struct qcom_pcie,
+					      link_down_work);
 	struct dw_pcie_rp *pp = &pcie->pci->pp;
 	struct device *dev = pcie->pci->dev;
 	struct pci_dev *port;
-	unsigned long status = readl_relaxed(pcie->parf + PARF_INT_ALL_STATUS);
+	unsigned long status = atomic_long_xchg(&pcie->global_irq_status, 0);
 
-	writel_relaxed(status, pcie->parf + PARF_INT_ALL_CLEAR);
+	if (!(status & PARF_INT_ALL_LINK_DOWN))
+		return;
 
-	if (test_and_clear_bit(INT_ALL_LINK_DOWN, &status)) {
-		dev_dbg(dev, "Received Link down event\n");
+	dev_dbg(dev, "Received Link down event, status=%#lx\n", status);
 
-		qcom_pcie_enable_ecam_blocker(pcie);
-		qcom_pcie_dump_regs(pcie);
-		for_each_pci_bridge(port, pp->bridge->bus) {
-			if (pci_pcie_type(port) == PCI_EXP_TYPE_ROOT_PORT)
-				pci_host_handle_link_down(port);
-		}
+	/*
+	 * Reboot/shutdown teardown must not start a new Root Port recovery.
+	 * The hardware blocker has already stopped downstream accesses, so
+	 * propagate the channel state before endpoint shutdown paths try to
+	 * access MMIO (for example, an MSI-X table).
+	 */
+	if (READ_ONCE(pcie->shutting_down)) {
+		pci_walk_bus(pp->bridge->bus,
+			     qcom_pcie_mark_device_frozen, NULL);
+		dev_dbg(dev, "Skipping Link Down recovery during system shutdown\n");
+		return;
 	}
 
+	qcom_pcie_dump_regs(pcie, status);
+	if (READ_ONCE(pcie->shutting_down))
+		return;
+	if (!READ_ONCE(pp->cfg_access_blocked))
+		return;
+
+	for_each_pci_bridge(port, pp->bridge->bus) {
+		if (pci_pcie_type(port) == PCI_EXP_TYPE_ROOT_PORT)
+			pci_host_handle_link_down(port);
+	}
+}
+
+static irqreturn_t qcom_pcie_global_irq(int irq, void *data)
+{
+	struct qcom_pcie *pcie = data;
+	struct dw_pcie_rp *pp = &pcie->pci->pp;
+	u32 handled;
+	bool link_down;
+	bool start_recovery = false;
+	u32 status;
+
+	status = readl_relaxed(pcie->parf + PARF_INT_ALL_STATUS);
+	if (!status)
+		return IRQ_NONE;
+
+	handled = status & (PARF_INT_ALL_LINK_DOWN |
+			    PARF_INT_LINK_REQ_RST_FLUSH);
+	if (!handled)
+		return IRQ_NONE;
+
+	link_down = handled & PARF_INT_ALL_LINK_DOWN;
+	if (link_down) {
+		start_recovery = !READ_ONCE(pp->cfg_access_blocked);
+		if (start_recovery)
+			reinit_completion(&pcie->link_req_rst);
+		qcom_pcie_block_link_down_accesses(pcie);
+		atomic_long_or(status, &pcie->global_irq_status);
+	}
+
+	if (handled & PARF_INT_LINK_REQ_RST_FLUSH)
+		complete(&pcie->link_req_rst);
+
+	/* MSI diagnostic bits and unrelated events are not owned by this handler. */
+	writel_relaxed(handled, pcie->parf + PARF_INT_ALL_CLEAR);
+
+	/* The work item either recovers the hierarchy or marks it offline. */
+	if (start_recovery)
+		schedule_work(&pcie->link_down_work);
+
 	return IRQ_HANDLED;
+}
+
+static void qcom_pcie_cancel_link_down_work(void *data)
+{
+	struct qcom_pcie *pcie = data;
+
+	cancel_work_sync(&pcie->link_down_work);
 }
 
 static void qcom_pci_free_msi(void *ptr)
@@ -2431,6 +2882,11 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 	pcie->pci = pci;
 
 	pcie->cfg = pcie_cfg;
+	if (pcie->cfg->has_link_down_recovery) {
+		INIT_WORK(&pcie->link_down_work, qcom_pcie_link_down_work);
+		init_completion(&pcie->link_req_rst);
+		atomic_long_set(&pcie->global_irq_status, 0);
+	}
 
 	pcie->parf = devm_platform_ioremap_resource_byname(pdev, "parf");
 	if (IS_ERR(pcie->parf)) {
@@ -2521,8 +2977,28 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 	}
 
 	irq = platform_get_irq_byname_optional(pdev, "global");
+	if (irq < 0 && irq != -ENXIO) {
+		ret = dev_err_probe(dev, irq, "Failed to get Global IRQ\n");
+		goto err_host_deinit;
+	}
+
+	if (pcie->cfg->has_link_down_recovery) {
+		pcie->reboot_nb.notifier_call = qcom_pcie_reboot_notifier;
+		ret = devm_register_reboot_notifier(dev, &pcie->reboot_nb);
+		if (ret) {
+			dev_err_probe(dev, ret,
+				      "Failed to register reboot notifier\n");
+			goto err_host_deinit;
+		}
+	}
+
 	if (irq > 0) {
 		const char *name;
+
+		if (!pcie->cfg->has_link_down_recovery) {
+			dev_warn(dev, "Global IRQ present without Link Down recovery support\n");
+			goto skip_global_irq;
+		}
 
 		name = devm_kasprintf(dev, GFP_KERNEL, "qcom_pcie_global_irq%d",
 				      pci_domain_nr(pp->bridge->bus));
@@ -2531,19 +3007,36 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 			goto err_host_deinit;
 		}
 
-		ret = devm_request_threaded_irq(dev, irq, NULL,
-						qcom_pcie_global_irq_thread,
-						IRQF_ONESHOT, name, pcie);
+		/*
+		 * The IRQ devres is released before this action, so no handler can
+		 * queue new work while the action drains the final work item.
+		 */
+		ret = devm_add_action_or_reset(dev,
+					       qcom_pcie_cancel_link_down_work, pcie);
+		if (ret)
+			goto err_host_deinit;
+
+		pcie->global_irq = irq;
+		ret = devm_request_irq(dev, irq, qcom_pcie_global_irq,
+				       IRQF_NO_AUTOEN, name, pcie);
 		if (ret) {
+			pcie->global_irq = 0;
 			dev_err_probe(dev, ret, "Failed to request Global IRQ\n");
 			goto err_host_deinit;
 		}
 
-		writel_relaxed(PARF_INT_ALL_LINK_DOWN | PARF_INT_MSI_DEV_0_7,
+		/* Preserve a Link Down latched while the host bus was enumerated. */
+		writel_relaxed(PARF_INT_LINK_REQ_RST_FLUSH,
+			       pcie->parf + PARF_INT_ALL_CLEAR);
+		writel_relaxed(PARF_INT_ALL_LINK_DOWN |
+				PARF_INT_LINK_REQ_RST_FLUSH,
 				pcie->parf + PARF_INT_ALL_MASK);
 
-		pcie->global_irq = irq;
+		pcie->global_irq_enabled = true;
+		enable_irq(irq);
 	}
+
+skip_global_irq:
 
 	qcom_pcie_icc_opp_update(pcie);
 
@@ -2606,7 +3099,8 @@ static int qcom_pcie_suspend_noirq(struct device *dev)
 	 * powerdown state. This will affect the lifetime of the storage devices
 	 * like NVMe.
 	 */
-	if (!dw_pcie_link_up(pcie->pci)) {
+	if (READ_ONCE(pcie->pci->pp.cfg_access_blocked) ||
+	    !dw_pcie_link_up(pcie->pci)) {
 		qcom_pcie_host_deinit(&pcie->pci->pp);
 		pcie->suspended = true;
 	}
@@ -2676,7 +3170,7 @@ static const struct of_device_id qcom_pcie_match[] = {
 	{ .compatible = "qcom,pcie-sa8775p", .data = &cfg_1_34_0},
 	{ .compatible = "qcom,pcie-sc7280", .data = &cfg_1_9_0 },
 	{ .compatible = "qcom,pcie-sc8180x", .data = &cfg_1_9_0 },
-	{ .compatible = "qcom,pcie-sc8280xp", .data = &cfg_sc8280xp },
+	{ .compatible = "qcom,pcie-sc8280xp", .data = &cfg_sc8280xp_link_down },
 	{ .compatible = "qcom,pcie-sdm845", .data = &cfg_2_7_0 },
 	{ .compatible = "qcom,pcie-sdx55", .data = &cfg_1_9_0 },
 	{ .compatible = "qcom,pcie-sm8150", .data = &cfg_1_9_0 },
