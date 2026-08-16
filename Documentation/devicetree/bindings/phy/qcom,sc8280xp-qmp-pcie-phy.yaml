@@ -209,6 +209,9 @@ allOf:
               - qcom,glymur-qmp-gen4x2-pcie-phy
               - qcom,glymur-qmp-gen5x4-pcie-phy
               - qcom,kaanapali-qmp-gen3x2-pcie-phy
+              - qcom,sc8280xp-qmp-gen3x1-pcie-phy
+              - qcom,sc8280xp-qmp-gen3x2-pcie-phy
+              - qcom,sc8280xp-qmp-gen3x4-pcie-phy
               - qcom,sm8550-qmp-gen4x2-pcie-phy
               - qcom,sm8650-qmp-gen4x2-pcie-phy
               - qcom,x1e80100-qmp-gen3x2-pcie-phy
@@ -265,8 +268,9 @@ examples:
 
       power-domains = <&gcc PCIE_2B_GDSC>;
 
-      resets = <&gcc GCC_PCIE_2B_PHY_BCR>;
-      reset-names = "phy";
+      resets = <&gcc GCC_PCIE_2B_PHY_BCR>,
+               <&gcc GCC_PCIE_2B_NOCSR_COM_PHY_BCR>;
+      reset-names = "phy", "phy_nocsr";
 
       vdda-phy-supply = <&vreg_l6d>;
       vdda-pll-supply = <&vreg_l4d>;
@@ -292,8 +296,9 @@ examples:
 
       power-domains = <&gcc PCIE_2A_GDSC>;
 
-      resets = <&gcc GCC_PCIE_2A_PHY_BCR>;
-      reset-names = "phy";
+      resets = <&gcc GCC_PCIE_2A_PHY_BCR>,
+               <&gcc GCC_PCIE_2A_NOCSR_COM_PHY_BCR>;
+      reset-names = "phy", "phy_nocsr";
 
       vdda-phy-supply = <&vreg_l6d>;
       vdda-pll-supply = <&vreg_l4d>;
