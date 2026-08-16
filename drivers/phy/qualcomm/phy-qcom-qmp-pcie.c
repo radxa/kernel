@@ -5022,11 +5022,29 @@ static int qmp_pcie_set_mode(struct phy *phy, enum phy_mode mode, int submode)
 	return 0;
 }
 
+static int qmp_pcie_reset(struct phy *phy)
+{
+	struct qmp_pcie *qmp = phy_get_drvdata(phy);
+	int ret;
+
+	if (!qmp->nocsr_reset)
+		return 0;
+
+	ret = reset_control_assert(qmp->nocsr_reset);
+	if (ret)
+		return ret;
+
+	usleep_range(200, 300);
+
+	return reset_control_deassert(qmp->nocsr_reset);
+}
+
 static const struct phy_ops qmp_pcie_phy_ops = {
 	.init		= qmp_pcie_configure_4ln,
 	.power_on	= qmp_pcie_enable,
 	.power_off	= qmp_pcie_disable,
 	.set_mode	= qmp_pcie_set_mode,
+	.reset		= qmp_pcie_reset,
 	.owner		= THIS_MODULE,
 };
 
