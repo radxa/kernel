@@ -1024,6 +1024,9 @@ static bool is_error_source(struct pci_dev *dev, struct aer_err_info *e_info)
 	u32 status, mask;
 	u16 reg16;
 
+	if (pci_channel_offline(dev))
+		return false;
+
 	/*
 	 * When bus ID is equal to 0, it might be a bad ID
 	 * reported by Root Port.
@@ -1306,6 +1309,9 @@ int aer_get_device_error_info(struct aer_err_info *info, int i)
 		return 0;
 
 	dev = info->dev[i];
+	if (pci_channel_offline(dev))
+		return 0;
+
 	aer = dev->aer_cap;
 	type = pci_pcie_type(dev);
 
@@ -1367,6 +1373,8 @@ static inline void aer_process_err_devices(struct aer_err_info *e_info)
 	for (i = 0; i < e_info->error_dev_num && e_info->dev[i]; i++) {
 		if (aer_get_device_error_info(e_info, i))
 			handle_error_source(e_info->dev[i], e_info);
+		else
+			pci_dev_put(e_info->dev[i]);
 	}
 }
 
