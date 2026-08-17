@@ -26,6 +26,21 @@
 		serial1 = &uart2;
 	};
 
+	adp12v_voltage: voltage-divider-adp12v {
+		compatible = "voltage-divider";
+		io-channels = <&pmk8280_vadc PM8350_ADC7_AMUX_THM5(1)>;
+		#io-channel-cells = <1>;
+
+		/* R470 (110K) in series with R471 (10K) to ground. */
+		full-ohms = <120000>;
+		output-ohms = <10000>;
+	};
+
+	adp12v-hwmon {
+		compatible = "iio-hwmon";
+		io-channels = <&adp12v_voltage 0>;
+	};
+
 	wcd938x: audio-codec {
 		compatible = "qcom,wcd9385-codec";
 
@@ -1358,6 +1373,13 @@
 };
 
 &pmk8280_vadc {
+	channel@108 {
+		reg = <PM8350_ADC7_AMUX_THM5(1)>;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+		label = "adp12v_det";
+	};
+
 	channel@144 {
 		reg = <PM8350_ADC7_AMUX_THM1_100K_PU(1)>;
 		qcom,hw-settle-time = <200>;
