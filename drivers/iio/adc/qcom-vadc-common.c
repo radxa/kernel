@@ -305,6 +305,10 @@ static int qcom_vadc_scale_hw_calib_volt(
 				const struct u32_fract *prescale,
 				const struct adc5_data *data,
 				u16 adc_code, int *result_uv);
+static int qcom_vadc_scale_hw_calib_millivolt(
+				const struct u32_fract *prescale,
+				const struct adc5_data *data,
+				u16 adc_code, int *result_mv);
 static int qcom_vadc_scale_hw_calib_therm(
 				const struct u32_fract *prescale,
 				const struct adc5_data *data,
@@ -332,6 +336,7 @@ static int qcom_vadc7_scale_hw_calib_die_temp(
 
 static const struct qcom_adc5_scale_type scale_adc5_fn[] = {
 	[SCALE_HW_CALIB_DEFAULT] = {qcom_vadc_scale_hw_calib_volt},
+	[SCALE_HW_CALIB_MILLIVOLT] = {qcom_vadc_scale_hw_calib_millivolt},
 	[SCALE_HW_CALIB_THERM_100K_PULLUP] = {qcom_vadc_scale_hw_calib_therm},
 	[SCALE_HW_CALIB_XOTHERM] = {qcom_vadc_scale_hw_calib_therm},
 	[SCALE_HW_CALIB_THERM_100K_PU_PM7] = {
@@ -563,6 +568,17 @@ static int qcom_vadc_scale_hw_calib_volt(
 {
 	*result_uv = qcom_vadc_scale_code_voltage_factor(adc_code,
 				prescale, data, 1);
+
+	return 0;
+}
+
+static int qcom_vadc_scale_hw_calib_millivolt(
+				const struct u32_fract *prescale,
+				const struct adc5_data *data,
+				u16 adc_code, int *result_mv)
+{
+	*result_mv = qcom_vadc_scale_code_voltage_factor(adc_code,
+				prescale, data, 1000);
 
 	return 0;
 }
