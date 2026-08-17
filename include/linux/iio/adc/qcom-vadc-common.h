@@ -91,6 +91,8 @@ struct vadc_linear_graph {
  * @SCALE_PMI_CHG_TEMP: Conversion for PMI CHG temp
  * @SCALE_HW_CALIB_DEFAULT: Default scaling to convert raw adc code to
  *	voltage (uV) with hardware applied offset/slope values to adc code.
+ * @SCALE_HW_CALIB_MILLIVOLT: Convert raw ADC code to voltage (mV) with
+ *	hardware applied offset/slope values to the ADC code.
  * @SCALE_HW_CALIB_THERM_100K_PULLUP: Returns temperature in millidegC using
  *	lookup table. The hardware applies offset/slope to adc code.
  * @SCALE_HW_CALIB_XOTHERM: Returns XO thermistor voltage in millidegC using
@@ -120,6 +122,7 @@ enum vadc_scale_fn_type {
 	SCALE_HW_CALIB_PMIC_THERM_PM7,
 	SCALE_HW_CALIB_PM5_CHG_TEMP,
 	SCALE_HW_CALIB_PM5_SMB_TEMP,
+	SCALE_HW_CALIB_MILLIVOLT,
 	/* private: */
 	SCALE_HW_CALIB_INVALID,
 };
