@@ -574,6 +574,8 @@ static const struct adc5_channels adc7_chans_pmic[ADC5_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_DEFAULT)
 	[ADC7_DIE_TEMP]		= ADC5_CHAN_TEMP("die_temp", 0,
 					SCALE_HW_CALIB_PMIC_THERM_PM7)
+	[ADC7_AMUX_THM5]	= ADC5_CHAN_VOLT("amux_thm5", 0,
+					SCALE_HW_CALIB_MILLIVOLT)
 	[ADC7_GPIO1]	= ADC5_CHAN_VOLT("gpio1", 0,
 					SCALE_HW_CALIB_DEFAULT)
 	[ADC7_GPIO2]	= ADC5_CHAN_VOLT("gpio2", 0,
