@@ -1999,7 +1999,8 @@ int dwc3_probe(struct dwc3 *dwc,
 	 */
 	dwc_res = *res;
 	dwc_res.start += DWC3_GLOBALS_REGS_START;
-	dwc_res.end = res->start + DWC3_OTG_REGS_END;
+	dwc_res.end = min_t(resource_size_t, res->end,
+			    res->start + DWC3_LLUCTL_REGS_END);
 
 	if (dev->of_node) {
 		struct device_node *parent = of_get_parent(dev->of_node);
