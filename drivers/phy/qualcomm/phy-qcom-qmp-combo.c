@@ -4786,9 +4786,10 @@ static int qmp_combo_typec_switch_set(struct typec_switch_dev *sw,
 
 	/*
 	 * Changing orientation force-cycles the common USB/DP PHY block.
-	 * Defer it until the active DP stream has been powered off.
+	 * Defer it until the active DP stream/PHY has been powered off.
 	 */
-	if (orientation == qmp->orientation || qmp->dp_powered_on)
+	if (orientation == qmp->orientation ||
+	    qmp->dp_powered_on || qmp->dp_init_count)
 		goto out_unlock;
 
 	qmp->orientation = orientation;
@@ -4852,7 +4853,8 @@ static int qmp_combo_typec_mux_set(struct typec_mux_dev *mux, struct typec_mux_s
 		return 0;
 	}
 
-	if (qmp->qmpphy_mode != QMPPHY_MODE_USB3_ONLY && qmp->dp_powered_on) {
+	if (qmp->qmpphy_mode != QMPPHY_MODE_USB3_ONLY &&
+	    (qmp->dp_powered_on || qmp->dp_init_count)) {
 		dev_dbg(qmp->dev, "typec_mux_set: DP PHY is still in use, delaying switch\n");
 		return 0;
 	}
