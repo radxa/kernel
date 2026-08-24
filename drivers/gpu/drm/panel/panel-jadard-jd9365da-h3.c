@@ -579,10 +579,11 @@ static int radxa_display_8hd_ad002_2lane_init_cmds(struct jadard *jadard)
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x80, 0x01);
 	jd9365da_switch_page(&dsi_ctx, 0x00);
 
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x11, 0x00);
-
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x29, 0x00);
 	mipi_dsi_msleep(&dsi_ctx, 120);
+
+	mipi_dsi_dcs_exit_sleep_mode_multi(&dsi_ctx);
+
+	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
 
 	return dsi_ctx.accum_err;
 };
