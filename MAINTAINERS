@@ -22730,6 +22730,14 @@ F:	Documentation/ABI/testing/sysfs-bus-rbd
 F:	drivers/block/rbd.c
 F:	drivers/block/rbd_types.h
 
+RADXA SVC GLINK DRIVER
+M:	Xilin Wu <sophon@radxa.com>
+L:	linux-arm-msm@vger.kernel.org
+L:	linux-hwmon@vger.kernel.org
+S:	Maintained
+F:	Documentation/hwmon/radxa-svc-glink.rst
+F:	drivers/platform/arm64/radxa_svc_glink.c
+
 RAGE128 FRAMEBUFFER DISPLAY DRIVER
 L:	linux-fbdev@vger.kernel.org
 S:	Orphan

@@ -234,6 +234,7 @@ Hardware Monitoring Kernel Drivers
    pwm-fan
    q54sj108a2
    qnap-mcu-hwmon
+   radxa-svc-glink
    raspberrypi-hwmon
    sbrmi
    sbtsi_temp

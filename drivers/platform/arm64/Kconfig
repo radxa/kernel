@@ -103,4 +103,17 @@ config EC_QCOM_HAMOA
 
 	  This driver currently supports Hamoa/Purwa/Glymur reference devices.
 
+config RADXA_SVC_GLINK
+	tristate "Radxa SVC GLINK driver"
+	depends on ARCH_QCOM || COMPILE_TEST
+	depends on RPMSG
+	depends on HWMON
+	help
+	  Enable support for the Radxa SVC firmware service found on supported
+	  Radxa boards using Qualcomm SoCs. The driver communicates with the
+	  RADXA_SVC_ADSP_APPS service over rpmsg and exposes fan control through
+	  the standard hwmon interface.
+
+	  Say M or Y here to include this support.
+
 endif # ARM64_PLATFORM_DEVICES
