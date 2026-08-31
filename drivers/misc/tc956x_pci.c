@@ -46,6 +46,7 @@
 #include <linux/compiler_types.h>
 #include <linux/device.h>
 #include <linux/dev_printk.h>
+#include <linux/idr.h>
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/module.h>
@@ -70,6 +71,11 @@
 /* Chip and revision ID register */
 #define NCID_OFFSET			0x0000
 #define NCID_REV_ID_MASK		GENMASK(7, 0)
+
+#define NMODESTS_OFFSET			0x0004
+#define NMODESTS_MODE2			BIT(10)	/* 0 = USP x4, 1 = USP x2 */
+#define NBUSCTRL_OFFSET			0x1014
+#define NBUSCTRL_FREQ			BIT(16)	/* 0 = 250 MHz, 1 = 125 MHz */
 
 /* Reset and clock register offsets.  MAC resets and clocks are controlled
  * by bits in register 0 for MAC0, register 1 for MAC1.  Other non-MAC
@@ -141,6 +147,7 @@ enum clock_id {
  */
 #define EMAC_CTL_OFFSET(_mac_id)	((_mac_id) ? 0x1074 : 0x1070)
 #define MSIGEN_OFFSET(_mac_id)		((_mac_id) ? 0xf100 : 0xf000)
+#define TC956X_MSI_VECTORS		32
 #define DWMAC_OFFSET(_mac_id)		((_mac_id) ? 0x48000 : 0x40000)
 
 /*
@@ -149,6 +156,7 @@ enum clock_id {
  * @sfr:		Mapped SFR regions (BAR 4, one per PCI function)
  * @bridge_config:	Regmap used for bridge configuration (BAR 0)
  * @reset_clock_regmap:	Regmap used for resets and clocks
+ * @instance_id:	TC956X instance ID used for auxiliary device IDs
  * @rev_id:		Chip revision ID (for quirks)
  */
 struct tc956x_chip {
@@ -156,8 +164,11 @@ struct tc956x_chip {
 	void __iomem *sfr[2];
 	void __iomem *bridge_config;
 	struct regmap *reset_clock_regmap;
+	int instance_id;
 	u8 rev_id;
 };
+
+static DEFINE_IDA(tc956x_instance_ida);
 
 static const struct regmap_config gpio_regmap_config = {
 	.name		= "tc956x-gpio",
@@ -235,26 +246,36 @@ static void adev_remove(void *data)
 	auxiliary_device_uninit(adev);
 }
 
+static void chip_instance_id_free(void *data)
+{
+	struct tc956x_chip *chip = data;
+
+	ida_free(&tc956x_instance_ida, chip->instance_id);
+}
+
+/* The of_node reference is always be dropped (success or not) */
 static int adev_device_add(struct device *dev, const char *name, u32 id,
-			   void *platform_data)
+			   struct device_node *of_node, void *platform_data)
 {
 	struct auxiliary_device *adev;
 	int ret;
 
 	adev = kzalloc_obj(*adev);
-	if (!adev)
+	if (!adev) {
+		of_node_put(of_node);
 		return -ENOMEM;
+	}
 
 	adev->id = id;
 	adev->name = name;
 	adev->dev.parent = dev;
 	adev->dev.platform_data = platform_data;
 	adev->dev.release = adev_release;
-	device_set_of_node_from_dev(&adev->dev, dev);
+	adev->dev.of_node = of_node;
 
 	ret = auxiliary_device_init(adev);
 	if (ret) {
-		of_node_put(adev->dev.of_node);
+		of_node_put(of_node);
 		kfree(adev);
 		return ret;
 	}
@@ -268,51 +289,145 @@ static int adev_device_add(struct device *dev, const char *name, u32 id,
 	return devm_add_action_or_reset(dev, adev_remove, adev);
 }
 
+static bool dev_node_has_mdio_child(struct device_node *np)
+{
+	struct device_node *mdio;
+
+	mdio = of_get_child_by_name(np, "mdio");
+	if (!mdio)
+		return false;
+
+	of_node_put(mdio);
+
+	return true;
+}
+
+static bool dev_node_is_gpio(struct device *dev, struct device_node *np)
+{
+	if (!of_property_present(np, "gpio-controller"))
+		return false;
+
+	if (!of_property_present(np, "#gpio-cells")) {
+		dev_err(dev, "gpio node contains no #gpio-cells property\n");
+		return false;
+	}
+
+	return true;
+}
+
+/* Returns a reference to the GPIO's DT node, or a null pointer */
+static struct device_node *dev_node_gpio(struct device *dev)
+{
+	struct device_node *np;
+
+	/* The GPIO sub-node is not required (platform might not need it) */
+	for_each_child_of_node(dev->of_node, np)
+		if (!strcmp(np->name, "gpio"))
+			break;
+	if (np) {
+		if (dev_node_is_gpio(dev, np))
+			return np;
+
+		of_node_put(np);
+
+		return NULL;
+	}
+
+	/*
+	 * The original TC956x binding placed the GPIO controller properties on
+	 * PCI function 0 itself. Keep accepting that form so existing DTs do not
+	 * need to grow a gpio sub-node.
+	 */
+	if (dev_node_is_gpio(dev, dev->of_node))
+		return of_node_get(dev->of_node);
+
+	return NULL;
+}
+
+/* Returns a reference to the XGMAC's DT node, or a null pointer */
+static struct device_node *dev_node_xgmac(struct device *dev)
+{
+	struct device_node *np;
+
+	for_each_child_of_node(dev->of_node, np)
+		if (!strcmp(np->name, "ethernet"))
+			return np;
+
+	/*
+	 * The original TC956x binding placed Ethernet controller properties on
+	 * the PCI function node. Treat that node as the XGMAC node when it has
+	 * the old shape.
+	 */
+	if (of_property_present(dev->of_node, "phy-mode") ||
+	    of_property_present(dev->of_node, "phy-connection-type") ||
+	    of_property_present(dev->of_node, "phy-handle") ||
+	    dev_node_has_mdio_child(dev->of_node))
+		return of_node_get(dev->of_node);
+
+	return NULL;
+}
+
 /* The embedded GPIO controller has an auxiliary device driver */
 static int chip_gpio_adev_add(struct tc956x_chip *chip)
 {
 	struct device *dev = chip->dev;
+	struct device_node *np;
 	struct regmap *regmap;
 
-	/* If needed, PCIe function 0 implements the GPIO controller. */
-	if (!device_property_present(dev, "gpio-controller"))
+	np = dev_node_gpio(dev);
+	if (!np)
 		return 0;
 
 	regmap = devm_regmap_init_mmio(dev, chip->sfr[0], &gpio_regmap_config);
-	if (IS_ERR(regmap))
+	if (IS_ERR(regmap)) {
+		of_node_put(np);
 		return PTR_ERR(regmap);
+	}
 
-	return adev_device_add(dev, GPIO_DEVICE_NAME, 0, regmap);
+	return adev_device_add(dev, GPIO_DEVICE_NAME, chip->instance_id, np,
+			       regmap);
 }
 
 /* The two embedded XGMAC controllers have an auxiliary device driver */
 static int function_xgmac_adev_add(struct pci_dev *pdev,
 				   struct tc956x_chip *chip,
-				   unsigned int msigen_irq)
+				   unsigned int msigen_irq,
+				   unsigned int msigen_nvec)
 {
 	u8 mac_id = PCI_FUNC(pdev->devfn);
 	struct device *dev = &pdev->dev;
 	struct tc956x_dwmac_data *data;
+	struct device_node *np;
 	void __iomem *sfr;
 	int ret;
 
 	if (mac_id > 1)
 		return -EINVAL;
+
+	np = dev_node_xgmac(dev);
+	if (!np)
+		return 0;
+
 	sfr = chip->sfr[mac_id];
 
 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
-	if (!data)
+	if (!data) {
+		of_node_put(np);
 		return -ENOMEM;
+	}
 
 	data->chip = chip;
 	data->msigen = sfr + MSIGEN_OFFSET(mac_id);
 	data->msigen_irq = msigen_irq;
+	data->msigen_nvec = msigen_nvec;
 	data->emac = sfr + DWMAC_OFFSET(mac_id);
 	data->emac_ctl = sfr + EMAC_CTL_OFFSET(mac_id);
+	data->sfr = sfr;
 	data->rev_id = chip->rev_id;
 	data->mac_id = mac_id;
 
-	ret = adev_device_add(dev, TC956X_XGMAC_DEV_NAME, mac_id, data);
+	ret = adev_device_add(dev, TC956X_XGMAC_DEV_NAME,
+			      chip->instance_id * 2 + mac_id, np, data);
 	if (ret)
 		return ret;
 
@@ -476,6 +591,15 @@ static struct tc956x_chip *chip_get(struct pci_dev *pdev)
 		if (!chip)
 			return ERR_PTR(-ENOMEM);
 
+		ret = ida_alloc(&tc956x_instance_ida, GFP_KERNEL);
+		if (ret < 0)
+			return ERR_PTR(ret);
+		chip->instance_id = ret;
+
+		ret = devm_add_action_or_reset(dev, chip_instance_id_free, chip);
+		if (ret)
+			return ERR_PTR(ret);
+
 		/*
 		 * The function whose device pointer matches the chip's
 		 * device pointer manages common resources (like MSIGEN).
@@ -552,6 +676,7 @@ tc956x_function_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	struct device *dev = &pdev->dev;
 	struct tc956x_chip *chip;
 	unsigned int msigen_irq;
+	unsigned int msigen_nvec;
 	int ret;
 
 	/* Despite being a PCI device, we require devicetree */
@@ -564,21 +689,34 @@ tc956x_function_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	pci_set_master(pdev);
 
+	if (of_property_present(dev->of_node, "tc956x,aspm-quirk")) {
+		ret = pci_disable_link_state(pdev, PCIE_LINK_STATE_L1 |
+						   PCIE_LINK_STATE_L1_1 |
+						   PCIE_LINK_STATE_L1_2 |
+						   PCIE_LINK_STATE_L1_1_PCIPM |
+						   PCIE_LINK_STATE_L1_2_PCIPM);
+		if (ret)
+			dev_warn(dev, "failed to disable ASPM L1: %d\n", ret);
+	}
+
 	/* Function 1 gets -EPROBE_DEFER until function 0 sets platform data */
 	chip = chip_get(pdev);
 	if (IS_ERR(chip))
 		return dev_err_probe(dev, PTR_ERR(chip), "failed to get chip\n");
 
 	/* We called pcim_enable_device() so this will be freed automatically */
-	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_MSI);
+	ret = pci_alloc_irq_vectors(pdev, 1, TC956X_MSI_VECTORS, PCI_IRQ_MSI);
 	if (ret < 1)
 		return dev_err_probe(dev, ret ? : -EIO,
 				     "failed to allocate IRQ vectors\n");
+	msigen_nvec = ret;
 
 	ret = pci_irq_vector(pdev, 0);
 	if (ret < 1)
 		return dev_err_probe(dev, ret ? : -EIO, "failed to get IRQ\n");
 	msigen_irq = ret;
+
+	dev_info(dev, "%u MSI vector(s), base IRQ %u\n", msigen_nvec, msigen_irq);
 
 	ret = chip_init(chip, pdev);
 	if (ret)
@@ -587,7 +725,7 @@ tc956x_function_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	/* We're ready; the other function can now probe */
 	dev->platform_data = chip;
 
-	ret = function_xgmac_adev_add(pdev, chip, msigen_irq);
+	ret = function_xgmac_adev_add(pdev, chip, msigen_irq, msigen_nvec);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to add xgmap device\n");
 

@@ -16,6 +16,8 @@
 #define DW_USXGMII_RST			BIT(10)
 #define DW_USXGMII_EN			BIT(9)
 #define DW_VR_XS_PCS_DIG_CTRL1		0x0000
+#define QPS615_PCS_CTRL2_TYPE_MASK	GENMASK(3, 0)
+#define QPS615_PCS_CTRL2_2500BASEX	0x000e
 #define DW_VR_RST			BIT(15)
 #define DW_EN_VSMMD1			BIT(13)
 #define DW_CL37_BP			BIT(12)
@@ -24,9 +26,18 @@
 #define DW_PSEQ_ST			GENMASK(4, 2)
 #define DW_PSEQ_ST_GOOD			FIELD_PREP(GENMASK(4, 2), 0x4)
 
+#define DW_VR_XS_PCS_KR_CTRL		0x0007
+
+#define DW_USXG_2PT5G_GMII		BIT(13)
+#define DW_USXG_MODE			GENMASK(12, 10)
+#define DW_USXG_MODE_10G		FIELD_PREP(DW_USXG_MODE, 0x0)
+
 /* SR_MII */
 #define DW_USXGMII_FULL			BIT(8)
 #define DW_USXGMII_SS_MASK		(BIT(13) | BIT(6) | BIT(5))
+
+#define DW_USXGMII_CTRL_MASK		(DW_USXGMII_SS_MASK | \
+					 DW_USXGMII_FULL | BMCR_ANENABLE)
 #define DW_USXGMII_10000		(BIT(13) | BIT(6))
 #define DW_USXGMII_5000			(BIT(13) | BIT(5))
 #define DW_USXGMII_2500			(BIT(5))
@@ -113,6 +124,10 @@ struct dw_xpcs {
 	struct phylink_pcs pcs;
 	phy_interface_t interface;
 	bool need_reset;
+
+	bool qps615;
+	bool qps615_oob;
+	bool qps615_sgmii_plus;
 	u8 eee_mult_fact;
 };
 

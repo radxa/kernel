@@ -19,6 +19,7 @@
 #define phylink_pcs_to_xpcs(pl_pcs) \
 	container_of((pl_pcs), struct dw_xpcs, pcs)
 
+static int xpcs_usra_reset(struct dw_xpcs *xpcs);
 static const int xpcs_usxgmii_features[] = {
 	ETHTOOL_LINK_MODE_Pause_BIT,
 	ETHTOOL_LINK_MODE_Asym_Pause_BIT,
@@ -27,6 +28,11 @@ static const int xpcs_usxgmii_features[] = {
 	ETHTOOL_LINK_MODE_10000baseKX4_Full_BIT,
 	ETHTOOL_LINK_MODE_10000baseKR_Full_BIT,
 	ETHTOOL_LINK_MODE_2500baseX_Full_BIT,
+	ETHTOOL_LINK_MODE_100baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_1000baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_2500baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_5000baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_10000baseT_Full_BIT,
 	__ETHTOOL_LINK_MODE_MASK_NBITS,
 };
 
@@ -355,6 +361,33 @@ static int xpcs_read_fault_c73(struct dw_xpcs *xpcs,
 	return 0;
 }
 
+static int xpcs_usra_reset(struct dw_xpcs *xpcs)
+{
+	int ret;
+	int val;
+
+	ret = xpcs_modify_vpcs(xpcs, DW_VR_XS_PCS_DIG_CTRL1, DW_USXGMII_RST,
+			       DW_USXGMII_RST);
+	if (ret < 0)
+		return ret;
+
+	ret = read_poll_timeout(xpcs_read_vpcs, val,
+				val < 0 || !(val & DW_USXGMII_RST),
+				100, 20000, false,
+				xpcs, DW_VR_XS_PCS_DIG_CTRL1);
+	if (val < 0)
+		ret = val;
+
+	if (ret)
+		return ret < 0 ? ret : -ETIMEDOUT;
+
+	val = xpcs_read_vendor(xpcs, MDIO_MMD_PCS, DW_VR_XS_PCS_DIG_STS);
+	if (val < 0)
+		return val;
+
+	return 0;
+}
+
 static void xpcs_link_up_usxgmii(struct dw_xpcs *xpcs, int speed)
 {
 	int ret, speed_sel;
@@ -387,13 +420,44 @@ static void xpcs_link_up_usxgmii(struct dw_xpcs *xpcs, int speed)
 	if (ret < 0)
 		goto out;
 
-	ret = xpcs_modify(xpcs, MDIO_MMD_VEND2, MII_BMCR, DW_USXGMII_SS_MASK,
+	ret = xpcs_modify(xpcs, MDIO_MMD_VEND2, MII_BMCR, DW_USXGMII_CTRL_MASK,
 			  speed_sel | DW_USXGMII_FULL);
 	if (ret < 0)
 		goto out;
 
-	ret = xpcs_modify_vpcs(xpcs, MDIO_CTRL1, DW_USXGMII_RST,
-			       DW_USXGMII_RST);
+	ret = xpcs_modify_vpcs(xpcs, DW_VR_XS_PCS_DIG_CTRL1,
+			       BIT(2), 0);
+	if (ret < 0)
+		goto out;
+
+	ret = xpcs_modify(xpcs, MDIO_MMD_VEND2, DW_VR_MII_DIG_CTRL1,
+			  DW_VR_MII_DIG_CTRL1_MAC_AUTO_SW,
+			  0);
+	if (ret < 0)
+		goto out;
+
+	if (xpcs->qps615_oob) {
+		ret = xpcs_modify(xpcs, MDIO_MMD_VEND2, DW_VR_MII_AN_CTRL,
+				  DW_VR_MII_PCS_MODE_MASK |
+				  DW_VR_MII_TX_CONFIG_MASK |
+				  DW_VR_MII_AN_INTR_EN,
+				  xpcs->pcs.poll ? 0 : DW_VR_MII_AN_INTR_EN);
+		if (ret < 0)
+			goto out;
+
+		ret = xpcs_write(xpcs, MDIO_MMD_VEND2,
+				 DW_VR_MII_AN_INTR_STS, 0);
+		if (ret < 0)
+			goto out;
+
+		ret = xpcs_modify(xpcs, MDIO_MMD_VEND2, MII_BMCR,
+				  BMCR_ANENABLE | BMCR_ANRESTART,
+				  BMCR_ANENABLE | BMCR_ANRESTART);
+		if (ret < 0)
+			goto out;
+	}
+
+	ret = xpcs_usra_reset(xpcs);
 	if (ret < 0)
 		goto out;
 
@@ -673,6 +737,10 @@ static unsigned int xpcs_inband_caps(struct phylink_pcs *pcs,
 	struct dw_xpcs *xpcs = phylink_pcs_to_xpcs(pcs);
 	const struct dw_xpcs_compat *compat;
 
+	if (interface == PHY_INTERFACE_MODE_USXGMII &&
+	    xpcs->qps615_oob)
+		return LINK_INBAND_DISABLE;
+
 	compat = xpcs_find_compat(xpcs, interface);
 	if (!compat)
 		return 0;
@@ -705,46 +773,122 @@ static void xpcs_get_interfaces(struct dw_xpcs *xpcs, unsigned long *interfaces)
 static int xpcs_switch_interface_mode(struct dw_xpcs *xpcs,
 				      phy_interface_t interface)
 {
-	int ret = 0;
+	int mdio_stat2, ret;
 
-	if (xpcs->info.pma == WX_TXGBE_XPCS_PMA_10G_ID) {
-		ret = txgbe_xpcs_switch_mode(xpcs, interface);
-	} else if (xpcs->interface != interface) {
-		if (interface == PHY_INTERFACE_MODE_SGMII)
-			xpcs->need_reset = true;
-		xpcs->interface = interface;
+	/* Wangxun provides a full alternative implementation to handle quirks */
+	if (xpcs->info.pma == WX_TXGBE_XPCS_PMA_10G_ID)
+		return txgbe_xpcs_switch_mode(xpcs, interface);
+
+	mdio_stat2 = xpcs_read(xpcs, MDIO_MMD_PCS, MDIO_STAT2);
+	if (mdio_stat2 < 0)
+		return mdio_stat2;
+
+	if (xpcs->qps615 && interface != PHY_INTERFACE_MODE_USXGMII) {
+		ret = xpcs_modify_vpcs(xpcs, DW_VR_XS_PCS_DIG_CTRL1,
+				       DW_USXGMII_EN | BIT(2), 0);
+		if (ret < 0)
+			return ret;
+
+		ret = xpcs_modify_vpcs(xpcs, DW_VR_XS_PCS_KR_CTRL,
+				       DW_USXG_MODE | DW_USXG_2PT5G_GMII, 0);
+		if (ret < 0)
+			return ret;
 	}
 
-	return ret;
+	/*
+	 * If this XPCS supports 10Gbase-R then that will be the default
+	 * operating mode. There are several interface modes where this default
+	 * is unhelpful. Change the operating mode for interfaces were we know
+	 * the default is wrong, and restore the default otherwise.
+	 */
+	if (mdio_stat2 & MDIO_PCS_STAT2_10GBR) {
+		switch (interface) {
+		case PHY_INTERFACE_MODE_SGMII:
+		case PHY_INTERFACE_MODE_1000BASEX:
+		case PHY_INTERFACE_MODE_2500BASEX:
+			if (xpcs->qps615) {
+				u16 type = interface == PHY_INTERFACE_MODE_2500BASEX &&
+					   !xpcs->qps615_sgmii_plus ?
+					QPS615_PCS_CTRL2_2500BASEX :
+					MDIO_PCS_CTRL2_10GBX;
+
+				ret = xpcs_modify(xpcs, MDIO_MMD_PCS, MDIO_CTRL2,
+						  QPS615_PCS_CTRL2_TYPE_MASK,
+						  type);
+			} else {
+				ret = xpcs_write(xpcs, MDIO_MMD_PCS, MDIO_CTRL2,
+						 MDIO_PCS_CTRL2_TYPE + 1);
+			}
+			if (ret < 0)
+				return ret;
+			break;
+		default:
+			if (xpcs->qps615)
+				ret = xpcs_modify(xpcs, MDIO_MMD_PCS, MDIO_CTRL2,
+						  QPS615_PCS_CTRL2_TYPE_MASK,
+						  MDIO_PCS_CTRL2_10GBR);
+			else
+				ret = xpcs_write(xpcs, MDIO_MMD_PCS, MDIO_CTRL2,
+						 MDIO_PCS_CTRL2_10GBR);
+			if (ret < 0)
+				return ret;
+			break;
+		}
+	}
+
+	xpcs->interface = interface;
+
+	return 0;
 }
 
 static void xpcs_pre_config(struct phylink_pcs *pcs, phy_interface_t interface)
 {
 	struct dw_xpcs *xpcs = phylink_pcs_to_xpcs(pcs);
 	const struct dw_xpcs_compat *compat;
+	bool switch_first;
+	bool force_reset;
 	int ret;
 
-	ret = xpcs_switch_interface_mode(xpcs, interface);
-	if (ret)
-		dev_err(&xpcs->mdiodev->dev, "switch interface failed: %pe\n",
-			ERR_PTR(ret));
+	/*
+	 * According to the XPCS datasheet, a soft reset is required to initiate
+	 * Clause 37 auto-negotiation when the XPCS switches interface modes.
+	 */
+	force_reset = interface == PHY_INTERFACE_MODE_SGMII;
+	switch_first = xpcs->qps615 && force_reset;
 
-	if (!xpcs->need_reset)
-		return;
-
-	compat = xpcs_find_compat(xpcs, interface);
-	if (!compat) {
-		dev_err(&xpcs->mdiodev->dev, "unsupported interface %s\n",
-			phy_modes(interface));
-		return;
+	if (switch_first) {
+		ret = xpcs_switch_interface_mode(xpcs, interface);
+		if (ret) {
+			dev_err(&xpcs->mdiodev->dev,
+				"switch interface failed: %pe\n", ERR_PTR(ret));
+			return;
+		}
 	}
 
-	ret = xpcs_soft_reset(xpcs, compat);
-	if (ret)
-		dev_err(&xpcs->mdiodev->dev, "soft reset failed: %pe\n",
-			ERR_PTR(ret));
+	if (force_reset || xpcs->need_reset) {
+		compat = xpcs_find_compat(xpcs, interface);
+		if (!compat) {
+			dev_err(&xpcs->mdiodev->dev, "unsupported interface %s\n",
+				phy_modes(interface));
+			return;
+		}
 
-	xpcs->need_reset = false;
+		ret = xpcs_soft_reset(xpcs, compat);
+		if (ret) {
+			dev_err(&xpcs->mdiodev->dev, "soft reset failed: %pe\n",
+				ERR_PTR(ret));
+			return;
+		}
+
+		xpcs->need_reset = false;
+	}
+
+	if (!switch_first) {
+		ret = xpcs_switch_interface_mode(xpcs, interface);
+		if (ret)
+			dev_err(&xpcs->mdiodev->dev,
+				"switch interface failed: %pe\n", ERR_PTR(ret));
+	}
 }
 
 static int xpcs_config_operating_mode(struct dw_xpcs *xpcs, int an_mode)
@@ -759,19 +903,20 @@ static int xpcs_config_operating_mode(struct dw_xpcs *xpcs, int an_mode)
 		if (mdio_stat2 < 0)
 			return mdio_stat2;
 
-		/*
-		 * If this XPCS supports 10Gbase-R then it will be the default
-		 * which prevents 1000base-X and slower from working correctly.
-		 *
-		 * Why are we writing MDIO_PCS_CTRL2_TYPE + 1? We want the modal
-		 * behaviour that comes when we pick a reserved value. XPCS
-		 * allocates extra bits to this field and allocates values from
-		 * 15 down so MDIO_PCS_CTRL2_TYPE + 1 is the value likely to
-		 * be allocated last (and hopefully never).
-		 */
 		if (mdio_stat2 & MDIO_PCS_STAT2_10GBR) {
-			ret = xpcs_write(xpcs, MDIO_MMD_PCS, MDIO_CTRL2,
-					 MDIO_PCS_CTRL2_TYPE + 1);
+			if (xpcs->qps615) {
+				u16 type = an_mode == DW_2500BASEX &&
+					   !xpcs->qps615_sgmii_plus ?
+					QPS615_PCS_CTRL2_2500BASEX :
+					MDIO_PCS_CTRL2_10GBX;
+
+				ret = xpcs_modify(xpcs, MDIO_MMD_PCS, MDIO_CTRL2,
+						  QPS615_PCS_CTRL2_TYPE_MASK,
+						  type);
+			} else {
+				ret = xpcs_write(xpcs, MDIO_MMD_PCS, MDIO_CTRL2,
+						 MDIO_PCS_CTRL2_TYPE + 1);
+			}
 			if (ret < 0)
 				return ret;
 		}
@@ -784,8 +929,12 @@ static int xpcs_config_operating_mode(struct dw_xpcs *xpcs, int an_mode)
 static int xpcs_config_aneg_c37_sgmii(struct dw_xpcs *xpcs,
 				      unsigned int neg_mode)
 {
+	bool use_inband_status;
 	int ret, mdio_ctrl, tx_conf;
 	u16 mask, val;
+
+	use_inband_status = neg_mode == PHYLINK_PCS_NEG_INBAND_ENABLED ||
+			    xpcs->qps615_oob;
 
 	/* For AN for C37 SGMII mode, the settings are :-
 	 * 1) VR_MII_MMD_CTRL Bit(12) [AN_ENABLE] = 0b (Disable SGMII AN in case
@@ -816,6 +965,10 @@ static int xpcs_config_aneg_c37_sgmii(struct dw_xpcs *xpcs,
 			return ret;
 	}
 
+	if (xpcs->qps615_oob)
+		mdio_ctrl = (mdio_ctrl & ~DW_USXGMII_CTRL_MASK) |
+			    DW_USXGMII_1000 | DW_USXGMII_FULL;
+
 	mask = DW_VR_MII_PCS_MODE_MASK | DW_VR_MII_TX_CONFIG_MASK;
 	val = FIELD_PREP(DW_VR_MII_PCS_MODE_MASK,
 			 DW_VR_MII_PCS_MODE_C37_SGMII);
@@ -838,7 +991,7 @@ static int xpcs_config_aneg_c37_sgmii(struct dw_xpcs *xpcs,
 	val = 0;
 	mask = DW_VR_MII_DIG_CTRL1_2G5_EN | DW_VR_MII_DIG_CTRL1_MAC_AUTO_SW;
 
-	if (neg_mode == PHYLINK_PCS_NEG_INBAND_ENABLED)
+	if (use_inband_status && !xpcs->qps615_oob)
 		val = DW_VR_MII_DIG_CTRL1_MAC_AUTO_SW;
 
 	if (xpcs->info.pma == WX_TXGBE_XPCS_PMA_10G_ID) {
@@ -850,9 +1003,15 @@ static int xpcs_config_aneg_c37_sgmii(struct dw_xpcs *xpcs,
 	if (ret < 0)
 		return ret;
 
-	if (neg_mode == PHYLINK_PCS_NEG_INBAND_ENABLED)
+	if (use_inband_status) {
+		ret = xpcs_write(xpcs, MDIO_MMD_VEND2,
+				 DW_VR_MII_AN_INTR_STS, 0);
+		if (ret < 0)
+			return ret;
+
 		ret = xpcs_write(xpcs, MDIO_MMD_VEND2, MII_BMCR,
 				 mdio_ctrl | BMCR_ANENABLE);
+	}
 
 	return ret;
 }
@@ -930,6 +1089,16 @@ static int xpcs_config_2500basex(struct dw_xpcs *xpcs)
 {
 	int ret;
 
+	if (xpcs->qps615_sgmii_plus) {
+		ret = xpcs_modify(xpcs, MDIO_MMD_VEND2, DW_VR_MII_AN_CTRL,
+				  DW_VR_MII_PCS_MODE_MASK |
+				  DW_VR_MII_TX_CONFIG_MASK,
+				  FIELD_PREP(DW_VR_MII_PCS_MODE_MASK,
+					     DW_VR_MII_PCS_MODE_C37_SGMII));
+		if (ret < 0)
+			return ret;
+	}
+
 	ret = xpcs_modify(xpcs, MDIO_MMD_VEND2, DW_VR_MII_DIG_CTRL1,
 			  DW_VR_MII_DIG_CTRL1_2G5_EN |
 			  DW_VR_MII_DIG_CTRL1_MAC_AUTO_SW,
@@ -942,6 +1111,46 @@ static int xpcs_config_2500basex(struct dw_xpcs *xpcs)
 			   BMCR_SPEED1000);
 }
 
+static int xpcs_config_usxgmii(struct dw_xpcs *xpcs)
+{
+	int ret, val;
+
+	/* Select the 10GBASE-R PCS type used as the base for USXGMII */
+	ret = xpcs_modify(xpcs, MDIO_MMD_PCS, MDIO_CTRL2,
+			  xpcs->qps615 ? QPS615_PCS_CTRL2_TYPE_MASK :
+			  MDIO_PCS_CTRL2_TYPE, MDIO_PCS_CTRL2_10GBR);
+	if (ret < 0)
+		return ret;
+
+	ret = xpcs_modify_vpcs(xpcs, DW_VR_XS_PCS_DIG_CTRL1,
+			       DW_USXGMII_EN, DW_USXGMII_EN);
+	if (ret < 0)
+		return ret;
+
+	ret = xpcs_modify_vpcs(xpcs, DW_VR_XS_PCS_KR_CTRL,
+			       DW_USXG_MODE | DW_USXG_2PT5G_GMII,
+			       0);
+	if (ret < 0)
+		return ret;
+
+	/* Apply the configuration with a vendor soft reset and wait for it
+	 * to self-clear.
+	 */
+	ret = xpcs_modify_vpcs(xpcs, DW_VR_XS_PCS_DIG_CTRL1,
+			       DW_VR_RST, DW_VR_RST);
+	if (ret < 0)
+		return ret;
+
+	ret = read_poll_timeout(xpcs_read_vpcs, val,
+				val < 0 || !(val & DW_VR_RST),
+				1000, 50000, false,
+				xpcs, DW_VR_XS_PCS_DIG_CTRL1);
+	if (val < 0)
+		return val;
+
+	return ret;
+}
+
 static int xpcs_do_config(struct dw_xpcs *xpcs, phy_interface_t interface,
 			  const unsigned long *advertising,
 			  unsigned int neg_mode)
@@ -952,6 +1161,12 @@ static int xpcs_do_config(struct dw_xpcs *xpcs, phy_interface_t interface,
 	compat = xpcs_find_compat(xpcs, interface);
 	if (!compat)
 		return -ENODEV;
+
+	if (interface == PHY_INTERFACE_MODE_USXGMII) {
+		ret = xpcs_config_usxgmii(xpcs);
+		if (ret < 0)
+			return ret;
+	}
 
 	ret = xpcs_config_operating_mode(xpcs, compat->an_mode);
 	if (ret < 0)
@@ -1264,12 +1479,13 @@ static void xpcs_link_up_sgmii_1000basex(struct dw_xpcs *xpcs,
 					 int speed, int duplex)
 {
 	u16 an_enable;
-	int ret;
+	int an_speed, an_sts, ret;
 
 	if (neg_mode == PHYLINK_PCS_NEG_INBAND_ENABLED)
 		return;
 
-	an_enable = (interface == PHY_INTERFACE_MODE_SGMII ? BMCR_ANENABLE : 0);
+	an_enable = interface == PHY_INTERFACE_MODE_SGMII && xpcs->qps615_oob ?
+		    BMCR_ANENABLE : 0;
 
 	if (interface == PHY_INTERFACE_MODE_1000BASEX) {
 		if (speed != SPEED_1000) {
@@ -1287,9 +1503,55 @@ static void xpcs_link_up_sgmii_1000basex(struct dw_xpcs *xpcs,
 
 	ret = xpcs_write(xpcs, MDIO_MMD_VEND2, MII_BMCR,
 			 mii_bmcr_encode_fixed(speed, duplex) | an_enable);
-	if (ret)
+	if (ret) {
 		dev_err(&xpcs->mdiodev->dev, "%s: xpcs_write returned %pe\n",
 			__func__, ERR_PTR(ret));
+		return;
+	}
+
+	if (!xpcs->qps615_oob || interface != PHY_INTERFACE_MODE_SGMII)
+		return;
+
+	switch (speed) {
+	case SPEED_10:
+		an_speed = DW_VR_MII_C37_ANSGM_SP_10;
+		break;
+	case SPEED_100:
+		an_speed = DW_VR_MII_C37_ANSGM_SP_100;
+		break;
+	case SPEED_1000:
+		an_speed = DW_VR_MII_C37_ANSGM_SP_1000;
+		break;
+	default:
+		dev_err(&xpcs->mdiodev->dev,
+			"QPS615 SGMII cannot resolve unsupported speed %d\n",
+			speed);
+		return;
+	}
+
+	ret = read_poll_timeout(xpcs_read, an_sts,
+				an_sts < 0 ||
+			((an_sts & (DW_VR_MII_C37_ANSGM_SP_LNKSTS |
+				    DW_VR_MII_AN_STS_C37_ANSGM_FD |
+				    DW_VR_MII_AN_STS_C37_ANCMPLT_INTR)) ==
+			 (DW_VR_MII_C37_ANSGM_SP_LNKSTS |
+			  (duplex == DUPLEX_FULL ?
+			   DW_VR_MII_AN_STS_C37_ANSGM_FD : 0) |
+			  DW_VR_MII_AN_STS_C37_ANCMPLT_INTR) &&
+			 FIELD_GET(DW_VR_MII_AN_STS_C37_ANSGM_SP, an_sts) ==
+			 an_speed),
+				1000, 60000000, false, xpcs, MDIO_MMD_VEND2,
+				DW_VR_MII_AN_INTR_STS);
+	if (an_sts < 0)
+		ret = an_sts;
+	if (ret) {
+		dev_err(&xpcs->mdiodev->dev,
+			"QPS615 SGMII Clause 37 did not resolve speed %d duplex %d: status=%04x, error=%pe\n",
+			speed, duplex, an_sts < 0 ? 0 : an_sts,
+			ERR_PTR(ret));
+		return;
+	}
+
 }
 
 static void xpcs_link_up(struct phylink_pcs *pcs, unsigned int neg_mode,
@@ -1377,6 +1639,15 @@ void xpcs_config_eee_mult_fact(struct dw_xpcs *xpcs, u8 mult_fact)
 	xpcs->eee_mult_fact = mult_fact;
 }
 EXPORT_SYMBOL_GPL(xpcs_config_eee_mult_fact);
+
+void xpcs_config_qps615(struct dw_xpcs *xpcs, bool out_of_band,
+			bool sgmii_plus)
+{
+	xpcs->qps615 = true;
+	xpcs->qps615_oob = out_of_band;
+	xpcs->qps615_sgmii_plus = sgmii_plus;
+}
+EXPORT_SYMBOL_GPL(xpcs_config_qps615);
 
 static int xpcs_read_ids(struct dw_xpcs *xpcs)
 {

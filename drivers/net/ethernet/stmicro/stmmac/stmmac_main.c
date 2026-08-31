@@ -971,6 +971,19 @@ static void stmmac_mac_config(struct phylink_config *config, unsigned int mode,
 	/* Nothing to do, xpcs_config() handles everything */
 }
 
+static int stmmac_mac_prepare(struct phylink_config *config, unsigned int mode,
+			      phy_interface_t interface)
+{
+	struct net_device *ndev = to_net_dev(config->dev);
+	struct stmmac_priv *priv = netdev_priv(ndev);
+
+	if (priv->plat->mac_prepare)
+		return priv->plat->mac_prepare(ndev, priv->plat->bsp_priv, mode,
+					       interface);
+
+	return 0;
+}
+
 static int stmmac_mac_finish(struct phylink_config *config, unsigned int mode,
 			     phy_interface_t interface)
 {
@@ -1023,6 +1036,15 @@ static void stmmac_mac_link_up(struct phylink_config *config,
 			break;
 		case SPEED_2500:
 			ctrl |= priv->hw->link.xgmii.speed2500;
+			break;
+		case SPEED_1000:
+			ctrl |= priv->hw->link.speed1000;
+			break;
+		case SPEED_100:
+			ctrl |= priv->hw->link.speed100;
+			break;
+		case SPEED_10:
+			ctrl |= priv->hw->link.speed10;
 			break;
 		default:
 			return;
@@ -1106,6 +1128,10 @@ static void stmmac_mac_link_up(struct phylink_config *config,
 	}
 
 	stmmac_mac_set(priv, priv->ioaddr, true);
+	if (priv->plat->post_mac_link_up)
+		priv->plat->post_mac_link_up(priv->dev, priv->plat->bsp_priv,
+					     phy, mode, interface, speed);
+
 	if (priv->dma_cap.eee)
 		stmmac_set_eee_pls(priv, priv->hw, true);
 
@@ -1193,6 +1219,7 @@ static int stmmac_mac_wol_set(struct phylink_config *config, u32 wolopts,
 static const struct phylink_mac_ops stmmac_phylink_mac_ops = {
 	.mac_get_caps = stmmac_mac_get_caps,
 	.mac_select_pcs = stmmac_mac_select_pcs,
+	.mac_prepare = stmmac_mac_prepare,
 	.mac_config = stmmac_mac_config,
 	.mac_finish = stmmac_mac_finish,
 	.mac_link_down = stmmac_mac_link_down,
@@ -6390,6 +6417,7 @@ static int stmmac_setup_tc(struct net_device *ndev, enum tc_setup_type type,
 static u16 stmmac_select_queue(struct net_device *dev, struct sk_buff *skb,
 			       struct net_device *sb_dev)
 {
+	struct stmmac_priv *priv = netdev_priv(dev);
 	int gso = skb_shinfo(skb)->gso_type;
 
 	if (gso & (SKB_GSO_TCPV4 | SKB_GSO_TCPV6 | SKB_GSO_UDP_L4)) {
@@ -6399,7 +6427,8 @@ static u16 stmmac_select_queue(struct net_device *dev, struct sk_buff *skb,
 		 * because if TSO/USO is supported then at least this
 		 * one will be capable.
 		 */
-		return 0;
+		if (priv->dma_cap.tsoen && priv->plat->flags & STMMAC_FLAG_TSO_EN)
+			return 0;
 	}
 
 	return netdev_pick_tx(dev, skb, NULL) % dev->real_num_tx_queues;

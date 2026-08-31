@@ -258,9 +258,16 @@ struct plat_stmmacenet_data {
 	int (*set_clk_tx_rate)(void *priv, struct clk *clk_tx_i,
 			       phy_interface_t interface, int speed);
 	void (*fix_mac_speed)(void *priv, int speed, unsigned int mode);
+	void (*post_mac_link_up)(struct net_device *ndev, void *priv,
+				 struct phy_device *phydev, unsigned int mode,
+				 phy_interface_t interface, int speed);
 	int (*fix_soc_reset)(struct stmmac_priv *priv);
 	int (*serdes_powerup)(struct net_device *ndev, void *priv);
 	void (*serdes_powerdown)(struct net_device *ndev, void *priv);
+	int (*mac_prepare)(struct net_device *ndev,
+			   void *priv,
+			   unsigned int mode,
+			   phy_interface_t interface);
 	int (*mac_finish)(struct net_device *ndev,
 			  void *priv,
 			  unsigned int mode,
