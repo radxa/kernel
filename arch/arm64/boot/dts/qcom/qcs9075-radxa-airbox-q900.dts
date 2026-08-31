@@ -427,6 +427,17 @@
 	};
 };
 
+&{/soc@0/watchdog@17c10000} {
+	status = "reserved";
+};
+
+&soc {
+	watchdog_gh: qcom,wdt_gh {
+		compatible = "qcom,gh-watchdog";
+		interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>;
+	};
+};
+
 &ethernet0 {
 	phy-handle = <&sgmii_phy0>;
 	phy-mode = "2500base-x";
