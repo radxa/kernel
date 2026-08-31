@@ -111,8 +111,8 @@ config RADXA_SVC_GLINK
 	help
 	  Enable support for the Radxa SVC firmware service found on supported
 	  Radxa boards using Qualcomm SoCs. The driver communicates with the
-	  RADXA_SVC_ADSP_APPS service over rpmsg and exposes fan control through
-	  the standard hwmon interface.
+	  RADXA_SVC_ADSP_APPS service over rpmsg and exposes fan control and
+	  sensor readings through the standard hwmon interface.
 
 	  Say M or Y here to include this support.
 

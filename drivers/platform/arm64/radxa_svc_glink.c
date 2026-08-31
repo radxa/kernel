@@ -10,6 +10,7 @@
 #include <linux/hwmon.h>
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
+#include <linux/limits.h>
 #include <linux/minmax.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
@@ -31,6 +32,8 @@
 #define RADXA_SVC_OP_FAN_GET_STATE	0x50
 #define RADXA_SVC_OP_FAN_SET_CONTROL	0x51
 #define RADXA_SVC_OP_FAN_GET_CONTROL	0x52
+#define RADXA_SVC_OP_SENSOR_LIST		0x60
+#define RADXA_SVC_OP_SENSOR_READ		0x61
 
 #define RADXA_SVC_PROFILE_QUIET		0
 #define RADXA_SVC_PROFILE_PERFORMANCE	1
@@ -48,10 +51,28 @@
 #define RADXA_SVC_CAP_PROFILE		BIT(1)
 #define RADXA_SVC_CAP_FANCTL		BIT(5)
 #define RADXA_SVC_CAP_FANCTL_CTRL	BIT(6)
+#define RADXA_SVC_CAP_SENSORS		BIT(7)
 
 #define RADXA_SVC_REQUIRED_CAPS		(RADXA_SVC_CAP_PROFILE | \
 					 RADXA_SVC_CAP_FANCTL | \
 					 RADXA_SVC_CAP_FANCTL_CTRL)
+
+#define RADXA_SVC_SENSOR_MAX_SENSORS	64
+#define RADXA_SVC_SENSOR_NAME_LEN	32
+#define RADXA_SVC_SENSOR_PAGE_MAX	5
+#define RADXA_SVC_SENSOR_CACHE_TIME	msecs_to_jiffies(50)
+
+#define RADXA_SVC_SENSOR_TEMP		1
+#define RADXA_SVC_SENSOR_VOLTAGE		2
+#define RADXA_SVC_SENSOR_CURRENT		3
+#define RADXA_SVC_SENSOR_VOLTAGE_CURRENT	4
+
+#define RADXA_SVC_SENSOR_VALID_TEMP	BIT(0)
+#define RADXA_SVC_SENSOR_VALID_VOLTAGE	BIT(1)
+#define RADXA_SVC_SENSOR_VALID_CURRENT	BIT(2)
+#define RADXA_SVC_SENSOR_VALID_MASK	(RADXA_SVC_SENSOR_VALID_TEMP | \
+					 RADXA_SVC_SENSOR_VALID_VOLTAGE | \
+					 RADXA_SVC_SENSOR_VALID_CURRENT)
 
 struct radxa_svc_hdr {
 	__le32 magic;
@@ -100,10 +121,57 @@ struct radxa_svc_fan_control_resp {
 	__le32 manual_pwm;
 } __packed;
 
+struct radxa_svc_sensor_list_req {
+	__le32 start_index;
+	__le32 max_entries;
+} __packed;
+
+struct radxa_svc_sensor_desc {
+	__le32 sensor_id;
+	__le32 sensor_type;
+	char name[RADXA_SVC_SENSOR_NAME_LEN];
+} __packed;
+
+struct radxa_svc_sensor_list_resp {
+	__le32 total_count;
+	__le32 returned_count;
+	struct radxa_svc_sensor_desc entries[];
+} __packed;
+
+struct radxa_svc_sensor_read_req {
+	__le32 sensor_id;
+} __packed;
+
+struct radxa_svc_sensor_read_resp {
+	__le32 sensor_id;
+	__le32 valid_mask;
+	__le32 temp_millic;
+	__le32 voltage_mv;
+	__le32 current_ma;
+} __packed;
+
+struct radxa_svc_glink;
+
+struct radxa_svc_sensor {
+	struct radxa_svc_glink *svc;
+	struct device *hwmon_dev;
+	struct mutex cache_lock; /* protects cached sample fields */
+	unsigned long last_updated;
+	u32 sensor_id;
+	u32 sensor_type;
+	char name[RADXA_SVC_SENSOR_NAME_LEN];
+	s32 temp_millic;
+	s32 voltage_mv;
+	s64 current_ma;
+	bool cache_valid;
+};
+
 struct radxa_svc_glink {
 	struct device *dev;
 	struct rpmsg_device *rpdev;
 	struct device *hwmon_dev;
+	struct radxa_svc_sensor *sensors;
+	u32 num_sensors;
 
 	struct mutex xfer_lock; /* serializes request/response transactions */
 	struct mutex fan_lock; /* serializes multi-request fan configuration */
@@ -428,6 +496,403 @@ bad_msg:
 	return 0;
 }
 
+static u32 radxa_svc_sensor_expected_mask(u32 sensor_type)
+{
+	switch (sensor_type) {
+	case RADXA_SVC_SENSOR_TEMP:
+		return RADXA_SVC_SENSOR_VALID_TEMP;
+	case RADXA_SVC_SENSOR_VOLTAGE:
+		return RADXA_SVC_SENSOR_VALID_VOLTAGE;
+	case RADXA_SVC_SENSOR_CURRENT:
+		return RADXA_SVC_SENSOR_VALID_CURRENT;
+	case RADXA_SVC_SENSOR_VOLTAGE_CURRENT:
+		return RADXA_SVC_SENSOR_VALID_VOLTAGE |
+		       RADXA_SVC_SENSOR_VALID_CURRENT;
+	default:
+		return 0;
+	}
+}
+
+static int radxa_svc_sensor_update(struct radxa_svc_sensor *sensor)
+{
+	struct radxa_svc_sensor_read_req req;
+	struct radxa_svc_sensor_read_resp resp = {};
+	unsigned long cache_expires;
+	u32 expected_mask;
+	u32 valid_mask;
+	size_t len = sizeof(resp);
+	int ret;
+
+	mutex_lock(&sensor->cache_lock);
+
+	cache_expires = sensor->last_updated + RADXA_SVC_SENSOR_CACHE_TIME;
+	if (sensor->cache_valid && time_before(jiffies, cache_expires)) {
+		ret = 0;
+		goto out_unlock;
+	}
+
+	req.sensor_id = cpu_to_le32(sensor->sensor_id);
+	ret = radxa_svc_request(sensor->svc, RADXA_SVC_OP_SENSOR_READ,
+				&req, sizeof(req), &resp, &len);
+	if (ret)
+		goto out_unlock;
+
+	if (len != sizeof(resp) ||
+	    le32_to_cpu(resp.sensor_id) != sensor->sensor_id) {
+		ret = -EPROTO;
+		goto out_unlock;
+	}
+
+	valid_mask = le32_to_cpu(resp.valid_mask);
+	expected_mask = radxa_svc_sensor_expected_mask(sensor->sensor_type);
+	if ((valid_mask & RADXA_SVC_SENSOR_VALID_MASK) != expected_mask ||
+	    valid_mask & ~RADXA_SVC_SENSOR_VALID_MASK) {
+		ret = -EPROTO;
+		goto out_unlock;
+	}
+
+	sensor->temp_millic = (s32)le32_to_cpu(resp.temp_millic);
+	sensor->voltage_mv = (s32)le32_to_cpu(resp.voltage_mv);
+	sensor->current_ma = (s32)le32_to_cpu(resp.current_ma);
+	sensor->last_updated = jiffies;
+	sensor->cache_valid = true;
+	ret = 0;
+
+out_unlock:
+	mutex_unlock(&sensor->cache_lock);
+	return ret;
+}
+
+static int radxa_svc_sensor_hwmon_read(struct device *dev,
+				       enum hwmon_sensor_types type, u32 attr,
+				       int channel, long *val)
+{
+	struct radxa_svc_sensor *sensor = dev_get_drvdata(dev);
+	s64 power;
+	int ret;
+
+	if (channel)
+		return -EOPNOTSUPP;
+
+	ret = radxa_svc_sensor_update(sensor);
+	if (ret)
+		return ret;
+
+	switch (type) {
+	case hwmon_temp:
+		if (attr != hwmon_temp_input ||
+		    sensor->sensor_type != RADXA_SVC_SENSOR_TEMP)
+			return -EOPNOTSUPP;
+		*val = sensor->temp_millic;
+		return 0;
+	case hwmon_in:
+		if (attr != hwmon_in_input ||
+		    !(radxa_svc_sensor_expected_mask(sensor->sensor_type) &
+		      RADXA_SVC_SENSOR_VALID_VOLTAGE))
+			return -EOPNOTSUPP;
+		*val = sensor->voltage_mv;
+		return 0;
+	case hwmon_curr:
+		if (attr != hwmon_curr_input ||
+		    !(radxa_svc_sensor_expected_mask(sensor->sensor_type) &
+		      RADXA_SVC_SENSOR_VALID_CURRENT))
+			return -EOPNOTSUPP;
+		if (sensor->current_ma > LONG_MAX ||
+		    sensor->current_ma < LONG_MIN)
+			return -ERANGE;
+		*val = sensor->current_ma;
+		return 0;
+	case hwmon_power:
+		if (attr != hwmon_power_input ||
+		    sensor->sensor_type != RADXA_SVC_SENSOR_VOLTAGE_CURRENT)
+			return -EOPNOTSUPP;
+
+		power = (s64)sensor->voltage_mv * sensor->current_ma;
+		if (power > LONG_MAX || power < LONG_MIN)
+			return -ERANGE;
+		*val = power;
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int radxa_svc_sensor_hwmon_read_string(struct device *dev,
+					      enum hwmon_sensor_types type, u32 attr,
+					      int channel, const char **str)
+{
+	if (channel)
+		return -EOPNOTSUPP;
+
+	switch (type) {
+	case hwmon_temp:
+		if (attr == hwmon_temp_label)
+			*str = "Temperature";
+		else
+			return -EOPNOTSUPP;
+		break;
+	case hwmon_in:
+		if (attr == hwmon_in_label)
+			*str = "Voltage";
+		else
+			return -EOPNOTSUPP;
+		break;
+	case hwmon_curr:
+		if (attr == hwmon_curr_label)
+			*str = "Current";
+		else
+			return -EOPNOTSUPP;
+		break;
+	case hwmon_power:
+		if (attr == hwmon_power_label)
+			*str = "Power";
+		else
+			return -EOPNOTSUPP;
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	return 0;
+}
+
+static umode_t radxa_svc_sensor_hwmon_is_visible(const void *data,
+						 enum hwmon_sensor_types type,
+						 u32 attr, int channel)
+{
+	const struct radxa_svc_sensor *sensor = data;
+
+	if (channel)
+		return 0;
+
+	switch (type) {
+	case hwmon_temp:
+		if (sensor->sensor_type == RADXA_SVC_SENSOR_TEMP &&
+		    (attr == hwmon_temp_input || attr == hwmon_temp_label))
+			return 0444;
+		break;
+	case hwmon_in:
+		if ((radxa_svc_sensor_expected_mask(sensor->sensor_type) &
+		     RADXA_SVC_SENSOR_VALID_VOLTAGE) &&
+		    (attr == hwmon_in_input || attr == hwmon_in_label))
+			return 0444;
+		break;
+	case hwmon_curr:
+		if ((radxa_svc_sensor_expected_mask(sensor->sensor_type) &
+		     RADXA_SVC_SENSOR_VALID_CURRENT) &&
+		    (attr == hwmon_curr_input || attr == hwmon_curr_label))
+			return 0444;
+		break;
+	case hwmon_power:
+		if (sensor->sensor_type == RADXA_SVC_SENSOR_VOLTAGE_CURRENT &&
+		    (attr == hwmon_power_input || attr == hwmon_power_label))
+			return 0444;
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+static const struct hwmon_ops radxa_svc_sensor_hwmon_ops = {
+	.is_visible = radxa_svc_sensor_hwmon_is_visible,
+	.read = radxa_svc_sensor_hwmon_read,
+	.read_string = radxa_svc_sensor_hwmon_read_string,
+};
+
+static const struct hwmon_channel_info * const radxa_svc_temp_info[] = {
+	HWMON_CHANNEL_INFO(temp, HWMON_T_INPUT | HWMON_T_LABEL),
+	NULL
+};
+
+static const struct hwmon_channel_info * const radxa_svc_voltage_info[] = {
+	HWMON_CHANNEL_INFO(in, HWMON_I_INPUT | HWMON_I_LABEL),
+	NULL
+};
+
+static const struct hwmon_channel_info * const radxa_svc_current_info[] = {
+	HWMON_CHANNEL_INFO(curr, HWMON_C_INPUT | HWMON_C_LABEL),
+	NULL
+};
+
+static const struct hwmon_channel_info * const radxa_svc_voltage_current_info[] = {
+	HWMON_CHANNEL_INFO(in, HWMON_I_INPUT | HWMON_I_LABEL),
+	HWMON_CHANNEL_INFO(curr, HWMON_C_INPUT | HWMON_C_LABEL),
+	HWMON_CHANNEL_INFO(power, HWMON_P_INPUT | HWMON_P_LABEL),
+	NULL
+};
+
+static const struct hwmon_chip_info radxa_svc_temp_chip_info = {
+	.ops = &radxa_svc_sensor_hwmon_ops,
+	.info = radxa_svc_temp_info,
+};
+
+static const struct hwmon_chip_info radxa_svc_voltage_chip_info = {
+	.ops = &radxa_svc_sensor_hwmon_ops,
+	.info = radxa_svc_voltage_info,
+};
+
+static const struct hwmon_chip_info radxa_svc_current_chip_info = {
+	.ops = &radxa_svc_sensor_hwmon_ops,
+	.info = radxa_svc_current_info,
+};
+
+static const struct hwmon_chip_info radxa_svc_voltage_current_chip_info = {
+	.ops = &radxa_svc_sensor_hwmon_ops,
+	.info = radxa_svc_voltage_current_info,
+};
+
+static const struct hwmon_chip_info *radxa_svc_sensor_chip_info(u32 sensor_type)
+{
+	switch (sensor_type) {
+	case RADXA_SVC_SENSOR_TEMP:
+		return &radxa_svc_temp_chip_info;
+	case RADXA_SVC_SENSOR_VOLTAGE:
+		return &radxa_svc_voltage_chip_info;
+	case RADXA_SVC_SENSOR_CURRENT:
+		return &radxa_svc_current_chip_info;
+	case RADXA_SVC_SENSOR_VOLTAGE_CURRENT:
+		return &radxa_svc_voltage_current_chip_info;
+	default:
+		return NULL;
+	}
+}
+
+static int radxa_svc_sensor_validate_desc(struct radxa_svc_glink *svc,
+					  const struct radxa_svc_sensor_desc *desc,
+					  u32 index)
+{
+	const char *nul;
+	u32 sensor_id = le32_to_cpu(desc->sensor_id);
+	u32 sensor_type = le32_to_cpu(desc->sensor_type);
+	u32 i;
+
+	nul = memchr(desc->name, '\0', sizeof(desc->name));
+	if (!nul || nul == desc->name || !radxa_svc_sensor_chip_info(sensor_type))
+		return -EPROTO;
+
+	for (i = 0; i < index; i++) {
+		if (svc->sensors[i].sensor_id == sensor_id ||
+		    !strcmp(svc->sensors[i].name, desc->name))
+			return -EPROTO;
+	}
+
+	svc->sensors[index].svc = svc;
+	svc->sensors[index].sensor_id = sensor_id;
+	svc->sensors[index].sensor_type = sensor_type;
+	strscpy(svc->sensors[index].name, desc->name,
+		sizeof(svc->sensors[index].name));
+	mutex_init(&svc->sensors[index].cache_lock);
+
+	return 0;
+}
+
+static int radxa_svc_sensor_hwmon_init(struct radxa_svc_glink *svc)
+{
+	struct radxa_svc_sensor_list_resp *resp;
+	struct radxa_svc_sensor_list_req req;
+	const struct hwmon_chip_info *chip_info;
+	char *hwmon_name;
+	size_t max_len;
+	size_t len;
+	u32 returned;
+	u32 total = 0;
+	u32 start = 0;
+	u32 i;
+	int ret;
+
+	if (!(svc->caps & RADXA_SVC_CAP_SENSORS))
+		return 0;
+
+	max_len = struct_size(resp, entries, RADXA_SVC_SENSOR_PAGE_MAX);
+	resp = kzalloc(max_len, GFP_KERNEL);
+	if (!resp)
+		return -ENOMEM;
+
+	do {
+		req.start_index = cpu_to_le32(start);
+		req.max_entries = cpu_to_le32(RADXA_SVC_SENSOR_PAGE_MAX);
+		len = max_len;
+		ret = radxa_svc_request(svc, RADXA_SVC_OP_SENSOR_LIST,
+					&req, sizeof(req), resp, &len);
+		if (ret)
+			goto out_free;
+
+		if (len < sizeof(*resp)) {
+			ret = -EPROTO;
+			goto out_free;
+		}
+
+		returned = le32_to_cpu(resp->returned_count);
+		if (!start) {
+			total = le32_to_cpu(resp->total_count);
+			if (total > RADXA_SVC_SENSOR_MAX_SENSORS) {
+				ret = -EOVERFLOW;
+				goto out_free;
+			}
+
+			if (total) {
+				svc->sensors =
+					devm_kcalloc(svc->dev, total,
+						     sizeof(*svc->sensors), GFP_KERNEL);
+				if (!svc->sensors) {
+					ret = -ENOMEM;
+					goto out_free;
+				}
+			}
+		} else if (le32_to_cpu(resp->total_count) != total) {
+			ret = -EPROTO;
+			goto out_free;
+		}
+
+		if (returned > RADXA_SVC_SENSOR_PAGE_MAX || returned > total - start ||
+		    len != struct_size(resp, entries, returned) ||
+		    (start < total && !returned)) {
+			ret = -EPROTO;
+			goto out_free;
+		}
+
+		for (i = 0; i < returned; i++) {
+			ret = radxa_svc_sensor_validate_desc(svc, &resp->entries[i],
+							     start + i);
+			if (ret)
+				goto out_free;
+		}
+
+		start += returned;
+	} while (start < total);
+
+	svc->num_sensors = total;
+	for (i = 0; i < svc->num_sensors; i++) {
+		struct radxa_svc_sensor *sensor = &svc->sensors[i];
+
+		chip_info = radxa_svc_sensor_chip_info(sensor->sensor_type);
+		hwmon_name = devm_hwmon_sanitize_name(svc->dev, sensor->name);
+		if (IS_ERR(hwmon_name)) {
+			ret = PTR_ERR(hwmon_name);
+			goto out_free;
+		}
+
+		sensor->hwmon_dev =
+			devm_hwmon_device_register_with_info(svc->dev, hwmon_name,
+							     sensor, chip_info, NULL);
+		if (IS_ERR(sensor->hwmon_dev)) {
+			ret = PTR_ERR(sensor->hwmon_dev);
+			dev_err_probe(svc->dev, ret,
+				      "failed to register sensor %s hwmon\n",
+				      sensor->name);
+			goto out_free;
+		}
+	}
+
+	ret = 0;
+
+out_free:
+	kfree(resp);
+	return ret;
+}
+
 static int radxa_svc_fan_get_pwm_mode(struct radxa_svc_glink *svc,
 				      long *mode)
 {
@@ -693,6 +1158,11 @@ static int radxa_svc_rpmsg_probe(struct rpmsg_device *rpdev)
 	if (ret)
 		return dev_err_probe(&rpdev->dev, ret,
 				     "failed to register hwmon\n");
+
+	ret = radxa_svc_sensor_hwmon_init(svc);
+	if (ret)
+		return dev_err_probe(&rpdev->dev, ret,
+				     "failed to register sensor hwmon devices\n");
 
 	return 0;
 }

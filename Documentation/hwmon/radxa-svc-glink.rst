@@ -8,7 +8,8 @@ Description
 
 The Radxa SVC GLINK driver communicates with the ``RADXA_SVC_ADSP_APPS``
 firmware service found on supported Radxa boards with Qualcomm SoCs. The
-firmware provides fan control.
+firmware provides fan control and dynamically discoverable temperature,
+voltage, current, and power sensors.
 
 Fan control
 -----------
@@ -30,3 +31,11 @@ The supported ``pwm1_enable`` values are:
 
 When manual mode is selected, the driver starts with the current fan speed. If
 the current speed cannot be determined, it starts at full speed.
+
+Sensors
+-------
+
+Each sensor discovered through the firmware service is registered as a
+separate hwmon device. Depending on the sensor type, it exposes the standard
+``temp1_input``, ``in0_input``, ``curr1_input``, and ``power1_input``
+attributes and their corresponding labels.
