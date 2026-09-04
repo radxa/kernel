@@ -1791,7 +1791,17 @@ static int msm_dp_ctrl_setup_main_link(struct msm_dp_ctrl_private *ctrl,
 	 * As part of previous calls, DP controller state might have
 	 * transitioned to PUSH_IDLE. In order to start transmitting
 	 * a link training pattern, we have to first do soft reset.
+	 *
+	 * The comment above has always asked for a soft reset here, but
+	 * only msm_dp_ctrl_mainlink_enable()'s MAINLINK_CTRL reset bit was
+	 * being touched (no SW_RESET). On a quick unplug/replug the
+	 * controller mainlink state machine keeps MAINLINK_READY_FOR_VIDEO
+	 * set from the previous session, so LINK_TRAINING never asserts and
+	 * every high-rate training attempt fails with -ETIMEDOUT (observed
+	 * on SC8280XP: 8.1G/5.4G/2.7G all fail, link downshifts to RBR
+	 * 1.62G). A full SW_RESET clears the stale state machine.
 	 */
+	msm_dp_ctrl_reset(&ctrl->msm_dp_ctrl);
 
 	msm_dp_ctrl_sink_fec_config(ctrl, true);
 
