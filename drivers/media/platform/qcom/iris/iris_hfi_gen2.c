@@ -839,6 +839,22 @@ static const struct platform_inst_fw_cap inst_fw_cap_milos_enc[] = {
 
 static const struct platform_inst_fw_cap inst_fw_cap_sm8550_dec[] = {
 	{
+		.cap_id = DISPLAY_DELAY_ENABLE,
+		.min = 0,
+		.max = 1,
+		.step_or_mask = 1,
+		.value = 0,
+		.hfi_id = HFI_PROP_DECODE_ORDER_OUTPUT,
+		.flags = CAP_FLAG_INPUT_PORT,
+	},
+	{
+		.cap_id = DISPLAY_DELAY,
+		.min = 0,
+		.max = 0,
+		.step_or_mask = 1,
+		.value = 0,
+	},
+	{
 		.cap_id = PROFILE_H264,
 		.min = V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE,
 		.max = V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_HIGH,
@@ -1785,6 +1801,7 @@ static const struct platform_inst_fw_cap inst_fw_cap_sm8550_enc[] = {
 };
 
 static const u32 sm8550_vdec_input_config_params_default[] = {
+	HFI_PROP_DECODE_ORDER_OUTPUT,
 	HFI_PROP_BITSTREAM_RESOLUTION,
 	HFI_PROP_CROP_OFFSETS,
 	HFI_PROP_LUMA_CHROMA_BIT_DEPTH,
@@ -1797,6 +1814,7 @@ static const u32 sm8550_vdec_input_config_params_default[] = {
 };
 
 static const u32 sm8550_vdec_input_config_param_hevc[] = {
+	HFI_PROP_DECODE_ORDER_OUTPUT,
 	HFI_PROP_BITSTREAM_RESOLUTION,
 	HFI_PROP_CROP_OFFSETS,
 	HFI_PROP_LUMA_CHROMA_BIT_DEPTH,
@@ -1808,6 +1826,7 @@ static const u32 sm8550_vdec_input_config_param_hevc[] = {
 };
 
 static const u32 sm8550_vdec_input_config_param_vp9[] = {
+	HFI_PROP_DECODE_ORDER_OUTPUT,
 	HFI_PROP_BITSTREAM_RESOLUTION,
 	HFI_PROP_CROP_OFFSETS,
 	HFI_PROP_LUMA_CHROMA_BIT_DEPTH,
@@ -1817,6 +1836,7 @@ static const u32 sm8550_vdec_input_config_param_vp9[] = {
 };
 
 static const u32 sm8550_vdec_input_config_param_av1[] = {
+	HFI_PROP_DECODE_ORDER_OUTPUT,
 	HFI_PROP_BITSTREAM_RESOLUTION,
 	HFI_PROP_CROP_OFFSETS,
 	HFI_PROP_LUMA_CHROMA_BIT_DEPTH,
