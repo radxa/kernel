@@ -668,6 +668,23 @@ static int iris_hfi_gen2_set_super_block(struct iris_inst *inst, u32 plane)
 						  sizeof(u32));
 }
 
+static int iris_hfi_gen2_set_decode_order_output(struct iris_inst *inst, u32 plane)
+{
+	struct platform_inst_fw_cap *cap = &inst->fw_caps[DISPLAY_DELAY_ENABLE];
+	u32 decode_order = cap->value;
+
+	/* Leave the firmware default unchanged unless userspace sets the control. */
+	if (!(cap->flags & CAP_FLAG_CLIENT_SET))
+		return 0;
+
+	return iris_hfi_gen2_session_set_property(inst,
+						  HFI_PROP_DECODE_ORDER_OUTPUT,
+						  HFI_HOST_FLAGS_NONE,
+						  HFI_PORT_BITSTREAM,
+						  HFI_PAYLOAD_U32,
+						  &decode_order, sizeof(decode_order));
+}
+
 static int iris_hfi_gen2_session_set_config_params(struct iris_inst *inst, u32 plane)
 {
 	const struct iris_firmware_data *fdata = inst->core->iris_firmware_data;
@@ -695,6 +712,7 @@ static int iris_hfi_gen2_session_set_config_params(struct iris_inst *inst, u32 p
 		{HFI_PROP_AV1_FILM_GRAIN_PRESENT,     iris_hfi_gen2_set_film_grain             },
 		{HFI_PROP_AV1_SUPER_BLOCK_ENABLED,    iris_hfi_gen2_set_super_block            },
 		{HFI_PROP_OPB_ENABLE,                 iris_hfi_gen2_set_opb_enable             },
+		{HFI_PROP_DECODE_ORDER_OUTPUT,        iris_hfi_gen2_set_decode_order_output    },
 	};
 
 	if (inst->domain == DECODER) {

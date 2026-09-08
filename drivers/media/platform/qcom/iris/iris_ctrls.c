@@ -156,6 +156,10 @@ static enum platform_inst_fw_cap_type iris_get_cap_id(u32 id)
 		return LAYER4_BITRATE_HEVC;
 	case V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_L5_BR:
 		return LAYER5_BITRATE_HEVC;
+	case V4L2_CID_MPEG_VIDEO_DEC_DISPLAY_DELAY_ENABLE:
+		return DISPLAY_DELAY_ENABLE;
+	case V4L2_CID_MPEG_VIDEO_DEC_DISPLAY_DELAY:
+		return DISPLAY_DELAY;
 	default:
 		return INST_FW_CAP_MAX;
 	}
@@ -301,6 +305,10 @@ static u32 iris_get_v4l2_id(enum platform_inst_fw_cap_type cap_id)
 		return V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_L4_BR;
 	case LAYER5_BITRATE_HEVC:
 		return V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_L5_BR;
+	case DISPLAY_DELAY_ENABLE:
+		return V4L2_CID_MPEG_VIDEO_DEC_DISPLAY_DELAY_ENABLE;
+	case DISPLAY_DELAY:
+		return V4L2_CID_MPEG_VIDEO_DEC_DISPLAY_DELAY;
 	default:
 		return 0;
 	}
