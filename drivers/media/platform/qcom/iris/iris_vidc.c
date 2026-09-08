@@ -122,6 +122,9 @@ iris_m2m_queue_init(void *priv, struct vb2_queue *src_vq, struct vb2_queue *dst_
 	dst_vq->drv_priv = inst;
 	dst_vq->buf_struct_size = sizeof(struct iris_buffer);
 	dst_vq->min_reqbufs_allocation = MIN_BUFFERS;
+	if (inst->domain == DECODER &&
+	    inst->core->iris_firmware_data == &iris_hfi_gen2_data)
+		dst_vq->max_num_buffers = DEFAULT_MAX_HOST_BUF_COUNT;
 	dst_vq->dev = inst->core->dev;
 	dst_vq->lock = &inst->ctx_q_lock;
 
