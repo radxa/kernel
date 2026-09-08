@@ -450,48 +450,58 @@ static int clk_rcg2_get_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
 	return 0;
 }
 
-static int clk_rcg2_set_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
+static int __clk_rcg2_set_duty_cycle(struct clk_rcg2 *rcg,
+				   struct clk_duty *duty, u32 cfg)
 {
-	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
-	u32 notn_m, n, m, d, not2d, mask, duty_per, cfg;
+	u32 notn_m, n, m, d, not2d, mask;
 	int ret;
 
 	/* Duty-cycle cannot be modified for non-MND RCGs */
 	if (!rcg->mnd_width)
 		return -EINVAL;
 
-	mask = BIT(rcg->mnd_width) - 1;
-
-	regmap_read(rcg->clkr.regmap, RCG_N_OFFSET(rcg), &notn_m);
-	regmap_read(rcg->clkr.regmap, RCG_M_OFFSET(rcg), &m);
-	regmap_read(rcg->clkr.regmap, RCG_CFG_OFFSET(rcg), &cfg);
-
 	/* Duty-cycle cannot be modified if MND divider is in bypass mode. */
 	if (!(cfg & CFG_MODE_MASK))
 		return -EINVAL;
 
+	mask = BIT(rcg->mnd_width) - 1;
+
+	ret = regmap_read(rcg->clkr.regmap, RCG_N_OFFSET(rcg), &notn_m);
+	if (ret)
+		return ret;
+
+	ret = regmap_read(rcg->clkr.regmap, RCG_M_OFFSET(rcg), &m);
+	if (ret)
+		return ret;
+
 	n = (~(notn_m) + m) & mask;
 
-	duty_per = (duty->num * 100) / duty->den;
-
-	/* Calculate 2d value */
-	d = DIV_ROUND_CLOSEST(n * duty_per * 2, 100);
+	/* Calculate 2d value directly from the requested duty ratio */
+	d = DIV_ROUND_CLOSEST_ULL((u64)n * duty->num * 2, duty->den);
 
 	/*
-	 * Check bit widths of 2d. If D is too big reduce duty cycle.
-	 * Also make sure it is never zero.
+	 * Keep 2d within both the MND limits and the register width so that
+	 * high duty cycles saturate instead of wrapping when written.
 	 */
-	d = clamp_val(d, 1, mask);
-
-	if ((d / 2) > (n - m))
-		d = (n - m) * 2;
-	else if ((d / 2) < (m / 2))
-		d = m;
+	d = clamp_val(d, m, min(mask, (n - m) * 2));
 
 	not2d = ~d & mask;
 
-	ret = regmap_update_bits(rcg->clkr.regmap, RCG_D_OFFSET(rcg), mask,
-				 not2d);
+	return regmap_update_bits(rcg->clkr.regmap, RCG_D_OFFSET(rcg), mask,
+				  not2d);
+}
+
+static int clk_rcg2_set_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
+{
+	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
+	u32 cfg;
+	int ret;
+
+	ret = regmap_read(rcg->clkr.regmap, RCG_CFG_OFFSET(rcg), &cfg);
+	if (ret)
+		return ret;
+
+	ret = __clk_rcg2_set_duty_cycle(rcg, duty, cfg);
 	if (ret)
 		return ret;
 
@@ -991,6 +1001,14 @@ const struct clk_ops clk_gfx3d_ops = {
 };
 EXPORT_SYMBOL_GPL(clk_gfx3d_ops);
 
+static int clk_rcg2_clear_force_enable(struct clk_hw *hw)
+{
+	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
+
+	return regmap_update_bits(rcg->clkr.regmap, rcg->cmd_rcgr + CMD_REG,
+					CMD_ROOT_EN, 0);
+}
+
 static int clk_rcg2_set_force_enable(struct clk_hw *hw)
 {
 	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
@@ -1004,22 +1022,21 @@ static int clk_rcg2_set_force_enable(struct clk_hw *hw)
 
 	/* wait for RCG to turn ON */
 	for (count = 500; count > 0; count--) {
-		if (clk_rcg2_is_enabled(hw))
+		ret = clk_rcg2_is_enabled(hw);
+		if (ret > 0)
 			return 0;
+		if (ret < 0)
+			goto err_clear;
 
 		udelay(1);
 	}
 
 	pr_err("%s: RCG did not turn on\n", name);
-	return -ETIMEDOUT;
-}
+	ret = -ETIMEDOUT;
 
-static int clk_rcg2_clear_force_enable(struct clk_hw *hw)
-{
-	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
-
-	return regmap_update_bits(rcg->clkr.regmap, rcg->cmd_rcgr + CMD_REG,
-					CMD_ROOT_EN, 0);
+err_clear:
+	clk_rcg2_clear_force_enable(hw);
+	return ret;
 }
 
 static int
@@ -1037,6 +1054,26 @@ clk_rcg2_shared_force_enable_clear(struct clk_hw *hw, const struct freq_tbl *f)
 		return ret;
 
 	return clk_rcg2_clear_force_enable(hw);
+}
+
+static int clk_rcg2_shared_set_duty_cycle(struct clk_hw *hw,
+					  struct clk_duty *duty)
+{
+	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
+	int ret, clear_ret;
+
+	/* Leave the clock parked; the next enable will latch the new duty. */
+	if (!clk_hw_is_enabled(hw))
+		return __clk_rcg2_set_duty_cycle(rcg, duty, rcg->parked_cfg);
+
+	ret = clk_rcg2_set_force_enable(hw);
+	if (ret)
+		return ret;
+
+	ret = clk_rcg2_set_duty_cycle(hw, duty);
+	clear_ret = clk_rcg2_clear_force_enable(hw);
+
+	return ret ? ret : clear_ret;
 }
 
 static int __clk_rcg2_shared_set_rate(struct clk_hw *hw, unsigned long rate,
@@ -1224,6 +1261,8 @@ const struct clk_ops clk_rcg2_shared_ops = {
 	.determine_rate = clk_rcg2_determine_rate,
 	.set_rate = clk_rcg2_shared_set_rate,
 	.set_rate_and_parent = clk_rcg2_shared_set_rate_and_parent,
+	.get_duty_cycle = clk_rcg2_get_duty_cycle,
+	.set_duty_cycle = clk_rcg2_shared_set_duty_cycle,
 };
 EXPORT_SYMBOL_GPL(clk_rcg2_shared_ops);
 
