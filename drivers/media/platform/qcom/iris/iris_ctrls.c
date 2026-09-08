@@ -56,6 +56,18 @@ static enum platform_inst_fw_cap_type iris_get_cap_id(u32 id)
 		return GOP_SIZE;
 	case V4L2_CID_MPEG_VIDEO_H264_ENTROPY_MODE:
 		return ENTROPY_MODE;
+	case V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_MODE:
+		return DEBLOCK_MODE_H264;
+	case V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_ALPHA:
+		return DEBLOCK_ALPHA_H264;
+	case V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_BETA:
+		return DEBLOCK_BETA_H264;
+	case V4L2_CID_MPEG_VIDEO_HEVC_LOOP_FILTER_MODE:
+		return DEBLOCK_MODE_HEVC;
+	case V4L2_CID_MPEG_VIDEO_HEVC_LF_TC_OFFSET_DIV2:
+		return DEBLOCK_TC_HEVC;
+	case V4L2_CID_MPEG_VIDEO_HEVC_LF_BETA_OFFSET_DIV2:
+		return DEBLOCK_BETA_HEVC;
 	case V4L2_CID_MPEG_VIDEO_H264_MIN_QP:
 		return MIN_FRAME_QP_H264;
 	case V4L2_CID_MPEG_VIDEO_HEVC_MIN_QP:
@@ -205,6 +217,18 @@ static u32 iris_get_v4l2_id(enum platform_inst_fw_cap_type cap_id)
 		return V4L2_CID_MPEG_VIDEO_GOP_SIZE;
 	case ENTROPY_MODE:
 		return V4L2_CID_MPEG_VIDEO_H264_ENTROPY_MODE;
+	case DEBLOCK_MODE_H264:
+		return V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_MODE;
+	case DEBLOCK_ALPHA_H264:
+		return V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_ALPHA;
+	case DEBLOCK_BETA_H264:
+		return V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_BETA;
+	case DEBLOCK_MODE_HEVC:
+		return V4L2_CID_MPEG_VIDEO_HEVC_LOOP_FILTER_MODE;
+	case DEBLOCK_TC_HEVC:
+		return V4L2_CID_MPEG_VIDEO_HEVC_LF_TC_OFFSET_DIV2;
+	case DEBLOCK_BETA_HEVC:
+		return V4L2_CID_MPEG_VIDEO_HEVC_LF_BETA_OFFSET_DIV2;
 	case MIN_FRAME_QP_H264:
 		return V4L2_CID_MPEG_VIDEO_H264_MIN_QP;
 	case MIN_FRAME_QP_HEVC:
@@ -885,6 +909,67 @@ int iris_set_entropy_mode_gen2(struct iris_inst *inst, enum platform_inst_fw_cap
 				     iris_get_port_info(inst, cap_id),
 				     HFI_PAYLOAD_U32,
 				     &entropy_mode, sizeof(u32));
+}
+
+int iris_set_deblock_gen2(struct iris_inst *inst, enum platform_inst_fw_cap_type cap_id)
+{
+	const struct iris_hfi_session_ops *hfi_ops = inst->hfi_session_ops;
+	u32 hfi_id = inst->fw_caps[cap_id].hfi_id;
+	u32 mode = inst->fw_caps[cap_id].value;
+	u32 alpha_tc, beta, hfi_value;
+
+	if (inst->codec == V4L2_PIX_FMT_H264) {
+		if (cap_id != DEBLOCK_MODE_H264)
+			return 0;
+
+		switch (mode) {
+		case V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_ENABLED:
+			mode = HFI_DEBLOCK_ALL_BOUNDARY;
+			break;
+		case V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_DISABLED:
+			mode = HFI_DEBLOCK_DISABLE;
+			break;
+		case V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_DISABLED_AT_SLICE_BOUNDARY:
+			mode = HFI_DEBLOCK_DISABLE_AT_SLICE_BOUNDARY;
+			break;
+		default:
+			return -EINVAL;
+		}
+
+		alpha_tc = inst->fw_caps[DEBLOCK_ALPHA_H264].value + 6;
+		beta = inst->fw_caps[DEBLOCK_BETA_H264].value + 6;
+	} else if (inst->codec == V4L2_PIX_FMT_HEVC) {
+		if (cap_id != DEBLOCK_MODE_HEVC)
+			return 0;
+
+		switch (mode) {
+		case V4L2_MPEG_VIDEO_HEVC_LOOP_FILTER_MODE_ENABLED:
+			mode = HFI_DEBLOCK_ALL_BOUNDARY;
+			break;
+		case V4L2_MPEG_VIDEO_HEVC_LOOP_FILTER_MODE_DISABLED:
+			mode = HFI_DEBLOCK_DISABLE;
+			break;
+		case V4L2_MPEG_VIDEO_HEVC_LOOP_FILTER_MODE_DISABLED_AT_SLICE_BOUNDARY:
+			mode = HFI_DEBLOCK_DISABLE_AT_SLICE_BOUNDARY;
+			break;
+		default:
+			return -EINVAL;
+		}
+
+		alpha_tc = inst->fw_caps[DEBLOCK_TC_HEVC].value + 6;
+		beta = inst->fw_caps[DEBLOCK_BETA_HEVC].value + 6;
+	} else {
+		return 0;
+	}
+
+	/* Firmware expects offsets biased by 6, with alpha or HEVC tc in bits 23:16. */
+	hfi_value = alpha_tc << 16 | beta << 8 | mode;
+
+	return hfi_ops->session_set_property(inst, hfi_id,
+					     HFI_HOST_FLAGS_NONE,
+					     iris_get_port_info(inst, cap_id),
+					     HFI_PAYLOAD_32_PACKED,
+					     &hfi_value, sizeof(hfi_value));
 }
 
 int iris_set_min_qp(struct iris_inst *inst, enum platform_inst_fw_cap_type cap_id)
