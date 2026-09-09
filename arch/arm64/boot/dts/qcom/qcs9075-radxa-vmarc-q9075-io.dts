@@ -167,6 +167,50 @@
 	};
 };
 
+&thermal_zones {
+	cpu-0-1-0-thermal {
+		polling-delay = <1000>;
+		polling-delay-passive = <1000>;
+
+		trips {
+			fan_cpu_threshold: fan-cpu-threshold {
+				temperature = <50000>;
+				hysteresis = <2000>;
+				type = "active";
+			};
+		};
+
+		cooling-maps {
+			fan-map {
+				trip = <&fan_cpu_threshold>;
+				cooling-device = <&fan0 0 4>;
+				contribution = <2048>;
+			};
+		};
+	};
+
+	gpuss-0-thermal {
+		polling-delay = <1000>;
+		polling-delay-passive = <1000>;
+
+		trips {
+			fan_gpu_threshold: fan-gpu-threshold {
+				temperature = <50000>;
+				hysteresis = <2000>;
+				type = "active";
+			};
+		};
+
+		cooling-maps {
+			fan-map {
+				trip = <&fan_gpu_threshold>;
+				cooling-device = <&fan0 0 4>;
+				contribution = <1024>;
+			};
+		};
+	};
+};
+
 &i2c1 {
 	qcom,load-firmware;
 	qcom,xfer-mode = <1>;
@@ -473,4 +517,3 @@
 		input-enable;
 	};
 };
-
