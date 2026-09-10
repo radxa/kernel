@@ -810,6 +810,7 @@ static const struct msm_dp_bridge_mode_filter {
 	u32 max_vrefresh;
 } msm_dp_bridge_mode_filters[] = {
 	{ "radxa,dragon-q6a", 3440 * 1440, 30 },
+	{ "radxa,dragon-q6b", 3440 * 1440, 60 },
 	{}
 };
 
@@ -906,6 +907,9 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
 	if (mode_pclk_khz > DP_MAX_PIXEL_CLK_KHZ)
 		return MODE_CLOCK_HIGH;
 
+	if (!msm_dp_bridge_mode_filter_valid(mode))
+		return MODE_BAD;
+
 	source_bpp = msm_dp_display_get_source_bpp(dp->connector, NULL);
 
 	if (!yuv420 &&
@@ -920,9 +924,6 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
 	supported_rate_khz = link_info->num_lanes * link_info->rate * 8;
 
 	if (mode_rate_khz > supported_rate_khz)
-		return MODE_BAD;
-
-	if (!msm_dp_bridge_mode_filter_valid(mode))
 		return MODE_BAD;
 
 	return MODE_OK;
