@@ -32,7 +32,7 @@ properties:
     maxItems: 1
 
   "#pwm-cells":
-    const: 2
+    enum: [2, 3]
 
   gpios:
     description:
