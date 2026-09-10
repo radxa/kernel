@@ -3,6 +3,12 @@
  * Copyright (c) 2025 Radxa Computer (Shenzhen) Co., Ltd.
  */
 
+/dts-v1/;
+
+/* PM7250B is configured to use SID8/9 */
+#define PM7250B_SID 8
+#define PM7250B_SID1 9
+
 #include <dt-bindings/iio/qcom,spmi-adc7-pmk8350.h>
 #include <dt-bindings/iio/qcom,spmi-adc7-pm7325.h>
 #include <dt-bindings/leds/common.h>
@@ -10,6 +16,7 @@
 #include <dt-bindings/pwm/pwm.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include "kodiak.dtsi"
+#include "pm7250b.dtsi"
 #include "pm7325.dtsi"
 #include "pm8350c.dtsi" /* PM7350C */
 #include "pmk8350.dtsi" /* PMK7325 */
@@ -31,8 +38,8 @@
 /delete-node/ &wpss_mem;
 
 / {
-	model = "Radxa CM-Q64";
-	compatible = "radxa,cm-q64", "qcom,qcm6490";
+	model = "Radxa Dragon Q6B";
+	compatible = "radxa,dragon-q6b", "qcom,qcm6490";
 	chassis-type = "embedded";
 
 	aliases {
@@ -41,32 +48,71 @@
 		serial0 = &uart5;
 	};
 
-	chosen {
-		stdout-path = "serial0:115200n8";
+	pmic-glink {
+		compatible = "qcom,qcm6490-pmic-glink", "qcom,pmic-glink";
+
+		#address-cells = <1>;
+		#size-cells = <0>;
+		orientation-gpios = <&tlmm 140 GPIO_ACTIVE_HIGH>;
+
+		connector@0 {
+			compatible = "usb-c-connector";
+			reg = <0>;
+			power-role = "source";
+			data-role = "dual";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+
+					pmic_glink_hs_in: endpoint {
+						remote-endpoint = <&usb_1_dwc3_hs>;
+					};
+				};
+
+				port@1 {
+					reg = <1>;
+
+					pmic_glink_ss_in: endpoint {
+						remote-endpoint = <&usb_dp_qmpphy_out>;
+					};
+				};
+
+				port@2 {
+					reg = <2>;
+
+					pmic_glink_sbu_in: endpoint {
+						remote-endpoint = <&usb1_sbu_mux>;
+					};
+				};
+			};
+		};
 	};
 
-	fan_pwm: fan-pwm {
-		compatible = "pwm-gpio";
-		gpios = <&tlmm 108 GPIO_ACTIVE_HIGH>;
-		pinctrl-0 = <&fan_pwm_cpu>;
+	usb1-sbu-mux {
+		compatible = "pericom,pi3usb102", "gpio-sbu-mux";
+
+		enable-gpios = <&tlmm 6 GPIO_ACTIVE_LOW>;
+		select-gpios = <&tlmm 7 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-0 = <&usb1_sbu_default>;
 		pinctrl-names = "default";
-		#pwm-cells = <3>;
+
+		mode-switch;
+		orientation-switch;
+
+		port {
+			usb1_sbu_mux: endpoint {
+				remote-endpoint = <&pmic_glink_sbu_in>;
+			};
+		};
 	};
 
-	pwm_fan: pwm-fan {
-		pinctrl-0 = <&fan_tacho>;
-		pinctrl-names = "default";
-		compatible = "pwm-fan";
-		pwms = <&fan_pwm 0 20000 0>;
-		fan-supply = <&vcc_3v3>;
-		interrupt-parent = <&pm8350c_gpios>;
-		interrupts = <5 IRQ_TYPE_EDGE_FALLING>;
-		#cooling-cells = <2>;
-		cooling-levels = <0 31 63 95 127 159 191 223 255>;
-    };
-
-	wcd938x: audio-codec {
-		compatible = "qcom,wcd9380-codec";
+	wcd9385: audio-codec {
+		compatible = "qcom,wcd9385-codec";
 
 		pinctrl-0 = <&wcd_default>;
 		pinctrl-names = "default";
@@ -82,7 +128,8 @@
 		qcom,micbias2-microvolt = <1800000>;
 		qcom,micbias3-microvolt = <1800000>;
 		qcom,micbias4-microvolt = <1800000>;
-		qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000 500000 500000 500000 500000>;
+		qcom,mbhc-buttons-vthreshold-microvolt =
+			<75000 150000 237000 500000 500000 500000 500000 500000>;
 		qcom,mbhc-headset-vthreshold-microvolt = <1700000>;
 		qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
 		qcom,rx-device = <&wcd_rx>;
@@ -93,9 +140,30 @@
 		#sound-dai-cells = <1>;
 	};
 
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	fan_pwm: pwm {
+		compatible = "clk-pwm";
+		#pwm-cells = <3>;
+		clocks = <&gcc GCC_GP2_CLK>;
+		pinctrl-0 = <&fan_pwm_default>;
+		pinctrl-1 = <&fan_pwm_gpio>;
+		pinctrl-names = "default", "gpio";
+		gpios = <&tlmm 106 GPIO_ACTIVE_LOW>;
+	};
+
+	pwm_fan: pwm-fan {
+		compatible = "pwm-fan";
+		pwms = <&fan_pwm 0 20000 PWM_POLARITY_INVERTED>;
+		#cooling-cells = <2>;
+		cooling-levels = <0 31 63 95 127 159 191 223 255>;
+	};
+
 	usb2_1_con: connector-0 {
 		compatible = "usb-a-connector";
-		vbus-supply = <&vbus>;
+		vbus-supply = <&vcc_5v_peri>;
 
 		port {
 			usb2_1_connector: endpoint {
@@ -106,7 +174,7 @@
 
 	usb2_2_con: connector-1 {
 		compatible = "usb-a-connector";
-		vbus-supply = <&vbus>;
+		vbus-supply = <&vcc_5v_peri>;
 
 		port {
 			usb2_2_connector: endpoint {
@@ -117,7 +185,7 @@
 
 	usb2_3_con: connector-2 {
 		compatible = "usb-a-connector";
-		vbus-supply = <&vbus>;
+		vbus-supply = <&vcc_5v_peri>;
 
 		port {
 			usb2_3_connector: endpoint {
@@ -126,8 +194,8 @@
 		};
 	};
 
-	usb3_con: connector {
-		compatible = "usb-a-connector";
+	hdmi-bridge {
+		compatible = "chrontel,ch7218a";
 
 		ports {
 			#address-cells = <1>;
@@ -136,51 +204,31 @@
 			port@0 {
 				reg = <0>;
 
-				usb3_con_hs_in: endpoint {
-					remote-endpoint = <&usb_1_dwc3_hs>;
+				hdmi_bridge_in: endpoint {
+					remote-endpoint = <&mdss_edp_out>;
 				};
 			};
 
 			port@1 {
 				reg = <1>;
 
-				usb3_con_ss_in: endpoint {
-					remote-endpoint = <&usb_1_qmpphy_out_usb>;
+				hdmi_bridge_out: endpoint {
+					remote-endpoint = <&hdmi_connector_in>;
 				};
 			};
 		};
 	};
 
-	hdmi-edp-connector {
+	hdmi-connector {
 		compatible = "hdmi-connector";
 		label = "hdmi";
 		type = "a";
 
 		port {
-			hdmi_edp_connector_in: endpoint {
-				remote-endpoint = <&hdmi_edp_bridge_out>;
+			hdmi_connector_in: endpoint {
+				remote-endpoint = <&hdmi_bridge_out>;
 			};
 		};
-	};
-
-	/* HDMI0 CEC via GPIO_45 (HDMI0_CEC_CPU), bit-banged through TXS0108 level shifter */
-	cec-0 {
-		compatible = "cec-gpio";
-		cec-gpios = <&tlmm 45 (GPIO_ACTIVE_HIGH|GPIO_OPEN_DRAIN)>;
-		hdmi-phandle = <&lt8712sx>;
-		port-name = "HDMI0";
-		pinctrl-0 = <&cec0_gpio_default>;
-		pinctrl-names = "default";
-	};
-
-	/* HDMI1 CEC via GPIO_46 (HDMI1_CEC_CPU), bit-banged through TXS0108 level shifter */
-	cec-1 {
-		compatible = "cec-gpio";
-		cec-gpios = <&tlmm 46 (GPIO_ACTIVE_HIGH|GPIO_OPEN_DRAIN)>;
-		hdmi-phandle = <&lt8712sx>;
-		port-name = "HDMI1";
-		pinctrl-0 = <&cec1_gpio_default>;
-		pinctrl-names = "default";
 	};
 
 	leds {
@@ -280,84 +328,87 @@
 		};
 	};
 
-	vcc_1v8: regulator-vcc-1v8 {
+	pwr_in: regulator-pwr-in {
 		compatible = "regulator-fixed";
-		regulator-name = "vcc_1v8";
+		regulator-name = "pwr_in";
+		regulator-min-microvolt = <12000000>;
+		regulator-max-microvolt = <12000000>;
+
+		regulator-always-on;
+	};
+
+	vcc_1v8_a: regulator-vcc-1v8-a {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_1v8_a";
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <1800000>;
-		vin-supply = <&vreg_l18b_1p8>;
+		vin-supply = <&vcc_5v_a>;
 
 		regulator-always-on;
 	};
 
-	vcc_3v3: regulator-vcc-3v3 {
+	/* U56 EN1 uses VCC_3V3_S; regulator-fixed cannot model this dependency. */
+	vcc_1v8_s: regulator-vcc-1v8-s {
 		compatible = "regulator-fixed";
-		regulator-name = "vcc_3v3";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		vin-supply = <&vreg_l18b_1p8>;
+		regulator-name = "vcc_1v8_s";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		vin-supply = <&vcc_1v8_a>;
 
 		regulator-always-on;
 	};
 
-	wifi_pwr_en_3v3: wifi-pwr-en-3v3 {
+	vcc_5v_a: regulator-vcc-5v-a {
 		compatible = "regulator-fixed";
-		regulator-name = "wifi_pwr_en_3v3";
+		regulator-name = "vcc_5v_a";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		vin-supply = <&pwr_in>;
+
+		regulator-always-on;
+	};
+
+	/* U6 EN1/EN2 use VCC_5V_A; regulator-fixed cannot model this dependency. */
+	vcc_3v3_a: regulator-vcc-3v3-a {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_3v3_a";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		vin-supply = <&vcc_3v3>;
-		gpio = <&tlmm 33 GPIO_ACTIVE_HIGH>;
-		enable-active-high;
-
-		pinctrl-0 = <&wifi_pwr_en>;
-		pinctrl-names = "default";
+		vin-supply = <&pwr_in>;
 
 		regulator-boot-on;
 		regulator-always-on;
 	};
 
-	vcc_3v3s: regulator-vcc-3v3s {
+	/* U56 EN2 uses VREG_L17B_1P8; regulator-fixed cannot model this dependency. */
+	vcc_3v3_s: regulator-vcc-3v3-s {
 		compatible = "regulator-fixed";
-		regulator-name = "vcc_3v3s";
+		regulator-name = "vcc_3v3_s";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		vin-supply = <&vreg_l7b_2p96>;
-	};
-
-	vbus: regulator-vbus {
-		compatible = "regulator-fixed";
-		regulator-name = "vbus";
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		vin-supply = <&vcc_3v3>;
-	};
-
-	vdd_5v_dcin: regulator-5v-dcin {
-		compatible = "regulator-fixed";
-		regulator-name = "vdd_5v_dcin";
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
+		vin-supply = <&vcc_3v3_a>;
 
 		regulator-always-on;
 	};
 
-	vdd_5v_in: regulator-5v-in {
+	vcc_5v_peri: regulator-vcc-5v-peri {
 		compatible = "regulator-fixed";
-		regulator-name = "vdd_5v_in";
+		regulator-name = "vcc_5v_peri";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		vin-supply = <&vdd_5v_dcin>;
+		vin-supply = <&vcc_5v_a>;
 
+		regulator-boot-on;
 		regulator-always-on;
 	};
 
 	vph_pwr: regulator-vph-pwr {
 		compatible = "regulator-fixed";
 		regulator-name = "vph_pwr";
-		regulator-min-microvolt = <4300000>;
-		regulator-max-microvolt = <4300000>;
-		vin-supply = <&vdd_5v_in>;
+		regulator-min-microvolt = <3700000>;
+		regulator-max-microvolt = <3700000>;
 
+		regulator-boot-on;
 		regulator-always-on;
 	};
 };
@@ -454,6 +505,7 @@
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1896000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+			regulator-always-on;
 		};
 
 		vreg_l18b_1p8: ldo18 {
@@ -502,18 +554,6 @@
 			regulator-allow-set-load;
 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
 						   RPMH_REGULATOR_MODE_HPM>;
-		};
-
-		vreg_l5c_1p62: ldo5 {
-			regulator-name = "vreg_l5c_3p296";
-			regulator-min-microvolt = <3296000>;
-			regulator-max-microvolt = <3296000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
-			regulator-allow-set-load;
-			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
-						   RPMH_REGULATOR_MODE_HPM>;
-
-			regulator-always-on;
 		};
 
 		vreg_l6c_2p96: ldo6 {
@@ -591,54 +631,30 @@
 	qcom,enable-gsi-dma;
 	status = "okay";
 
-	lt8712sx: hdmi-edp-bridge@4f {
-		compatible = "lontium,lt8712sx";
-		reg = <0x4f>;
-		cec-port-names = "HDMI0", "HDMI1";
-		vdd-supply = <&vcc_3v3s>;
-		reset-gpios = <&tlmm 110 GPIO_ACTIVE_LOW>;
-		pinctrl-0 = <&lt8712sx_reset_default>;
-		pinctrl-names = "default";
-
-		ports {
-			#address-cells = <1>;
-			#size-cells = <0>;
-
-			port@0 {
-				reg = <0>;
-
-				hdmi_edp_bridge_in: endpoint {
-					remote-endpoint = <&mdss_edp_out>;
-				};
-			};
-
-			port@1 {
-				reg = <1>;
-
-				hdmi_edp_bridge_out: endpoint {
-					remote-endpoint = <&hdmi_edp_connector_in>;
-				};
-			};
-		};
-	};
-
-	eeprom: eeprom@50 {
-		compatible = "belling,bl24c16f", "atmel,24c16";
-		reg = <0x50>;
-		pagesize = <16>;
-		vcc-supply = <&vcc_3v3>;
-	};
-
 	rtc: rtc@68 {
 		compatible = "st,m41t11";
 		reg = <0x68>;
-		vcc-supply = <&vcc_3v3>;
 	};
+};
+
+&i2c0 {
+	qcom,enable-gsi-dma;
+	status = "okay";
+};
+
+/* External touchscreen */
+&i2c13 {
+	qcom,enable-gsi-dma;
+	status = "okay";
 };
 
 &lpass_audiocc {
 	compatible = "qcom,qcm6490-lpassaudiocc";
 	/delete-property/ power-domains;
+};
+
+&lpass_tlmm {
+	status = "okay";
 };
 
 &lpass_rx_macro {
@@ -660,23 +676,18 @@
 &mdss_dp {
 	sound-name-prefix = "Display Port0";
 
-	status = "disabled";
+	status = "okay";
 };
 
 &mdss_dp_out {
-	data-lanes = <0 1>;
+	data-lanes = <0 1 2 3>;
+	link-frequencies = /bits/ 64 <1620000000 2700000000 5400000000 8100000000>;
+
 	remote-endpoint = <&usb_dp_qmpphy_dp_in>;
 };
 
 &mdss_edp {
 	status = "okay";
-};
-
-&mdss_edp_out {
-	data-lanes = <0 1 2 3>;
-	link-frequencies = /bits/ 64 <1620000000 2700000000 5400000000 8100000000>;
-
-	remote-endpoint = <&hdmi_edp_bridge_in>;
 };
 
 &mdss_edp_phy {
@@ -685,17 +696,24 @@
 	vdda-phy-supply = <&vreg_l6b_1p2>;
 };
 
+&mdss_edp_out {
+	data-lanes = <0 1 2 3>;
+	link-frequencies = /bits/ 64 <1620000000 2700000000 5400000000 8100000000>;
+
+	remote-endpoint = <&hdmi_bridge_in>;
+};
+
 &pcie0 {
-	vddpe-3v3-supply = <&vcc_3v3>;
-	vdda-supply = <&vreg_l6b_1p2>;
-
-	perst-gpios = <&tlmm 87 GPIO_ACTIVE_LOW>;
-	wake-gpios = <&tlmm 89 GPIO_ACTIVE_HIGH>;
-
 	pinctrl-0 = <&pcie0_clkreq_n>, <&pcie0_reset_n>, <&pcie0_wake_n>;
 	pinctrl-names = "default";
 
 	status = "okay";
+};
+
+&pcie0_port {
+	phys = <&pcie0_phy>;
+	reset-gpios = <&tlmm 87 GPIO_ACTIVE_LOW>;
+	wake-gpios = <&tlmm 89 GPIO_ACTIVE_LOW>;
 };
 
 &pcie0_phy {
@@ -706,21 +724,18 @@
 };
 
 &pcie1 {
-	perst-gpios = <&tlmm 2 GPIO_ACTIVE_LOW>;
-	wake-gpios = <&tlmm 3 GPIO_ACTIVE_HIGH>;
-
 	pinctrl-0 = <&pcie1_clkreq_n>, <&pcie1_reset_n>, <&pcie1_wake_n>;
 	pinctrl-names = "default";
 
 	/*
-	* Support for many different bus topologies
-	* Tested devices:
-	* - QPS615 PCIe switch
-	* - ASM1182e PCIe switch
-	* - ASM2824 PCIe switch
-	* - NVIDIA dGPU
-	* - Chelsio T520-CR
-	*/
+	 * Support for many different bus topologies
+	 * Tested devices:
+	 * - QPS615 PCIe switch
+	 * - ASM1182e PCIe switch
+	 * - ASM2824 PCIe switch
+	 * - NVIDIA dGPU
+	 * - Chelsio T520-CR
+	 */
 	iommu-map = <0x0 &apps_smmu 0x1c80 0x1>,
 			<0x100 &apps_smmu 0x1c80 0x1>,
 			<0x101 &apps_smmu 0x1c80 0x1>,
@@ -753,10 +768,174 @@
 	status = "okay";
 };
 
+&pcie1_port0 {
+	phys = <&pcie1_phy>;
+
+	reset-gpios = <&tlmm 2 GPIO_ACTIVE_LOW>;
+	wake-gpios = <&tlmm 3 GPIO_ACTIVE_LOW>;
+
+	pcie@0,0 {
+		compatible = "pci1179,0623";
+		reg = <0x10000 0x0 0x0 0x0 0x0>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+
+		device_type = "pci";
+		ranges;
+		bus-range = <0x2 0xff>;
+
+		vddc-supply = <&vreg_l10c_0p88>;
+		vdd18-supply = <&vreg_l18b_1p8>;
+		vdd09-supply = <&vreg_l10c_0p88>;
+		vddio1-supply = <&vreg_l18b_1p8>;
+		vddio2-supply = <&vreg_l18b_1p8>;
+		vddio18-supply = <&vreg_l18b_1p8>;
+
+		i2c-parent = <&i2c0 0x77>;
+
+		resx-gpios = <&pm8350c_gpios 1 GPIO_ACTIVE_LOW>;
+		n-fts = /bits/ 8 <0xff 0xff>;
+
+		toshiba,axi-bus-frequency-half;
+
+		pinctrl-0 = <&tc9563_resx_n>;
+		pinctrl-names = "default";
+
+		pcie@1,0 {
+			reg = <0x20800 0x0 0x0 0x0 0x0>;
+			#address-cells = <3>;
+			#size-cells = <2>;
+
+			device_type = "pci";
+			ranges;
+			bus-range = <0x3 0xff>;
+		};
+
+		pcie@2,0 {
+			reg = <0x21000 0x0 0x0 0x0 0x0>;
+			#address-cells = <3>;
+			#size-cells = <2>;
+
+			device_type = "pci";
+			ranges;
+			bus-range = <0x4 0xff>;
+		};
+
+		pcie@3,0 {
+			reg = <0x21800 0x0 0x0 0x0 0x0>;
+			#address-cells = <3>;
+			#size-cells = <2>;
+			device_type = "pci";
+			ranges;
+			bus-range = <0x5 0xff>;
+
+			tc956x_emac0: pci@0,0 {
+				compatible = "pci1179,0220";
+				reg = <0x50000 0x0 0x0 0x0 0x0>;
+				#address-cells = <3>;
+				#size-cells = <2>;
+				device_type = "pci";
+				ranges;
+
+				gpio-controller;
+				#gpio-cells = <2>;
+
+				phy-mode = "sgmii";
+				phy-handle = <&tc956x_emac0_phy>;
+
+				mdio {
+					compatible = "snps,dwmac-mdio";
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					tc956x_emac0_phy: ethernet-phy@1c {
+						compatible = "ethernet-phy-id004d.d101";
+						reg = <0x1c>;
+
+						wakeup-gpios = <&tlmm 101 GPIO_ACTIVE_LOW>;
+						reset-gpios = <&tc956x_emac0 0 GPIO_ACTIVE_LOW>;
+						reset-assert-us = <11000>;
+						reset-deassert-us = <70000>;
+
+						qca,led-mode = <2>;
+
+						pinctrl-0 = <&eth_phy0_wol_default>;
+						pinctrl-names = "default";
+
+						leds {
+							#address-cells = <1>;
+							#size-cells = <0>;
+
+							led@0 {
+								reg = <0>;
+								active-low;
+							};
+						};
+					};
+				};
+			};
+
+			pci@0,1 {
+				compatible = "pci1179,0220";
+				reg = <0x50100 0x0 0x0 0x0 0x0>;
+				#address-cells = <3>;
+				#size-cells = <2>;
+				device_type = "pci";
+				ranges;
+
+				phy-mode = "sgmii";
+				phy-handle = <&tc956x_emac1_phy>;
+
+				mdio {
+					compatible = "snps,dwmac-mdio";
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					tc956x_emac1_phy: ethernet-phy@1c {
+						compatible = "ethernet-phy-id004d.d101";
+						reg = <0x1c>;
+						wakeup-gpios = <&tlmm 141 GPIO_ACTIVE_LOW>;
+						reset-gpios = <&tc956x_emac0 1 GPIO_ACTIVE_LOW>;
+						reset-assert-us = <11000>;
+						reset-deassert-us = <70000>;
+
+						qca,led-mode = <2>;
+
+						pinctrl-0 = <&eth_phy1_wol_default>;
+						pinctrl-names = "default";
+
+						leds {
+							#address-cells = <1>;
+							#size-cells = <0>;
+
+							led@0 {
+								reg = <0>;
+								active-low;
+							};
+						};
+					};
+				};
+			};
+		};
+	};
+};
+
+&pm8350c_gpios {
+	tc9563_resx_n: tc9563-resx-state {
+		pins = "gpio1";
+		function = "normal";
+
+		bias-disable;
+		input-disable;
+		output-enable;
+		power-source = <0>;
+	};
+};
+
 &pm7325_gpios {
 	pinctrl-0 = <&hardware_version_sel>;
 	pinctrl-names = "default";
-	gpio-line-names = "",			/* GPIO_01 */
+	gpio-line-names = "",	/* GPIO_01 */
 			  "UFS_THERM",
 			  "Version_ADC",
 			  "",
@@ -778,34 +957,6 @@
 &pm7325_temp_alarm {
 	io-channels = <&pmk8350_vadc PM7325_ADC7_DIE_TEMP>;
 	io-channel-names = "thermal";
-};
-
-&pm8350c_gpios {
-	gpio-line-names = "",		/* 1 */
-			  "",
-			  "",
-			  "",
-			  "FAN_TACHO_IN",
-			  "",
-			  "LCD_BLEN",
-			  "LCD_BLPWM",
-			  "";
-
-	fan_tacho: fan-tacho-state {
-		pins = "gpio5";
-		function = PMIC_GPIO_FUNC_NORMAL;
-		bias-disable;
-		power-source = <1>;
-	};
-
-	lcd_bl_en: lcd-bl-en-state {
-		pins = "gpio7";
-		function = PMIC_GPIO_FUNC_NORMAL;
-		bias-disable;
-		qcom,drive-strength = <PMIC_GPIO_STRENGTH_LOW>;
-		output-low;
-		power-source = <1>;
-	};
 };
 
 &pmk8350_adc_tm {
@@ -909,12 +1060,12 @@
 };
 
 &remoteproc_adsp {
-	firmware-name = "qcom/qcs6490/radxa/cm-q64/adsp.mbn";
+	firmware-name = "qcom/qcs6490/radxa/dragon-q6b/adsp.mbn";
 	status = "okay";
 };
 
 &remoteproc_cdsp {
-	firmware-name = "qcom/qcs6490/radxa/cm-q64/cdsp.mbn";
+	firmware-name = "qcom/qcs6490/radxa/dragon-q6a/cdsp.mbn";
 	status = "okay";
 };
 
@@ -930,32 +1081,46 @@
 };
 
 &sdhc_2 {
-	pinctrl-0 = <&sdc2_clk>, <&sdc2_cmd>, <&sdc2_data>;
-	pinctrl-1 = <&sdc2_clk_sleep>, <&sdc2_cmd_sleep>, <&sdc2_data_sleep>;
+	pinctrl-0 = <&sdc2_clk>, <&sdc2_cmd>, <&sdc2_data>, <&sd_cd>;
+	pinctrl-1 = <&sdc2_clk_sleep>, <&sdc2_cmd_sleep>, <&sdc2_data_sleep>, <&sd_cd>;
 
 	vmmc-supply = <&vreg_l9c_2p96>;
 	vqmmc-supply = <&vreg_l6c_2p96>;
-	broken-cd;
 
+	cd-gpios = <&tlmm 91 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
 
 &sound {
-	#address-cells = <1>;
-	#size-cells = <0>;
 	compatible = "qcom,qcs6490-rb3gen2-sndcard";
-	model = "QCS6490-Radxa-CM-Q64";
+	model = "QCS6490-Radxa-Dragon-Q6B";
 
 	audio-routing = "IN1_HPHL", "HPHL_OUT",
 			"IN2_HPHR", "HPHR_OUT",
 			"AMIC2", "MIC BIAS2",
 			"TX SWR_ADC1", "ADC2_OUTPUT";
 
-	wcd-playback-dai-link {
-		link-name = "WCD Playback";
+	dp0-dai-link {
+		link-name = "DP0 Playback";
 
 		codec {
-			sound-dai = <&wcd938x 0>, <&swr0 0>, <&lpass_rx_macro 0>;
+			sound-dai = <&mdss_dp>;
+		};
+
+		cpu {
+			sound-dai = <&q6apmbedai DISPLAY_PORT_RX_0>;
+		};
+
+		platform {
+			sound-dai = <&q6apm>;
+		};
+	};
+
+	wcd-playback-dai-link {
+		link-name = "WCD9385 Playback";
+
+		codec {
+			sound-dai = <&wcd9385 0>, <&swr0 0>, <&lpass_rx_macro 0>;
 		};
 
 		cpu {
@@ -968,10 +1133,10 @@
 	};
 
 	wcd-capture-dai-link {
-		link-name = "WCD Capture";
+		link-name = "WCD9385 Capture";
 
 		codec {
-			sound-dai = <&wcd938x 1>, <&swr1 0>, <&lpass_tx_macro 0>;
+			sound-dai = <&wcd9385 1>, <&swr1 0>, <&lpass_tx_macro 0>;
 		};
 
 		cpu {
@@ -1009,35 +1174,17 @@
 		polling-delay-passive = <100>;
 
 		trips {
-			cpuss0_alert1: trip-point1 {
+			cpuss0_fan_trip: fan {
 				temperature = <65000>;
 				hysteresis = <10000>;
-				type = "passive";
-			};
-
-			cpuss0_alert2: trip-point2 {
-				temperature = <80000>;
-				hysteresis = <5000>;
 				type = "passive";
 			};
 		};
 
 		cooling-maps {
-			map0 {
-				trip = <&cpuss0_alert1>;
-				cooling-device = <&pwm_fan THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
-						 <&idle_cooling0 0 0>,
-						 <&idle_cooling1 0 0>,
-						 <&idle_cooling2 0 0>,
-						 <&idle_cooling3 0 0>;
-			};
-
-			map1 {
-				trip = <&cpuss0_alert2>;
-				cooling-device = <&idle_cooling0 60 90>,
-						 <&idle_cooling1 60 90>,
-						 <&idle_cooling2 60 90>,
-						 <&idle_cooling3 60 90>;
+			map-fan {
+				trip = <&cpuss0_fan_trip>;
+				cooling-device = <&pwm_fan THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 			};
 		};
 	};
@@ -1046,198 +1193,132 @@
 		polling-delay-passive = <100>;
 
 		trips {
-			cpuss1_alert1: trip-point1 {
+			cpuss1_fan_trip: fan {
 				temperature = <65000>;
 				hysteresis = <10000>;
 				type = "passive";
 			};
-
-			cpuss1_alert2: trip-point2 {
-				temperature = <80000>;
-				hysteresis = <5000>;
-				type = "passive";
-			};
 		};
+
 		cooling-maps {
-			map0 {
-				trip = <&cpuss1_alert1>;
-				cooling-device = <&pwm_fan THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
-						 <&idle_cooling4 0 0>,
-						 <&idle_cooling5 0 0>,
-						 <&idle_cooling6 0 0>,
-						 <&idle_cooling7 0 0>;
-			};
-
-			map1 {
-				trip = <&cpuss1_alert2>;
-				cooling-device = <&idle_cooling4 40 90>,
-						 <&idle_cooling5 60 90>,
-						 <&idle_cooling6 60 90>,
-						 <&idle_cooling7 60 90>;
+			map-fan {
+				trip = <&cpuss1_fan_trip>;
+				cooling-device = <&pwm_fan THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 			};
 		};
-	};
-
-	gpuss0-thermal {
-		cooling-maps {
-			map0 {
-				trip = <&gpuss0_alert0>;
-				cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
-			};
-		};
-	};
-
-	gpuss1-thermal {
-		cooling-maps {
-			map0 {
-				trip = <&gpuss1_alert0>;
-				cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
-			};
-		};
-	};
-};
-
-&gpuss0_alert0 {
-	temperature = <75000>;
-	hysteresis = <5000>;
-};
-
-&gpuss1_alert0 {
-	temperature = <75000>;
-	hysteresis = <5000>;
-};
-
-&cpu0_alert0 {
-	temperature = <75000>;
-	hysteresis = <5000>;
-};
-
-&cpu1_alert0 {
-	temperature = <75000>;
-	hysteresis = <5000>;
-};
-
-&cpu2_alert0 {
-	temperature = <75000>;
-	hysteresis = <5000>;
-};
-
-&cpu3_alert0 {
-	temperature = <75000>;
-	hysteresis = <5000>;
-};
-
-&cpu4_alert0 {
-	temperature = <75000>;
-	hysteresis = <5000>;
-};
-
-&cpu5_alert0 {
-	temperature = <75000>;
-	hysteresis = <5000>;
-};
-
-&cpu6_alert0 {
-	temperature = <75000>;
-	hysteresis = <5000>;
-};
-
-&cpu7_alert0 {
-	temperature = <75000>;
-	hysteresis = <5000>;
-};
-
-&cpu0 {
-	idle_cooling0: thermal-idle {
-		#cooling-cells = <2>;
-		duration-us = <20000>;
-		exit-latency-us = <1500>;
-	};
-};
-
-&cpu1 {
-	idle_cooling1: thermal-idle {
-		#cooling-cells = <2>;
-		duration-us = <20000>;
-		exit-latency-us = <1500>;
-	};
-};
-
-&cpu2 {
-	idle_cooling2: thermal-idle {
-		#cooling-cells = <2>;
-		duration-us = <20000>;
-		exit-latency-us = <1500>;
-	};
-};
-
-&cpu3 {
-	idle_cooling3: thermal-idle {
-		#cooling-cells = <2>;
-		duration-us = <20000>;
-		exit-latency-us = <1500>;
-	};
-};
-
-&cpu4 {
-	idle_cooling4: thermal-idle {
-		#cooling-cells = <2>;
-		duration-us = <20000>;
-		exit-latency-us = <1500>;
-	};
-};
-
-&cpu5 {
-	idle_cooling5: thermal-idle {
-		#cooling-cells = <2>;
-		duration-us = <20000>;
-		exit-latency-us = <1500>;
-	};
-};
-
-&cpu6 {
-	idle_cooling6: thermal-idle {
-		#cooling-cells = <2>;
-		duration-us = <20000>;
-		exit-latency-us = <1500>;
-	};
-};
-
-&cpu7 {
-	idle_cooling7: thermal-idle {
-		#cooling-cells = <2>;
-		duration-us = <20000>;
-		exit-latency-us = <1500>;
 	};
 };
 
 &tlmm {
-	fan_pwm_cpu: fan-ctr-pwm-state {
-		pins = "gpio108";
-		function = "gpio";
-		drive-strength = <2>;
-		bias-disable;
-	};
+	/*
+	 * 12-17: reserved for QSPI flash
+	 */
+	gpio-reserved-ranges = <12 6>;
+	gpio-line-names =
+		/* GPIO_0 ~ GPIO_3 */
+		"PIN_13", "PIN_15", "", "",
+		/* GPIO_4 ~ GPIO_7 */
+		"", "", "", "",
+		/* GPIO_8 ~ GPIO_11 */
+		"PIN_27", "PIN_28", "", "",
+		/* GPIO_12 ~ GPIO_15 */
+		"", "", "", "",
+		/* GPIO_16 ~ GPIO_19 */
+		"", "", "", "",
+		/* GPIO_20 ~ GPIO_23 */
+		"", "", "PIN_8", "PIN_10",
+		/* GPIO_24 ~ GPIO_27 */
+		"PIN_3", "PIN_5", "PIN_18", "PIN_16",
+		/* GPIO_28 ~ GPIO_31 */
+		"", "", "", "",
+		/* GPIO_32 ~ GPIO_35 */
+		"", "", "", "",
+		/* GPIO_36 ~ GPIO_39 */
+		"", "", "", "",
+		/* GPIO_40 ~ GPIO_43 */
+		"", "", "", "",
+		/* GPIO_44 ~ GPIO_47 */
+		"", "", "", "",
+		/* GPIO_48 ~ GPIO_51 */
+		"PIN_21", "PIN_19", "PIN_23", "PIN_24",
+		/* GPIO_52 ~ GPIO_55 */
+		"", "", "", "",
+		/* GPIO_56 ~ GPIO_59 */
+		"PIN_36", "PIN_22", "PIN_37", "PIN_26",
+		/* GPIO_60 ~ GPIO_63 */
+		"", "", "", "",
+		/* GPIO_64 ~ GPIO_67 */
+		"", "", "", "",
+		/* GPIO_68 ~ GPIO_71 */
+		"", "", "", "",
+		/* GPIO_72 ~ GPIO_75 */
+		"", "", "", "",
+		/* GPIO_76 ~ GPIO_79 */
+		"", "PIN_33", "", "",
+		/* GPIO_80 ~ GPIO_83 */
+		"", "", "", "",
+		/* GPIO_84 ~ GPIO_87 */
+		"", "", "", "",
+		/* GPIO_88 ~ GPIO_91 */
+		"", "", "", "",
+		/* GPIO_92 ~ GPIO_95 */
+		"", "", "", "",
+		/* GPIO_96 ~ GPIO_99 */
+		"PIN_7", "PIN_12", "PIN_38", "PIN_40",
+		/* GPIO_100 ~ GPIO_103 */
+		"PIN_35", "", "", "",
+		/* GPIO_104 ~ GPIO_107 */
+		"", "", "", "",
+		/* GPIO_108 ~ GPIO_111 */
+		"", "", "", "",
+		/* GPIO_112 ~ GPIO_115 */
+		"", "", "", "",
+		/* GPIO_116 ~ GPIO_119 */
+		"", "", "", "",
+		/* GPIO_120 ~ GPIO_123 */
+		"", "", "", "",
+		/* GPIO_124 ~ GPIO_127 */
+		"", "", "", "",
+		/* GPIO_128 ~ GPIO_131 */
+		"", "", "", "",
+		/* GPIO_132 ~ GPIO_135 */
+		"", "", "", "",
+		/* GPIO_136 ~ GPIO_139 */
+		"", "", "", "",
+		/* GPIO_140 ~ GPIO_143 */
+		"", "", "", "",
+		/* GPIO_144 ~ GPIO_147 */
+		"", "", "", "",
+		/* GPIO_148 ~ GPIO_151 */
+		"", "", "", "",
+		/* GPIO_152 ~ GPIO_155 */
+		"", "", "", "",
+		/* GPIO_156 ~ GPIO_159 */
+		"", "", "", "",
+		/* GPIO_160 ~ GPIO_163 */
+		"", "", "", "",
+		/* GPIO_164 ~ GPIO_167 */
+		"", "", "", "",
+		/* GPIO_168 ~ GPIO_171 */
+		"", "", "", "",
+		/* GPIO_172 ~ GPIO_174 */
+		"", "", "";
 
-	lt8712sx_reset_default: lt8712sx-reset-default-state {
-		pins = "gpio110";
-		function = "gpio";
-		drive-strength = <2>;
-		bias-disable;
-	};
+	usb1_sbu_default: usb1-sbu-state {
+		oe-n-pins {
+			pins = "gpio6";
+			function = "gpio";
+			bias-disable;
+			drive-strength = <16>;
+			output-high;
+		};
 
-	cec0_gpio_default: cec0-gpio-default-state {
-		pins = "gpio45";
-		function = "gpio";
-		drive-strength = <16>;
-		bias-disable;
-	};
-
-	cec1_gpio_default: cec1-gpio-default-state {
-		pins = "gpio46";
-		function = "gpio";
-		drive-strength = <16>;
-		bias-disable;
+		sel-pins {
+			pins = "gpio7";
+			function = "gpio";
+			bias-disable;
+			drive-strength = <16>;
+		};
 	};
 
 	pcie0_reset_n: pcie0-reset-n-state {
@@ -1257,7 +1338,7 @@
 	pcie1_reset_n: pcie1-reset-n-state {
 		pins = "gpio2";
 		function = "gpio";
-		drive-strength = <2>;
+		drive-strength = <16>;
 		bias-disable;
 	};
 
@@ -1268,10 +1349,34 @@
 		bias-pull-up;
 	};
 
-	ufs_cd: ufs-cd-state {
-		pins = "gpio7";
+	eth_phy0_wol_default: eth-phy0-wol-state {
+		pins = "gpio101";
 		function = "gpio";
-		drive-strength = <2>;
+		bias-disable;
+		input-enable;
+	};
+
+	eth_phy1_wol_default: eth-phy1-wol-state {
+		pins = "gpio141";
+		function = "gpio";
+		bias-disable;
+		input-enable;
+	};
+
+	fan_pwm_default: fan-pwm-default-state {
+		pins = "gpio106";
+		function = "gcc_gp2";
+	};
+
+	fan_pwm_gpio: fan-pwm-gpio-state {
+		pins = "gpio106";
+		function = "gpio";
+		output-high;
+	};
+
+	sd_cd: sd-cd-state {
+		pins = "gpio91";
+		function = "gpio";
 		bias-pull-up;
 	};
 
@@ -1288,13 +1393,6 @@
 		bias-disable;
 		output-low;
 	};
-
-	wifi_pwr_en: wifi-pwr-en-state {
-		pins = "gpio33";
-		function = "gpio";
-		drive-strength = <8>;
-		bias-pull-up;
-	};
 };
 
 &uart5 {
@@ -1302,7 +1400,6 @@
 };
 
 &ufs_mem_hc {
-	cd-gpios = <&tlmm 7 GPIO_ACTIVE_LOW>;
 	reset-gpios = <&tlmm 175 GPIO_ACTIVE_LOW>;
 	vcc-supply = <&vreg_l7b_2p96>;
 	vcc-max-microamp = <800000>;
@@ -1310,9 +1407,6 @@
 	vccq-max-microamp = <900000>;
 	vccq2-supply = <&vreg_l9b_1p2>;
 	vccq2-max-microamp = <1300000>;
-
-	pinctrl-0 = <&ufs_cd>;
-	pinctrl-names = "default";
 
 	/* Gear-4 Rate-B is unstable due to board */
 	/* and UFS module design limitations */
@@ -1329,13 +1423,18 @@
 };
 
 &usb_1 {
-	dr_mode = "host";
+	dr_mode = "otg";
+	usb-role-switch;
 
 	status = "okay";
 };
 
 &usb_1_dwc3_hs {
-	remote-endpoint = <&usb3_con_hs_in>;
+	remote-endpoint = <&pmic_glink_hs_in>;
+};
+
+&usb_1_dwc3_ss {
+	remote-endpoint = <&usb_dp_qmpphy_usb_ss_in>;
 };
 
 &usb_1_hsphy {
@@ -1350,33 +1449,22 @@
 	vdda-phy-supply = <&vreg_l6b_1p2>;
 	vdda-pll-supply = <&vreg_l1b_0p912>;
 
-	/delete-property/ orientation-switch;
+	mode-switch;
+	orientation-switch;
 
 	status = "okay";
+};
 
-	ports {
-		port@0 {
-			#address-cells = <1>;
-			#size-cells = <0>;
+&usb_dp_qmpphy_out {
+	remote-endpoint = <&pmic_glink_ss_in>;
+};
 
-			/delete-node/ endpoint;
+&usb_dp_qmpphy_usb_ss_in {
+	remote-endpoint = <&usb_1_dwc3_ss>;
+};
 
-			/* RX0/TX0 is statically connected to RA620 bridge */
-			usb_1_qmpphy_out_dp: endpoint@0 {
-				reg = <0>;
-
-				data-lanes = <0 1>;
-			};
-
-			/* RX1/TX1 is statically connected to USB-A port */
-			usb_1_qmpphy_out_usb: endpoint@1 {
-				reg = <1>;
-
-				data-lanes = <2 3>;
-				remote-endpoint = <&usb3_con_ss_in>;
-			};
-		};
-	};
+&usb_dp_qmpphy_dp_in {
+	remote-endpoint = <&mdss_dp_out>;
 };
 
 &usb_2 {
@@ -1389,11 +1477,10 @@
 
 	/* Onboard USB 2.0 hub */
 	usb_hub_2_x: hub@1 {
-		compatible = "usb1a86:8091";
+		compatible = "usb1a86,8091";
 		reg = <1>;
-		vdd-supply = <&vcc_3v3>;
-		#address-cells = <1>;
-		#size-cells = <0>;
+		vdd33-supply = <&vcc_3v3_s>;
+		v5-supply = <&vcc_5v_peri>;
 
 		ports {
 			#address-cells = <1>;
@@ -1423,12 +1510,6 @@
 				};
 			};
 		};
-
-		/* FCU760K Wi-Fi & Bluetooth module */
-		wifi@4 {
-			compatible = "usba69c,8d80";
-			reg = <4>;
-		};
 	};
 };
 
@@ -1448,11 +1529,6 @@
 };
 
 /* PINCTRL - additions to nodes defined in sc7280.dtsi */
-&dp_hot_plug_det {
-	bias-disable;
-};
-
-/* PINCTRL - additions to nodes defined in sc7280.dtsi */
 &edp_hot_plug_det {
 	bias-disable;
 };
@@ -1465,20 +1541,6 @@
 &pcie1_clkreq_n {
 	bias-pull-up;
 	drive-strength = <2>;
-};
-
-/* For uart_dbg */
-&qup_uart5_rx {
-	bias-disable;
-	input-enable;
-	drive-strength = <2>;
-};
-
-/* For uart_dbg */
-&qup_uart5_tx {
-	bias-disable;
-	output-high;
-	drive-strength = <16>;
 };
 
 &sdc1_clk {
