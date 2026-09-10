@@ -2406,6 +2406,7 @@ static const struct of_device_id qcom_scm_qseecom_allowlist[] __maybe_unused = {
 	{ .compatible = "qcom,x1p42100-crd" },
 	{ .compatible = "radxa,cm-q64" },
 	{ .compatible = "radxa,dragon-q6a" },
+	{ .compatible = "radxa,dragon-q6b" },
 	{ .compatible = "radxa,dragon-q8b" },
 	{ }
 };
@@ -2720,8 +2721,9 @@ EXPORT_SYMBOL_GPL(qcom_scm_storage_send_cmd);
  * access on untested platforms. New platforms should be added here after validation.
  */
 static const struct of_device_id qcom_scm_storage_allowlist[] = {
-	{ .compatible = "radxa,dragon-q6a" },
 	{ .compatible = "radxa,cm-q64" },
+	{ .compatible = "radxa,dragon-q6a" },
+	{ .compatible = "radxa,dragon-q6b" },
 	{ .compatible = "radxa,dragon-q8b" },
 	{ }
 };
