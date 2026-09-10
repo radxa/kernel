@@ -300,6 +300,22 @@
 		regulator-always-on;
 	};
 
+	wifi_pwr_en_3v3: wifi-pwr-en-3v3 {
+		compatible = "regulator-fixed";
+		regulator-name = "wifi_pwr_en_3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		vin-supply = <&vcc_3v3>;
+		gpio = <&tlmm 33 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+
+		pinctrl-0 = <&wifi_pwr_en>;
+		pinctrl-names = "default";
+
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
 	vcc_3v3s: regulator-vcc-3v3s {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc_3v3s";
@@ -489,9 +505,9 @@
 		};
 
 		vreg_l5c_1p62: ldo5 {
-			regulator-name = "vreg_l5c_1p62";
-			regulator-min-microvolt = <1620000>;
-			regulator-max-microvolt = <3300000>;
+			regulator-name = "vreg_l5c_3p296";
+			regulator-min-microvolt = <3296000>;
+			regulator-max-microvolt = <3296000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 			regulator-allow-set-load;
 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
@@ -1271,6 +1287,13 @@
 		drive-strength = <16>;
 		bias-disable;
 		output-low;
+	};
+
+	wifi_pwr_en: wifi-pwr-en-state {
+		pins = "gpio33";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
 	};
 };
 
