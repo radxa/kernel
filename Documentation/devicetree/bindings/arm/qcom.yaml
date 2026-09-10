@@ -358,7 +358,9 @@ properties:
               - particle,tachyon
               - qcom,qcm6490-idp
               - qcom,qcs6490-rb3gen2
+              - radxa,cm-q64
               - radxa,dragon-q6a
+              - radxa,dragon-q6b
               - shift,otter
               - thundercomm,rubikpi3
           - const: qcom,qcm6490
