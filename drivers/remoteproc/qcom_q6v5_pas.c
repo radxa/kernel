@@ -652,6 +652,7 @@ static const struct rproc_ops qcom_pas_minidump_ops = {
 	.parse_fw = qcom_pas_parse_firmware,
 	.load = qcom_pas_load,
 	.panic = qcom_pas_panic,
+	.attach = qcom_pas_attach,
 	.coredump = qcom_pas_minidump,
 };
 
