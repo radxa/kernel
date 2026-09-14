@@ -713,7 +713,12 @@
 };
 
 &mdss0_dp0 {
+	radxa,display-controller-index = <0>;
 	status = "okay";
+};
+
+&mdss1_dp0 {
+	radxa,display-controller-index = <1>;
 };
 
 &mdss0_dp0_out {

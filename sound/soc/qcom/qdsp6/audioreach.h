@@ -483,6 +483,12 @@ struct param_id_display_port_intf_cfg {
 	uint32_t dptx_idx;
 } __packed;
 
+#define PARAM_ID_VMARC_DISPLAY_CTRL_CFG		0x0800F001
+
+struct param_id_vmarc_display_ctrl_cfg {
+	u32 display_ctrl_idx;
+} __packed;
+
 #define PARAM_ID_HW_EP_MF_CFG			0x08001017
 struct param_id_hw_ep_mf {
 	uint32_t sample_rate;
@@ -757,6 +763,8 @@ struct audioreach_module_config {
 	u16	num_channels;
 	u16	active_channels_mask;
 	u16	dp_idx;
+	u8	display_ctrl_idx;
+	bool	has_display_ctrl_idx;
 	u32	channel_allocation;
 	u32	sd_line_mask;
 	int	fmt;
