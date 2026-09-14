@@ -45,16 +45,28 @@ EXPORT_SYMBOL_GPL(rpmb_dev_put);
  * @rsp:	rpmb response frames
  * @rsp_len:	length of rpmb response frames in bytes
  *
+ * Context: Might sleep.
+ *
  * Returns: < 0 on failure
  */
 int rpmb_route_frames(struct rpmb_dev *rdev, u8 *req,
 		      unsigned int req_len, u8 *rsp, unsigned int rsp_len)
 {
-	if (!req || !req_len || !rsp || !rsp_len)
+	int ret;
+
+	if (!rdev || !req || !req_len || !rsp || !rsp_len)
 		return -EINVAL;
 
-	return rdev->descr.route_frames(rdev->dev.parent, req, req_len,
-					rsp, rsp_len);
+	mutex_lock(&rdev->lock);
+	if (rdev->dead) {
+		mutex_unlock(&rdev->lock);
+		return -ENODEV;
+	}
+
+	ret = rdev->descr.route_frames(rdev->dev.parent, req, req_len,
+				       rsp, rsp_len);
+	mutex_unlock(&rdev->lock);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(rpmb_route_frames);
 
@@ -62,6 +74,7 @@ static void rpmb_dev_release(struct device *dev)
 {
 	struct rpmb_dev *rdev = to_rpmb_dev(dev);
 
+	mutex_destroy(&rdev->lock);
 	ida_free(&rpmb_ida, rdev->id);
 	kfree(rdev->descr.dev_id);
 	kfree(rdev);
@@ -123,8 +136,9 @@ EXPORT_SYMBOL_GPL(rpmb_interface_unregister);
  * rpmb_dev_unregister() - unregister RPMB partition from the RPMB subsystem
  * @rdev: the rpmb device to unregister
  *
- * This function should be called from the release function of the
- * underlying device used when the RPMB device was registered.
+ * This function should be called from the remove or unbind callback of the
+ * underlying device used when the RPMB device was registered, never from
+ * a device release callback.
  *
  * Returns: < 0 on failure
  */
@@ -132,6 +146,14 @@ int rpmb_dev_unregister(struct rpmb_dev *rdev)
 {
 	if (!rdev)
 		return -EINVAL;
+
+	mutex_lock(&rdev->lock);
+	if (rdev->dead) {
+		mutex_unlock(&rdev->lock);
+		return 0;
+	}
+	rdev->dead = true;
+	mutex_unlock(&rdev->lock);
 
 	device_del(&rdev->dev);
 
@@ -164,6 +186,7 @@ struct rpmb_dev *rpmb_dev_register(struct device *dev,
 	rdev = kzalloc_obj(*rdev);
 	if (!rdev)
 		return ERR_PTR(-ENOMEM);
+	mutex_init(&rdev->lock);
 	rdev->descr = *descr;
 	rdev->descr.dev_id = kmemdup(descr->dev_id, descr->dev_id_len,
 				     GFP_KERNEL);
@@ -194,6 +217,7 @@ struct rpmb_dev *rpmb_dev_register(struct device *dev,
 err_free_dev_id:
 	kfree(rdev->descr.dev_id);
 err_free_rdev:
+	mutex_destroy(&rdev->lock);
 	kfree(rdev);
 	return ERR_PTR(ret);
 }
