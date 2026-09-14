@@ -497,7 +497,9 @@ static int msm_dp_display_process_hpd_high(struct msm_dp_display_private *dp)
 
 	dp->msm_dp_display.psr_supported = dp->panel->psr_cap.version && psr_enabled;
 
-	dp->audio_supported = info->has_audio;
+	dp->audio_supported = info->has_audio ||
+		of_property_read_bool(dp->msm_dp_display.pdev->dev.of_node,
+				      "radxa,force-audio");
 	msm_dp_panel_handle_sink_request(dp->panel);
 
 	/*

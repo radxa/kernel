@@ -714,6 +714,7 @@
 
 &mdss0_dp0 {
 	radxa,display-controller-index = <0>;
+	radxa,force-audio;
 	status = "okay";
 };
 
