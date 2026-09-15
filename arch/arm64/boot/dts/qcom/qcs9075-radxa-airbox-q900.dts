@@ -1357,7 +1357,7 @@
 
 	power_led_state: power-led-state {
 		pins = "gpio98";
-		function = "normal";
+		function = "gpio";
 		output-high;
 		bias-pull-up;
 	};
