@@ -453,7 +453,7 @@ static int clk_rcg2_get_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
 static int clk_rcg2_set_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
 {
 	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
-	u32 notn_m, n, m, d, not2d, mask, duty_per, cfg;
+	u32 notn_m, n, m, d, not2d, mask, cfg;
 	int ret;
 
 	/* Duty-cycle cannot be modified for non-MND RCGs */
@@ -472,21 +472,14 @@ static int clk_rcg2_set_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
 
 	n = (~(notn_m) + m) & mask;
 
-	duty_per = (duty->num * 100) / duty->den;
-
-	/* Calculate 2d value */
-	d = DIV_ROUND_CLOSEST(n * duty_per * 2, 100);
+	/* Calculate 2d value directly from the requested duty ratio */
+	d = DIV_ROUND_CLOSEST_ULL((u64)n * duty->num * 2, duty->den);
 
 	/*
-	 * Check bit widths of 2d. If D is too big reduce duty cycle.
-	 * Also make sure it is never zero.
+	 * Check bit widths of 2d. Clamp 2d to the hardware range [m, 2*(n-m)]
+	 * so it is never zero and never exceeds the maximum achievable duty.
 	 */
-	d = clamp_val(d, 1, mask);
-
-	if ((d / 2) > (n - m))
-		d = (n - m) * 2;
-	else if ((d / 2) < (m / 2))
-		d = m;
+	d = clamp_val(d, m, (n - m) * 2);
 
 	not2d = ~d & mask;
 
@@ -1039,6 +1032,23 @@ clk_rcg2_shared_force_enable_clear(struct clk_hw *hw, const struct freq_tbl *f)
 	return clk_rcg2_clear_force_enable(hw);
 }
 
+static int clk_rcg2_shared_set_duty_cycle(struct clk_hw *hw,
+					  struct clk_duty *duty)
+{
+	int ret;
+
+	ret = clk_rcg2_set_force_enable(hw);
+	if (ret)
+		return ret;
+
+	ret = clk_rcg2_set_duty_cycle(hw, duty);
+
+	if (clk_rcg2_clear_force_enable(hw))
+		return -EBUSY;
+
+	return ret;
+}
+
 static int __clk_rcg2_shared_set_rate(struct clk_hw *hw, unsigned long rate,
 				      unsigned long parent_rate,
 				      enum freq_policy policy)
@@ -1224,6 +1234,8 @@ const struct clk_ops clk_rcg2_shared_ops = {
 	.determine_rate = clk_rcg2_determine_rate,
 	.set_rate = clk_rcg2_shared_set_rate,
 	.set_rate_and_parent = clk_rcg2_shared_set_rate_and_parent,
+	.get_duty_cycle = clk_rcg2_get_duty_cycle,
+	.set_duty_cycle = clk_rcg2_shared_set_duty_cycle,
 };
 EXPORT_SYMBOL_GPL(clk_rcg2_shared_ops);
 
