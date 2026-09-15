@@ -109,11 +109,47 @@ static int q6dma_set_channel_map(struct snd_soc_dai *dai,
 	return 0;
 }
 
+/*
+ * Resolve the codec device node of a DAI link from the sound card's DT node.
+ * The DAI link component's of_node is not populated for links parsed by
+ * snd_soc_of_get_dai_link_codecs(), so walk the "link-name" matching child and
+ * dereference its "codec"/"sound-dai" phandle instead.
+ */
+static struct device_node *q6hdmi_codec_of_node(struct snd_soc_pcm_runtime *rtd)
+{
+	struct device_node *sound_np = rtd->card->dev->of_node;
+	struct device_node *link_np, *codec_np, *codec_of = NULL;
+	const char *link_name;
+
+	if (!sound_np || !rtd->dai_link->name)
+		return NULL;
+
+	for_each_child_of_node(sound_np, link_np) {
+		if (of_property_read_string(link_np, "link-name", &link_name))
+			continue;
+		if (strcmp(link_name, rtd->dai_link->name))
+			continue;
+
+		codec_np = of_get_child_by_name(link_np, "codec");
+		if (codec_np) {
+			codec_of = of_parse_phandle(codec_np, "sound-dai", 0);
+			of_node_put(codec_np);
+		}
+		of_node_put(link_np);
+		break;
+	}
+
+	return codec_of;
+}
+
 static int q6hdmi_hw_params(struct snd_pcm_substream *substream,
 			    struct snd_pcm_hw_params *params, struct snd_soc_dai *dai)
 {
 	struct q6apm_lpass_dai_data *dai_data = dev_get_drvdata(dai->dev);
 	struct audioreach_module_config *cfg = &dai_data->module_config[dai->id];
+	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+	struct device_node *dp_np = q6hdmi_codec_of_node(rtd);
+	u32 display_ctrl_idx;
 	int channels = hw_param_interval_c(params, SNDRV_PCM_HW_PARAM_CHANNELS)->max;
 	int ret;
 
@@ -129,6 +165,18 @@ static int q6hdmi_hw_params(struct snd_pcm_substream *substream,
 		cfg->dp_idx = dai->id - DISPLAY_PORT_RX_1 + 1;
 		break;
 	}
+
+	cfg->has_display_ctrl_idx = false;
+	if (dp_np &&
+	    !of_property_read_u32(dp_np, "radxa,display-controller-index", &display_ctrl_idx)) {
+		if (display_ctrl_idx > 1) {
+			of_node_put(dp_np);
+			return -EINVAL;
+		}
+		cfg->display_ctrl_idx = display_ctrl_idx;
+		cfg->has_display_ctrl_idx = true;
+	}
+	of_node_put(dp_np);
 
 	ret = q6dsp_get_channel_allocation(channels);
 	if (ret < 0)

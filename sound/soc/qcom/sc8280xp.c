@@ -46,6 +46,10 @@ static struct snd_soc_dapm_widget qcs9100_dapm_widgets[] = {
 	SND_SOC_DAPM_SPK("DP0 Jack", NULL),
 };
 
+static const struct snd_soc_dapm_widget vmarc_q9075_dapm_widgets[] = {
+	SND_SOC_DAPM_SPK("DP0 Jack", NULL),
+};
+
 static const struct snd_soc_dapm_route qcs9100_dapm_routes[] = {
 	{"Speaker", NULL, "MI2S_PINCTRL"},
 	{"DMic", NULL, "MI2S_PINCTRL"},
@@ -68,6 +72,12 @@ static struct snd_soc_common qcs9100_priv_data = {
 	.num_dapm_widgets = ARRAY_SIZE(qcs9100_dapm_widgets),
 	.dapm_routes = qcs9100_dapm_routes,
 	.num_dapm_routes = ARRAY_SIZE(qcs9100_dapm_routes),
+};
+
+static const struct snd_soc_common vmarc_q9075_priv_data = {
+	.driver_name = "sa8775p",
+	.dapm_widgets = vmarc_q9075_dapm_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(vmarc_q9075_dapm_widgets),
 };
 
 static struct snd_soc_common lemans_amr_priv_data = {
@@ -341,6 +351,7 @@ static int sc8280xp_platform_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id snd_sc8280xp_dt_match[] = {
+	{.compatible = "radxa,vmarc-q9075-sndcard", .data = &vmarc_q9075_priv_data},
 	{.compatible = "qcom,qcm6490-idp-sndcard", .data = &qcm6490_priv_data},
 	{.compatible = "qcom,qcs615-sndcard", .data = &qcs615_priv_data},
 	{.compatible = "qcom,qcs6490-rb3gen2-sndcard", .data = &qcs6490_priv_data},
