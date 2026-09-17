@@ -32,13 +32,21 @@ enum tc956x_clock_id {
 	MAC_CLOCK_RMII		= 15,	/* eMAC 1 only */
 };
 
+enum tc956x_common_clock_id {
+	COMMON_CLOCK_PLL	= 24,	/* POEPLLCEN */
+	COMMON_CLOCK_SGMII	= 25,	/* SGMPCIEN */
+	COMMON_CLOCK_REFCLK	= 26,	/* REFCLKOCEN (PHY refclk output) */
+};
+
 /**
  * struct tc956x_dwmac_data - Structure passed to stmmac auxiliary devices.
  * @chip:		Context pointer needed for reset and clock operations
  * @emac:		I/O mapped address used by eMAC
  * @emac_ctl:		I/O mapped address used for eMAC control
+ * @sfr:		I/O mapped address used for TC956X SFR access
  * @msigen:		I/O mapped address used by MSIGEN
- * @msigen_irq:		IRQ number used by MSIGEN
+ * @msigen_irq:		IRQ number of the first MSIGEN vector
+ * @msigen_nvec:	Number of consecutive MSIGEN vectors from @msigen_irq
  * @rev_id:		Chip revision ID (for quirks)
  * @mac_id:		Unique device ID (0 or 1)
  *
@@ -48,8 +56,10 @@ struct tc956x_dwmac_data {
 	const struct tc956x_chip *chip;
 	void __iomem *emac;
 	void __iomem *emac_ctl;
+	void __iomem *sfr;
 	void __iomem *msigen;
 	unsigned int msigen_irq;
+	unsigned int msigen_nvec;
 	u8 rev_id;
 	u8 mac_id;
 };
@@ -79,6 +89,18 @@ static inline void tc956x_clock_disable(const struct tc956x_chip *chip,
 					u8 mac_id, enum tc956x_clock_id id)
 {
 	tc956x_reset_clock_set(chip, false, !mac_id, false, (u8)id);
+}
+
+static inline void tc956x_common_clock_enable(const struct tc956x_chip *chip,
+					      enum tc956x_common_clock_id id)
+{
+	tc956x_reset_clock_set(chip, false, true, true, (u8)id);
+}
+
+static inline void tc956x_common_clock_disable(const struct tc956x_chip *chip,
+					       enum tc956x_common_clock_id id)
+{
+	tc956x_reset_clock_set(chip, false, true, false, (u8)id);
 }
 
 #endif /* __TOSHIBA_TC956X_DWMAC_H__*/
