@@ -3621,15 +3621,8 @@ static void hdmirx_enable_audio_output(struct rk_hdmirx_dev *hdmirx_dev,
 	if (spdif) {
 		dev_warn(hdmirx_dev->dev, "We don't recommend using spdif\n");
 	} else {
-		if (ch_audio > 2) {
-			hdmirx_update_bits(hdmirx_dev, AUDIO_PROC_CONFIG0,
-					   SPEAKER_ALLOC_OVR_EN | I2S_EN,
-					   SPEAKER_ALLOC_OVR_EN | I2S_EN);
-			hdmirx_writel(hdmirx_dev, AUDIO_PROC_CONFIG3, 0xffffffff);
-		} else {
-			hdmirx_update_bits(hdmirx_dev, AUDIO_PROC_CONFIG0,
-					   SPEAKER_ALLOC_OVR_EN | I2S_EN, I2S_EN);
-		}
+		hdmirx_update_bits(hdmirx_dev, AUDIO_PROC_CONFIG0,
+				   SPEAKER_ALLOC_OVR_EN | I2S_EN, I2S_EN);
 	}
 }
 
