@@ -400,6 +400,8 @@
 
 &route_hdmi {
 	status = "okay";
+	logo,uboot = "logo.bmp";
+	logo,kernel = "logo.bmp";
 	connect = <&vp0_out_hdmi>;
 };
 
