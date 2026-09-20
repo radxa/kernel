@@ -342,6 +342,8 @@ struct mpp_session {
 	struct mpp_service *srv;
 	struct mpp_dev *mpp;
 	struct mpp_dma_session *dma;
+	/* lock for session init/reset and dma session lifecycle */
+	struct mutex lock_session;
 
 	/* lock for session task pending list */
 	struct mutex pending_lock;

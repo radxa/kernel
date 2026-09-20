@@ -35,6 +35,9 @@ mpp_dma_find_buffer_fd(struct mpp_dma_session *dma, int fd)
 	struct mpp_dma_buffer *buffer = NULL, *n;
 	int find = 0;
 
+	if (!dma)
+		return NULL;
+
 	dmabuf = dma_buf_get(fd);
 	if (IS_ERR(dmabuf))
 		return NULL;
@@ -125,6 +128,9 @@ mpp_dma_remove_extra_buffer(struct mpp_dma_session *dma)
 int mpp_dma_release(struct mpp_dma_session *dma,
 		    struct mpp_dma_buffer *buffer)
 {
+	if (!dma)
+		return -EINVAL;
+
 	mutex_lock(&dma->list_mutex);
 	kref_put(&buffer->ref, mpp_dma_release_buffer);
 	mutex_unlock(&dma->list_mutex);
@@ -134,9 +140,13 @@ int mpp_dma_release(struct mpp_dma_session *dma,
 
 int mpp_dma_release_fd(struct mpp_dma_session *dma, int fd)
 {
-	struct device *dev = dma->dev;
+	struct device *dev;
 	struct mpp_dma_buffer *buffer = NULL;
 
+	if (!dma)
+		return -EINVAL;
+
+	dev = dma->dev;
 	buffer = mpp_dma_find_buffer_fd(dma, fd);
 	if (IS_ERR_OR_NULL(buffer)) {
 		dev_err(dev, "can not find %d buffer in list\n", fd);
