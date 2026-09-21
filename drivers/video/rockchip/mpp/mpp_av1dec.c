@@ -341,8 +341,17 @@ static int av1dec_extract_task_msg(struct av1dec_task *task,
 				if (!req_over_class(req, task, class))
 					continue;
 				mpp_debug(DEBUG_TASK_INFO, "found write_calss %d\n", class);
+				/* one entry per class per request, array holds MPP_MAX_MSG_NUM */
+				if (task->w_req_cnt >= MPP_MAX_MSG_NUM) {
+					mpp_err("w_req_cnt %u is full\n",
+						task->w_req_cnt);
+					ret = -EINVAL;
+					goto fail;
+				}
 				wreq = &task->w_reqs[task->w_req_cnt];
-				av1dec_update_req(task, class, req, wreq);
+				ret = av1dec_update_req(task, class, req, wreq);
+				if (ret)
+					goto fail;
 
 				base = task->reg_class[class].base;
 				regs = (u32 *)task->reg_class[class].data;
@@ -363,8 +372,16 @@ static int av1dec_extract_task_msg(struct av1dec_task *task,
 				if (!req_over_class(req, task, class))
 					continue;
 				mpp_debug(DEBUG_TASK_INFO, "found read_calss %d\n", class);
+				if (task->r_req_cnt >= MPP_MAX_MSG_NUM) {
+					mpp_err("r_req_cnt %u is full\n",
+						task->r_req_cnt);
+					ret = -EINVAL;
+					goto fail;
+				}
 				rreq = &task->r_reqs[task->r_req_cnt];
-				av1dec_update_req(task, class, req, rreq);
+				ret = av1dec_update_req(task, class, req, rreq);
+				if (ret)
+					goto fail;
 				task->r_req_cnt++;
 			}
 		} break;
