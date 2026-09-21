@@ -254,7 +254,9 @@ static int vepu_extract_task_msg(struct vepu_task *task,
 			       req, sizeof(*req));
 		} break;
 		case MPP_CMD_SET_REG_ADDR_OFFSET: {
-			mpp_extract_reg_offset_info(&task->off_inf, req);
+			ret = mpp_extract_reg_offset_info(&task->off_inf, req);
+			if (ret)
+				return ret;
 		} break;
 		default:
 			break;
