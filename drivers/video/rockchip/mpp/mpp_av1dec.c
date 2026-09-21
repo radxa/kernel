@@ -235,7 +235,8 @@ static bool req_over_class(struct mpp_request *req,
 			   struct av1dec_task *task, int class)
 {
 	bool ret;
-	u32 base_s, base_e, req_e;
+	u64 req_e;
+	u32 base_s, base_e;
 	struct av1dec_hw_info *hw = task->hw_info;
 
 	if (class > hw->reg_class_num)
@@ -243,7 +244,7 @@ static bool req_over_class(struct mpp_request *req,
 
 	base_s = hw->reg_class[class].base_s;
 	base_e = hw->reg_class[class].base_e;
-	req_e = req->offset + req->size - sizeof(u32);
+	req_e = (u64)req->offset + req->size - sizeof(u32);
 
 	ret = (req->offset <= base_e && req_e >= base_s) ? true : false;
 
@@ -281,7 +282,8 @@ static int av1dec_update_req(struct av1dec_task *task, int class,
 			     struct mpp_request *req_in,
 			     struct mpp_request *req_out)
 {
-	u32 base_s, base_e, req_e, s, e;
+	u64 req_e;
+	u32 base_s, base_e, s;
 	struct av1dec_hw_info *hw = task->hw_info;
 
 	if (class > hw->reg_class_num)
@@ -289,12 +291,13 @@ static int av1dec_update_req(struct av1dec_task *task, int class,
 
 	base_s = hw->reg_class[class].base_s;
 	base_e = hw->reg_class[class].base_e;
-	req_e = req_in->offset + req_in->size - sizeof(u32);
+	req_e = (u64)req_in->offset + req_in->size - sizeof(u32);
 	s = max(req_in->offset, base_s);
-	e = min(req_e, base_e);
+	if (req_e > base_e)
+		req_e = base_e;
 
 	req_out->offset = s;
-	req_out->size = e - s + sizeof(u32);
+	req_out->size = req_e - s + sizeof(u32);
 	req_out->data = (u8 *)req_in->data + (s - req_in->offset);
 	mpp_debug(DEBUG_TASK_INFO, "req_out->offset=%08x, req_out->size=%d\n",
 		  req_out->offset, req_out->size);
@@ -322,6 +325,12 @@ static int av1dec_extract_task_msg(struct av1dec_task *task,
 		if (!req->size)
 			continue;
 
+		if (req->size % sizeof(u32)) {
+			mpp_err("error: req_size %x\n", req->size);
+			ret = -EINVAL;
+			goto fail;
+		}
+
 		switch (req->cmd) {
 		case MPP_CMD_SET_REG_WRITE: {
 			u32 class;
@@ -337,7 +346,7 @@ static int av1dec_extract_task_msg(struct av1dec_task *task,
 
 				base = task->reg_class[class].base;
 				regs = (u32 *)task->reg_class[class].data;
-				regs += MPP_BASE_TO_IDX(req->offset - base);
+				regs += MPP_BASE_TO_IDX(wreq->offset - base);
 				if (copy_from_user(regs, wreq->data, wreq->size)) {
 					mpp_err("copy_from_user fail, offset %08x\n", wreq->offset);
 					ret = -EIO;

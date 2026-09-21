@@ -681,12 +681,13 @@ static bool req_over_class(struct mpp_request *req,
 			   struct rkvenc_task *task, int class)
 {
 	bool ret;
-	u32 base_s, base_e, req_e;
+	u64 req_e;
+	u32 base_s, base_e;
 	struct rkvenc_hw_info *hw = task->hw_info;
 
 	base_s = hw->reg_msg[class].base_s;
 	base_e = hw->reg_msg[class].base_e;
-	req_e = req->offset + req->size - sizeof(u32);
+	req_e = (u64)req->offset + req->size - sizeof(u32);
 
 	ret = (req->offset <= base_e && req_e >= base_s) ? true : false;
 
@@ -731,17 +732,19 @@ static int rkvenc_update_req(struct rkvenc_task *task, int class,
 			     struct mpp_request *req_in,
 			     struct mpp_request *req_out)
 {
-	u32 base_s, base_e, req_e, s, e;
+	u64 req_e;
+	u32 base_s, base_e, s;
 	struct rkvenc_hw_info *hw = task->hw_info;
 
 	base_s = hw->reg_msg[class].base_s;
 	base_e = hw->reg_msg[class].base_e;
-	req_e = req_in->offset + req_in->size - sizeof(u32);
+	req_e = (u64)req_in->offset + req_in->size - sizeof(u32);
 	s = max(req_in->offset, base_s);
-	e = min(req_e, base_e);
+	if (req_e > base_e)
+		req_e = base_e;
 
 	req_out->offset = s;
-	req_out->size = e - s + sizeof(u32);
+	req_out->size = req_e - s + sizeof(u32);
 	req_out->data = (u8 *)req_in->data + (s - req_in->offset);
 
 	return 0;
@@ -762,7 +765,7 @@ static int rkvenc_get_class_msg(struct rkvenc_task *task,
 	for (i = 0; i < hw->reg_class; i++) {
 		base_s = hw->reg_msg[i].base_s;
 		base_e = hw->reg_msg[i].base_e;
-		if (addr >= base_s && addr < base_e) {
+		if (addr >= base_s && addr <= base_e) {
 			found = true;
 			msg->offset = base_s;
 			msg->size = task->reg[i].size;
@@ -784,7 +787,7 @@ static u32 *rkvenc_get_class_reg(struct rkvenc_task *task, u32 addr)
 	for (i = 0; i < hw->reg_class; i++) {
 		base_s = hw->reg_msg[i].base_s;
 		base_e = hw->reg_msg[i].base_e;
-		if (addr >= base_s && addr < base_e) {
+		if (addr >= base_s && addr <= base_e) {
 			reg = (u8 *)task->reg[i].data + (addr - base_s);
 			break;
 		}
@@ -833,6 +836,12 @@ static int rkvenc_extract_task_msg(struct mpp_session *session,
 		req = &msgs->reqs[i];
 		if (!req->size)
 			continue;
+
+		if (req->size % sizeof(u32)) {
+			mpp_err("error: req_size %x\n", req->size);
+			ret = -EINVAL;
+			goto fail;
+		}
 
 		switch (req->cmd) {
 		case MPP_CMD_SET_REG_WRITE: {
