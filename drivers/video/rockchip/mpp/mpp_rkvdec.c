@@ -673,7 +673,7 @@ static int rkvdec_extract_task_msg(struct rkvdec_task *task,
 			ret = mpp_check_req(req, 0, sizeof(task->reg),
 					    off_s, off_e);
 			if (ret)
-				continue;
+				return ret;
 			if (copy_from_user((u8 *)task->reg + req->offset,
 					   req->data, req->size)) {
 				mpp_err("copy_from_user reg failed\n");

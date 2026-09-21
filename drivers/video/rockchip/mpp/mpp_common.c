@@ -1911,10 +1911,10 @@ int mpp_translate_reg_address(struct mpp_session *session,
 	return 0;
 }
 
-int mpp_check_req(struct mpp_request *req, int base,
-		  int max_size, u32 off_s, u32 off_e)
+int mpp_check_req(struct mpp_request *req, u32 base,
+		  u32 max_size, u32 off_s, u32 off_e)
 {
-	int req_off;
+	u32 req_off;
 
 	if (req->offset < base) {
 		mpp_err("error: base %x, offset %x\n",
@@ -1922,7 +1922,7 @@ int mpp_check_req(struct mpp_request *req, int base,
 		return -EINVAL;
 	}
 	req_off = req->offset - base;
-	if ((req_off + req->size) < off_s) {
+	if (req_off < off_s && req->size < off_s - req_off) {
 		mpp_err("error: req_off %x, req_size %x, off_s %x\n",
 			req_off, req->size, off_s);
 		return -EINVAL;
@@ -1932,15 +1932,15 @@ int mpp_check_req(struct mpp_request *req, int base,
 			off_e, max_size);
 		return -EINVAL;
 	}
-	if (req_off > max_size) {
+	if (req_off >= max_size) {
 		mpp_err("error: req_off %x, max_size %x\n",
 			req_off, max_size);
 		return -EINVAL;
 	}
-	if ((req_off + req->size) > max_size) {
+	if (req->size > max_size - req_off) {
 		mpp_err("error: req_off %x, req_size %x, max_size %x\n",
 			req_off, req->size, max_size);
-		req->size = req_off + req->size - max_size;
+		return -EINVAL;
 	}
 
 	return 0;

@@ -627,8 +627,8 @@ int mpp_translate_reg_address(struct mpp_session *session,
 			      struct mpp_task *task, int fmt,
 			      u32 *reg, struct reg_offset_info *off_inf);
 
-int mpp_check_req(struct mpp_request *req, int base,
-		  int max_size, u32 off_s, u32 off_e);
+int mpp_check_req(struct mpp_request *req, u32 base,
+		  u32 max_size, u32 off_s, u32 off_e);
 int mpp_extract_reg_offset_info(struct reg_offset_info *off_inf,
 				struct mpp_request *req);
 int mpp_query_reg_offset_info(struct reg_offset_info *off_inf,
