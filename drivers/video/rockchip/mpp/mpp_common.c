@@ -1950,7 +1950,13 @@ int mpp_extract_reg_offset_info(struct reg_offset_info *off_inf,
 				struct mpp_request *req)
 {
 	int max_size = ARRAY_SIZE(off_inf->elem);
-	int cnt = req->size / sizeof(off_inf->elem[0]);
+	int cnt;
+
+	if (req->size % sizeof(off_inf->elem[0])) {
+		mpp_err("error: req_size %x\n", req->size);
+		return -EINVAL;
+	}
+	cnt = req->size / sizeof(off_inf->elem[0]);
 
 	if ((cnt + off_inf->cnt) > max_size) {
 		mpp_err("count %d, total %d, max_size %d\n",

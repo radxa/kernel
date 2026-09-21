@@ -797,7 +797,13 @@ static int rkvenc2_extract_rcb_info(struct rkvenc2_rcb_info *rcb_inf,
 				    struct mpp_request *req)
 {
 	int max_size = ARRAY_SIZE(rcb_inf->elem);
-	int cnt = req->size / sizeof(rcb_inf->elem[0]);
+	int cnt;
+
+	if (req->size % sizeof(rcb_inf->elem[0])) {
+		mpp_err("error: req_size %x\n", req->size);
+		return -EINVAL;
+	}
+	cnt = req->size / sizeof(rcb_inf->elem[0]);
 
 	if (req->size > sizeof(rcb_inf->elem)) {
 		mpp_err("count %d,max_size %d\n", cnt, max_size);
@@ -878,13 +884,18 @@ static int rkvenc_extract_task_msg(struct mpp_session *session,
 			}
 		} break;
 		case MPP_CMD_SET_REG_ADDR_OFFSET: {
-			mpp_extract_reg_offset_info(&task->off_inf, req);
+			ret = mpp_extract_reg_offset_info(&task->off_inf, req);
+			if (ret)
+				goto fail;
 		} break;
 		case MPP_CMD_SET_RCB_INFO: {
 			struct rkvenc2_session_priv *priv = session->priv;
 
-			if (priv)
-				rkvenc2_extract_rcb_info(&priv->rcb_inf, req);
+			if (priv) {
+				ret = rkvenc2_extract_rcb_info(&priv->rcb_inf, req);
+				if (ret)
+					goto fail;
+			}
 		} break;
 		default:
 			break;
