@@ -232,14 +232,14 @@ static struct mpp_trans_info trans_av1dec[] = {
 };
 
 static bool req_over_class(struct mpp_request *req,
-			   struct av1dec_task *task, int class)
+			   struct av1dec_task *task, u32 class)
 {
 	bool ret;
 	u64 req_e;
 	u32 base_s, base_e;
 	struct av1dec_hw_info *hw = task->hw_info;
 
-	if (class > hw->reg_class_num)
+	if (class >= hw->reg_class_num)
 		return false;
 
 	base_s = hw->reg_class[class].base_s;
@@ -278,7 +278,7 @@ static int av1dec_alloc_reg_class(struct av1dec_task *task)
 	return 0;
 }
 
-static int av1dec_update_req(struct av1dec_task *task, int class,
+static int av1dec_update_req(struct av1dec_task *task, u32 class,
 			     struct mpp_request *req_in,
 			     struct mpp_request *req_out)
 {
@@ -286,7 +286,7 @@ static int av1dec_update_req(struct av1dec_task *task, int class,
 	u32 base_s, base_e, s;
 	struct av1dec_hw_info *hw = task->hw_info;
 
-	if (class > hw->reg_class_num)
+	if (class >= hw->reg_class_num)
 		return -EINVAL;
 
 	base_s = hw->reg_class[class].base_s;
@@ -444,15 +444,18 @@ static void *av1dec_alloc_task(struct mpp_session *session,
 
 		for (i = 0; i < task->w_req_cnt; i++) {
 			struct mpp_request *req = &task->w_reqs[i];
+			u32 t;
 
-			for (i = 0; i < hw->trans_class_num; i++) {
-				u32 class = hw->trans_class[i].class;
-				u32 fmt = hw->trans_class[i].trans_fmt;
-				u32 *reg = task->reg_class[class].data;
-				u32 base_idx = MPP_BASE_TO_IDX(task->reg_class[class].base);
+			for (t = 0; t < hw->trans_class_num; t++) {
+				u32 class = hw->trans_class[t].class;
+				u32 fmt = hw->trans_class[t].trans_fmt;
+				u32 *reg;
+				u32 base_idx;
 
-				if (!req_over_class(req, task, i))
+				if (!req_over_class(req, task, class))
 					continue;
+				reg = task->reg_class[class].data;
+				base_idx = MPP_BASE_TO_IDX(task->reg_class[class].base);
 				mpp_debug(DEBUG_TASK_INFO, "class=%d, base_idx=%d\n",
 					  class, base_idx);
 				if (!reg)
