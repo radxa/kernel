@@ -263,8 +263,8 @@ static int rkvenc_extract_task_msg(struct rkvenc_task *task,
 
 		switch (req->cmd) {
 		case MPP_CMD_SET_REG_WRITE: {
-			int req_base;
-			int max_size;
+			u32 req_base;
+			u32 max_size;
 			u8 *dst = NULL;
 
 			if (req->offset >= RKVENC_L2_OFFSET) {
@@ -291,8 +291,8 @@ static int rkvenc_extract_task_msg(struct rkvenc_task *task,
 			       req, sizeof(*req));
 		} break;
 		case MPP_CMD_SET_REG_READ: {
-			int req_base;
-			int max_size;
+			u32 req_base;
+			u32 max_size;
 
 			if (req->offset >= RKVENC_L2_OFFSET) {
 				req_base = RKVENC_L2_OFFSET;

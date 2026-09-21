@@ -231,7 +231,7 @@ static int rkvdec2_extract_task_msg(struct mpp_session *session,
 			off_e = hw_info->reg_end * sizeof(u32);
 			ret = mpp_check_req(req, 0, sizeof(task->reg), off_s, off_e);
 			if (ret)
-				continue;
+				return ret;
 			if (copy_from_user((u8 *)task->reg + req->offset,
 					   req->data, req->size)) {
 				mpp_err("copy_from_user reg failed\n");

@@ -200,8 +200,8 @@ static int vdpp_extract_task_msg(struct vdpp_task *task,
 
 		switch (req->cmd) {
 		case MPP_CMD_SET_REG_WRITE: {
-			int req_base;
-			int max_size;
+			u32 req_base;
+			u32 max_size;
 			u8 *dst = NULL;
 
 			if (req->offset >= hw_info->zme_reg_off) {
@@ -226,8 +226,8 @@ static int vdpp_extract_task_msg(struct vdpp_task *task,
 			memcpy(&task->w_reqs[task->w_req_cnt++], req, sizeof(*req));
 		} break;
 		case MPP_CMD_SET_REG_READ: {
-			int req_base;
-			int max_size;
+			u32 req_base;
+			u32 max_size;
 
 			if (req->offset >= hw_info->zme_reg_off) {
 				req_base = hw_info->zme_reg_off;
