@@ -194,7 +194,7 @@ static int mpp_extract_rcb_info(struct rkvdec2_rcb_info *rcb_inf,
 				struct mpp_request *req)
 {
 	u32 max_size = ARRAY_SIZE(rcb_inf->elem);
-	u32 cnt;
+	u32 cnt, i;
 
 	if (req->size % sizeof(rcb_inf->elem[0])) {
 		mpp_err("error: req_size %x\n", req->size);
@@ -209,6 +209,15 @@ static int mpp_extract_rcb_info(struct rkvdec2_rcb_info *rcb_inf,
 	if (copy_from_user(rcb_inf->elem, req->data, req->size)) {
 		mpp_err("copy_from_user failed\n");
 		return -EINVAL;
+	}
+
+	for (i = 0; i < cnt; i++) {
+		if (rcb_inf->elem[i].index >= RKVDEC_REG_NUM) {
+			mpp_err("invalid rcb reg_idx %u\n",
+				rcb_inf->elem[i].index);
+			rcb_inf->cnt = 0;
+			return -EINVAL;
+		}
 	}
 	rcb_inf->cnt = cnt;
 
@@ -308,7 +317,12 @@ int mpp_set_rcbbuf(struct mpp_dev *mpp, struct mpp_session *session,
 		for (i = 0; i < rcb_inf->cnt; i++) {
 			reg_idx = rcb_inf->elem[i].index;
 			rcb_size = rcb_inf->elem[i].size;
-			if ((rcb_offset + rcb_size) > dec->rcb_size) {
+			if (reg_idx >= RKVDEC_REG_NUM) {
+				mpp_err("invalid rcb reg_idx %u\n", reg_idx);
+				continue;
+			}
+			if (rcb_offset >= dec->rcb_size ||
+			    rcb_size > dec->rcb_size - rcb_offset) {
 				mpp_debug(DEBUG_SRAM_INFO,
 					  "rcb: reg %d use original buffer\n", reg_idx);
 				continue;
