@@ -852,13 +852,23 @@ static int rkvenc_extract_task_msg(struct mpp_session *session,
 				if (!req_over_class(req, task, j))
 					continue;
 
+				/* one entry per class per request, array holds MPP_MAX_MSG_NUM */
+				if (task->w_req_cnt >= MPP_MAX_MSG_NUM) {
+					mpp_err("w_req_cnt %u is full\n",
+						task->w_req_cnt);
+					ret = -EINVAL;
+					goto fail;
+				}
+
 				ret = rkvenc_alloc_class_msg(task, j);
 				if (ret) {
 					mpp_err("alloc class msg %d fail.\n", j);
 					goto fail;
 				}
 				wreq = &task->w_reqs[task->w_req_cnt];
-				rkvenc_update_req(task, j, req, wreq);
+				ret = rkvenc_update_req(task, j, req, wreq);
+				if (ret)
+					goto fail;
 				data = rkvenc_get_class_reg(task, wreq->offset);
 				if (!data) {
 					mpp_err("get class reg fail, offset %08x\n", wreq->offset);
@@ -881,13 +891,23 @@ static int rkvenc_extract_task_msg(struct mpp_session *session,
 				if (!req_over_class(req, task, j))
 					continue;
 
+				/* one entry per class per request, array holds MPP_MAX_MSG_NUM */
+				if (task->r_req_cnt >= MPP_MAX_MSG_NUM) {
+					mpp_err("r_req_cnt %u is full\n",
+						task->r_req_cnt);
+					ret = -EINVAL;
+					goto fail;
+				}
+
 				ret = rkvenc_alloc_class_msg(task, j);
 				if (ret) {
 					mpp_err("alloc class msg reg %d fail.\n", j);
 					goto fail;
 				}
 				rreq = &task->r_reqs[task->r_req_cnt];
-				rkvenc_update_req(task, j, req, rreq);
+				ret = rkvenc_update_req(task, j, req, rreq);
+				if (ret)
+					goto fail;
 				task->reg[j].valid = 1;
 				task->r_req_cnt++;
 			}
