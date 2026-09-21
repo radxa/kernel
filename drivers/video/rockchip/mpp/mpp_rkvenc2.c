@@ -958,7 +958,7 @@ static int rkvenc2_set_rcbbuf(struct mpp_dev *mpp, struct mpp_session *session,
 			rcb_size = rcb_inf->elem[i].size;
 
 			if (rcb_offset > enc->sram_size ||
-			    (rcb_offset + rcb_size) > enc->sram_used)
+			    rcb_size > enc->sram_used - rcb_offset)
 				continue;
 
 			mpp_debug(DEBUG_SRAM_INFO, "rcb: reg %d offset %d, size %d\n",
