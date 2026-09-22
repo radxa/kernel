@@ -317,6 +317,10 @@ static int iep2_extract_task_msg(struct iep_task *task,
 
 		switch (req->cmd) {
 		case MPP_CMD_SET_REG_WRITE: {
+			if (req->size > sizeof(task->params)) {
+				mpp_err("error: req_size %x\n", req->size);
+				return -EINVAL;
+			}
 			if (copy_from_user(&task->params,
 					   req->data, req->size)) {
 				mpp_err("copy_from_user params failed\n");
@@ -324,6 +328,10 @@ static int iep2_extract_task_msg(struct iep_task *task,
 			}
 		} break;
 		case MPP_CMD_SET_REG_READ: {
+			if (req->size > sizeof(task->output)) {
+				mpp_err("error: req_size %x\n", req->size);
+				return -EINVAL;
+			}
 			memcpy(&task->r_reqs[task->r_req_cnt++],
 			       req, sizeof(*req));
 		} break;
@@ -770,7 +778,6 @@ static int iep2_result(struct mpp_dev *mpp,
 	struct mpp_request *req;
 	struct iep_task *task = to_iep_task(mpp_task);
 
-	/* FIXME may overflow the kernel */
 	for (i = 0; i < task->r_req_cnt; i++) {
 		req = &task->r_reqs[i];
 
