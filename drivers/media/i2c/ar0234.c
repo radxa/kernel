@@ -7,10 +7,6 @@
  *   (Raspberry Pi V4L2 driver for onsemi AR0234, GPL-2.0)
  *   Copyright (c) 2026 Radxa Computer (Shenzhen) Co., Ltd.
  *
- * Tested on Radxa ROCK 5C with a 12 MHz external clock and 4 data lanes:
- *   - RAW8 at 360 MHz link frequency (720 Mbps/lane)
- *   - RAW10 at 450 MHz link frequency (900 Mbps/lane)
- *
  */
 
 #include <linux/clk.h>
@@ -41,9 +37,11 @@ MODULE_PARM_DESC(trigger_mode,
 
 /* Sensor frequencies */
 #define AR0234_XVCLK_FREQ			12000000
-#define AR0234_INTERNAL_INIT_CYCLES		160000
 #define AR0234_FREQ_LINK_8BIT			360000000
 #define AR0234_FREQ_LINK_10BIT			450000000
+
+/* Cold boot delay after reset/power release before the sensor answers I2C */
+#define AR0234_POWER_ON_DELAY_MS		250
 
 #define AR0234_FRAME_LENGTH_LINES_120FPS  0x04C0
 #define AR0234_FRAME_LENGTH_LINES_60FPS   0x0980  /* 0x04C0 * 2 */
@@ -82,7 +80,8 @@ MODULE_PARM_DESC(trigger_mode,
 
 #define AR0234_REG_MFR_30BA			0x30BA
 #define AR0234_MFR_30BA_GAIN_BITS(_val)	(0x7620 | (_val))
-#define AR0234_MFR_30BA_DEFAULT		AR0234_MFR_30BA_GAIN_BITS(2)
+#define AR0234_MFR_30BA_2LANE		AR0234_MFR_30BA_GAIN_BITS(6)
+#define AR0234_MFR_30BA_4LANE		AR0234_MFR_30BA_GAIN_BITS(2)
 
 /* ROI registers */
 #define AR0234_REG_ROI_X_START_OFFSET	0x3140
@@ -256,8 +255,8 @@ static const struct regval ar0234_common_regs[] = {
 };
 
 /*
- * PLL config for 12MHz extclk, 360MHz link, 8-bit, 4-lane
- * and 90MHz pixel clock.
+ * PLL config for 12MHz extclk, 360MHz link and 8-bit.
+ * The pixel clock is 90MHz with 4 lanes and 45MHz with 2 lanes.
  */
 static const struct regval ar0234_pll_12_360_8bit_regs[] = {
 	{0x302A, 0x0004}, {0x302C, 0x0002}, {0x302E, 0x0001},
@@ -284,8 +283,15 @@ static const struct regval ar0234_pll_12_450_10bit_regs[] = {
 
 /* Recommended manufacturer settings for 90 MHz pixel clock (4-lane) */
 static const struct regval ar0234_pixclk_90mhz_regs[] = {
-	/* No special settings; just ensure MFR_30BA default is set */
-	{0x30BA, AR0234_MFR_30BA_DEFAULT},
+	/* No special settings; just ensure MFR_30BA 4-lane value is set */
+	{0x30BA, AR0234_MFR_30BA_4LANE},
+	{REG_NULL, 0x0000},
+};
+
+/* Recommended manufacturer settings for 45 MHz pixel clock (2-lane) */
+static const struct regval ar0234_pixclk_45mhz_regs[] = {
+	{0x3088, 0x81BA}, {0x3086, 0x3D02},
+	{0x30BA, AR0234_MFR_30BA_2LANE},
 	{REG_NULL, 0x0000},
 };
 
@@ -818,11 +824,6 @@ static long ar0234_compat_ioctl32(struct v4l2_subdev *sd,
 /* ------------------------------------------------------------------
  * Power management
  * ------------------------------------------------------------------ */
-static inline u32 ar0234_cal_delay(u32 cycles)
-{
-	return DIV_ROUND_UP(cycles, AR0234_XVCLK_FREQ / 1000 / 1000);
-}
-
 static int ar0234_check_sensor_id(struct ar0234 *ar0234)
 {
 	u32 id = 0;
@@ -847,7 +848,6 @@ static int ar0234_check_sensor_id(struct ar0234 *ar0234)
 static int __ar0234_power_on(struct ar0234 *ar0234)
 {
 	struct device *dev = &ar0234->client->dev;
-	u32 delay_us = ar0234_cal_delay(AR0234_INTERNAL_INIT_CYCLES);
 	int ret;
 
 	if (ar0234->xvclk) {
@@ -868,7 +868,7 @@ static int __ar0234_power_on(struct ar0234 *ar0234)
 	}
 
 	gpiod_set_value_cansleep(ar0234->reset_gpio, 1);
-	usleep_range(delay_us, delay_us + 1000);
+	msleep(AR0234_POWER_ON_DELAY_MS);
 
 	return 0;
 }
@@ -1045,7 +1045,13 @@ static int __ar0234_start_stream(struct ar0234 *ar0234)
 		return ret;
 
 	/* Pixel clock related settings */
-	ret = ar0234_write_array(ar0234->client, ar0234_pixclk_90mhz_regs);
+	if (ar0234->num_data_lanes == 2) {
+		ret = ar0234_write_array(ar0234->client, ar0234_pixclk_45mhz_regs);
+		ar0234->mfr_30ba = AR0234_MFR_30BA_2LANE;
+	} else {
+		ret = ar0234_write_array(ar0234->client, ar0234_pixclk_90mhz_regs);
+		ar0234->mfr_30ba = AR0234_MFR_30BA_4LANE;
+	}
 	if (ret)
 		{
 			dev_err(&ar0234->client->dev, "AR0234: Start stream error: Pixel clock settings failed\n");
@@ -1223,14 +1229,20 @@ static int ar0234_set_analog_gain(struct ar0234 *ar0234, u16 gain)
 	u16 new_mfr;
 
 	/* Determine 0x30BA value based on pixel clock and gain level.
-	 * For 90 MHz (4-lane) we use the following thresholds.
+	 * 45 MHz (2-lane) and 90 MHz (4-lane) use different thresholds.
 	 */
-	if (gain < 0x20)
-		new_mfr = AR0234_MFR_30BA_GAIN_BITS(2);
-	else if (gain < 0x3A)
+	if (ar0234->num_data_lanes == 2) {
+		if (gain < 0x36)
+			new_mfr = AR0234_MFR_30BA_2LANE;
+		else
+			new_mfr = AR0234_MFR_30BA_GAIN_BITS(0);
+	} else if (gain < 0x20) {
+		new_mfr = AR0234_MFR_30BA_4LANE;
+	} else if (gain < 0x3A) {
 		new_mfr = AR0234_MFR_30BA_GAIN_BITS(1);
-	else
+	} else {
 		new_mfr = AR0234_MFR_30BA_GAIN_BITS(0);
+	}
 
 	if (mfr_val != new_mfr) {
 		/* Use grouped parameter hold */
@@ -1554,7 +1566,7 @@ static int ar0234_parse_endpoint(struct ar0234 *ar0234)
 
 	ar0234->num_data_lanes = ep.bus.mipi_csi2.num_data_lanes;
 
-	if (ar0234->num_data_lanes != 4) {
+	if (ar0234->num_data_lanes != 2 && ar0234->num_data_lanes != 4) {
 		dev_err(dev, "invalid data lanes: %u\n", ar0234->num_data_lanes);
 		ret = -EINVAL;
 		goto done;
@@ -1666,7 +1678,10 @@ static int ar0234_probe(struct i2c_client *client,
 		goto err_power_off;
 
 	/* Initialize cached MFR value */
-	ar0234->mfr_30ba = AR0234_MFR_30BA_DEFAULT;
+	if (ar0234->num_data_lanes == 2)
+		ar0234->mfr_30ba = AR0234_MFR_30BA_2LANE;
+	else
+		ar0234->mfr_30ba = AR0234_MFR_30BA_4LANE;
 
 #ifdef CONFIG_VIDEO_V4L2_SUBDEV_API
 	sd->internal_ops = &ar0234_internal_ops;
