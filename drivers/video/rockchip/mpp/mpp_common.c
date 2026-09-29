@@ -1378,17 +1378,9 @@ static int mpp_process_request(struct mpp_session *session,
 		mpp_session_attach_workqueue(session, mpp->queue);
 		mutex_unlock(&session->lock_session);
 	} break;
-	case MPP_CMD_INIT_DRIVER_DATA: {
-		u32 val;
-
-		mpp = session->mpp;
-		if (!mpp)
-			return -EINVAL;
-		if (get_user(val, (u32 __user *)req->data))
-			return -EFAULT;
-		if (mpp->grf_info->grf)
-			regmap_write(mpp->grf_info->grf, 0x5d8, val);
-	} break;
+	case MPP_CMD_INIT_DRIVER_DATA:
+		mpp_err("cmd INIT_DRIVER_DATA is not supported\n");
+		return -EOPNOTSUPP;
 	case MPP_CMD_INIT_TRANS_TABLE:
 		mpp_err("cmd INIT_TRANS_TABLE is not supported\n");
 		return -EOPNOTSUPP;
