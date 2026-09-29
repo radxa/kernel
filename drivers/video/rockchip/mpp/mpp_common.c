@@ -2275,6 +2275,11 @@ int mpp_dev_probe(struct mpp_dev *mpp,
 	mpp->hw_ops = mpp->var->hw_ops;
 	mpp->dev_ops = mpp->var->dev_ops;
 
+	/* the hardware has no dma segment size limit, keep mapped
+	 * scatterlists from being split into 64K segments by default
+	 */
+	dma_set_max_seg_size(dev, UINT_MAX);
+
 	/* Get and attach to service */
 	ret = mpp_attach_service(mpp, dev);
 	if (ret) {
