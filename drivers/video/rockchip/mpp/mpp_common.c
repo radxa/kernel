@@ -248,6 +248,9 @@ static struct mpp_task_msgs *get_task_msgs(struct mpp_session *session)
 	spin_unlock_irqrestore(&session->lock_msgs, flags);
 
 	msgs = kzalloc(sizeof(*msgs), GFP_KERNEL);
+	if (!msgs)
+		return NULL;
+
 	task_msgs_init(msgs, session);
 	INIT_LIST_HEAD(&msgs->list_session);
 
@@ -1590,8 +1593,11 @@ static int mpp_collect_msgs(struct list_head *head, struct mpp_session *session,
 
 next:
 	/* first, parse to fixed struct */
-	if (copy_from_user(&msg_v1, msg, sizeof(msg_v1)))
+	if (copy_from_user(&msg_v1, msg, sizeof(msg_v1))) {
+		if (msgs)
+			put_task_msgs(msgs);
 		return -EFAULT;
+	}
 
 	msg += sizeof(msg_v1);
 
@@ -1600,6 +1606,8 @@ next:
 
 	if (mpp_check_cmd_v1(msg_v1.cmd)) {
 		mpp_err("mpp cmd %x is not supported.\n", msg_v1.cmd);
+		if (msgs)
+			put_task_msgs(msgs);
 		return -EFAULT;
 	}
 
@@ -1617,8 +1625,11 @@ next:
 		/* try session switch here */
 		usr_cmd = (struct mpp_bat_msg __user *)(unsigned long)msg_v1.data_ptr;
 
-		if (copy_from_user(&bat_msg, usr_cmd, sizeof(bat_msg)))
+		if (copy_from_user(&bat_msg, usr_cmd, sizeof(bat_msg))) {
+			if (msgs)
+				put_task_msgs(msgs);
 			return -EFAULT;
+		}
 
 		/* skip finished message */
 		if (bat_msg.flag & MPP_BAT_MSG_DONE)
@@ -1632,6 +1643,16 @@ next:
 
 			if (copy_to_user(&usr_cmd->ret, &ret, sizeof(usr_cmd->ret)))
 				mpp_err("copy_to_user failed.\n");
+			goto session_switch_done;
+		}
+		if (f.file->f_op != &rockchip_mpp_fops) {
+			int ret = -EINVAL;
+
+			mpp_err("fd %d is not a mpp_service session\n", bat_msg.fd);
+
+			if (copy_to_user(&usr_cmd->ret, &ret, sizeof(usr_cmd->ret)))
+				mpp_err("copy_to_user failed.\n");
+			fdput(f);
 			goto session_switch_done;
 		}
 
@@ -1648,10 +1669,12 @@ next:
 		/* switch session */
 		session = f.file->private_data;
 		msgs = get_task_msgs(session);
+		if (!msgs) {
+			fdput(f);
+			return -ENOMEM;
+		}
 
-		if (f.file->private_data == session)
-			msgs->ext_fd = bat_msg.fd;
-
+		msgs->ext_fd = bat_msg.fd;
 		msgs->f = f;
 
 		mpp_debug(DEBUG_IOCTL, "fd %d, session %d msg_cnt %d\n",
@@ -1659,8 +1682,17 @@ next:
 
 session_switch_done:
 		/* session id should NOT be the last message */
-		if (last)
+		if (last) {
+			if (msgs) {
+				if (msgs->req_cnt)
+					task_msgs_add(msgs, head);
+				else
+					put_task_msgs(msgs);
+
+				msgs = NULL;
+			}
 			return 0;
+		}
 
 		goto next;
 	}
@@ -1677,6 +1709,7 @@ session_switch_done:
 	if (msgs->req_cnt >= MPP_MAX_MSG_NUM) {
 		mpp_err("session %d message count %d more than %d.\n",
 			session->index, msgs->req_cnt, MPP_MAX_MSG_NUM);
+		put_task_msgs(msgs);
 		return -EINVAL;
 	}
 
@@ -1691,6 +1724,7 @@ session_switch_done:
 	if (ret) {
 		mpp_err("session %d process cmd %x ret %d\n",
 			session->index, req->cmd, ret);
+		put_task_msgs(msgs);
 		return ret;
 	}
 
