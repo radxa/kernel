@@ -1389,25 +1389,9 @@ static int mpp_process_request(struct mpp_session *session,
 		if (mpp->grf_info->grf)
 			regmap_write(mpp->grf_info->grf, 0x5d8, val);
 	} break;
-	case MPP_CMD_INIT_TRANS_TABLE: {
-		if (session && req->size) {
-			int trans_tbl_size = sizeof(session->trans_table);
-
-			if (req->size > trans_tbl_size) {
-				mpp_err("init table size %d more than %d\n",
-					req->size, trans_tbl_size);
-				return -ENOMEM;
-			}
-
-			if (copy_from_user(session->trans_table,
-					   req->data, req->size)) {
-				mpp_err("copy_from_user failed\n");
-				return -EINVAL;
-			}
-			session->trans_count =
-				req->size / sizeof(session->trans_table[0]);
-		}
-	} break;
+	case MPP_CMD_INIT_TRANS_TABLE:
+		mpp_err("cmd INIT_TRANS_TABLE is not supported\n");
+		return -EOPNOTSUPP;
 	case MPP_CMD_SET_REG_WRITE:
 	case MPP_CMD_SET_REG_READ:
 	case MPP_CMD_SET_REG_ADDR_OFFSET:
@@ -1966,19 +1950,18 @@ int mpp_translate_reg_address(struct mpp_session *session,
 	int i;
 	int cnt;
 	const u16 *tbl;
+	struct mpp_trans_info *trans_info;
+	struct mpp_dev *mpp;
 
 	mpp_debug_enter();
 
-	if (session->trans_count > 0) {
-		cnt = session->trans_count;
-		tbl = session->trans_table;
-	} else {
-		struct mpp_dev *mpp = mpp_get_task_used_device(task, session);
-		struct mpp_trans_info *trans_info = mpp->var->trans_info;
+	mpp = mpp_get_task_used_device(task, session);
+	if (!mpp)
+		return -EINVAL;
 
-		cnt = trans_info[fmt].count;
-		tbl = trans_info[fmt].table;
-	}
+	trans_info = mpp->var->trans_info;
+	cnt = trans_info[fmt].count;
+	tbl = trans_info[fmt].table;
 
 	for (i = 0; i < cnt; i++) {
 		int usr_fd;

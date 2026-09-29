@@ -353,9 +353,6 @@ struct mpp_session {
 	pid_t pid;
 	atomic_t task_count;
 	atomic_t release_request;
-	/* trans info set by user */
-	int trans_count;
-	u16 trans_table[MPP_MAX_REG_TRANS_NUM];
 	u32 msg_flags;
 	/* link to mpp_service session_list */
 	struct list_head service_link;
