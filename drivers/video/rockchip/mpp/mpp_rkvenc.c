@@ -355,8 +355,6 @@ static void *rkvenc_alloc_task(struct mpp_session *session,
 						task->reg, &task->off_inf);
 		if (ret)
 			goto fail;
-		mpp_translate_reg_offset_info(mpp_task,
-					      &task->off_inf, task->reg);
 	}
 	task->link_mode = RKVENC_MODE_ONEFRAME;
 	task->clk_mode = CLK_MODE_NORMAL;

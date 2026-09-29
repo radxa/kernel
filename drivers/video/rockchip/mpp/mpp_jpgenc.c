@@ -154,16 +154,9 @@ static struct mpp_trans_info jpgenc_v1_trans[] = {
 
 static int jpgenc_process_reg_fd(struct mpp_session *session, struct jpgenc_task *task)
 {
-	int ret = 0;
 
-	ret = mpp_translate_reg_address(session, &task->mpp_task,
+	return mpp_translate_reg_address(session, &task->mpp_task,
 					JPGENC_FMT_DEFAULT, task->reg, &task->off_inf);
-
-	if (ret)
-		return ret;
-
-	mpp_translate_reg_offset_info(&task->mpp_task, &task->off_inf, task->reg);
-	return 0;
 }
 
 static int jpgenc_extract_task_msg(struct jpgenc_task *task, struct mpp_task_msgs *msgs)

@@ -148,18 +148,10 @@ static int vepu_process_reg_fd(struct mpp_session *session,
 			       struct vepu_task *task,
 			       struct mpp_task_msgs *msgs)
 {
-	int ret = 0;
 	int fmt = VEPU1_GET_FORMAT(task->reg[VEPU1_REG_ENC_EN_INDEX]);
 
-	ret = mpp_translate_reg_address(session, &task->mpp_task,
+	return mpp_translate_reg_address(session, &task->mpp_task,
 					fmt, task->reg, &task->off_inf);
-	if (ret)
-		return ret;
-
-	mpp_translate_reg_offset_info(&task->mpp_task,
-				      &task->off_inf, task->reg);
-
-	return 0;
 }
 
 static int vepu_extract_task_msg(struct vepu_task *task,

@@ -214,8 +214,7 @@ static int vdpu_process_reg_fd(struct mpp_session *session,
 
 	if (likely(fmt == VDPU2_FMT_H264D)) {
 		int fd;
-		u32 offset;
-		dma_addr_t iova = 0;
+		u64 offset = 0;
 		struct mpp_mem_region *mem_region = NULL;
 		int idx = VDPU2_REG_DIR_MV_BASE_INDEX;
 
@@ -226,20 +225,23 @@ static int vdpu_process_reg_fd(struct mpp_session *session,
 			fd = task->reg[idx] & 0x3ff;
 			offset = task->reg[idx] >> 10 << 4;
 		}
+		offset += mpp_query_reg_offset_info(&task->off_inf, idx);
 		mem_region = mpp_task_attach_fd(&task->mpp_task, fd);
 		if (IS_ERR(mem_region)) {
 			mpp_err("reg[%3d]: %08x fd %d attach failed\n",
 				idx, task->reg[idx], fd);
-			return -EFAULT;
+			return -EINVAL;
+		}
+		if (offset >= mem_region->len) {
+			mpp_err("reg[%3d]: fd %d offset %llu over buffer len %lx\n",
+				idx, fd, offset, mem_region->len);
+			return -EINVAL;
 		}
 
-		iova = mem_region->iova;
-		mpp_debug(DEBUG_IOMMU, "DMV[%3d]: %3d => %pad + offset %10d\n",
-			  idx, fd, &iova, offset);
-		task->reg[idx] = iova + offset;
+		mpp_debug(DEBUG_IOMMU, "DMV[%3d]: %3d => %pad + offset %llu\n",
+			  idx, fd, &mem_region->iova, offset);
+		task->reg[idx] = mem_region->iova + offset;
 	}
-	mpp_translate_reg_offset_info(&task->mpp_task,
-				      &task->off_inf, task->reg);
 	return 0;
 }
 
