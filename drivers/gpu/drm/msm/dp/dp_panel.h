@@ -27,6 +27,15 @@ struct msm_dp_panel_psr {
 	u8 capabilities;
 };
 
+/* stream id */
+enum msm_dp_stream_id {
+	DP_STREAM_0,
+	DP_STREAM_1,
+	DP_STREAM_2,
+	DP_STREAM_3,
+	DP_STREAM_MAX,
+};
+
 struct msm_dp_panel {
 	/* dpcd raw data */
 	u8 dpcd[DP_RECEIVER_CAP_SIZE];
@@ -39,6 +48,8 @@ struct msm_dp_panel {
 	bool video_test;
 	bool vsc_sdp_supported;
 	u32 hw_revision;
+
+	enum msm_dp_stream_id stream_id;
 
 	u32 max_bw_code;
 };
