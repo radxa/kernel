@@ -331,6 +331,12 @@ static int iep2_extract_task_msg(struct iep_task *task,
 				mpp_err("copy_from_user params failed\n");
 				return -EIO;
 			}
+			task->params.osd_area_num =
+				min_t(u32, task->params.osd_area_num,
+				      ARRAY_SIZE(task->params.osd_x_sta));
+			task->params.osd_pos_limit_num =
+				min_t(u32, task->params.osd_pos_limit_num,
+				      ARRAY_SIZE(task->params.osd_limit_area));
 		} break;
 		case MPP_CMD_SET_REG_READ: {
 			if (req->size > sizeof(task->output)) {
@@ -541,10 +547,12 @@ static void iep2_config(struct mpp_dev *mpp, struct iep_task *task)
 static void iep2_osd_cfg(struct mpp_dev *mpp, struct iep_task *task)
 {
 	struct iep2_params *hw_cfg = &task->params;
-	int i;
+	u32 i;
 	u32 reg;
+	u32 osd_area_num = min_t(u32, hw_cfg->osd_area_num,
+				 ARRAY_SIZE(hw_cfg->osd_x_sta));
 
-	for (i = 0; i < hw_cfg->osd_area_num; ++i) {
+	for (i = 0; i < osd_area_num; ++i) {
 		reg = IEP2_REG_OSD_X_STA(hw_cfg->osd_x_sta[i])
 			| IEP2_REG_OSD_X_END(hw_cfg->osd_x_end[i])
 			| IEP2_REG_OSD_Y_STA(hw_cfg->osd_y_sta[i])
@@ -755,6 +763,8 @@ static int iep2_finish(struct mpp_dev *mpp,
 	output->dect_ff_nz = mpp_read(mpp, IEP2_REG_RO_FF_COMB_NZ);
 	output->dect_ff_comb_f = mpp_read(mpp, IEP2_REG_RO_FF_COMB_F);
 	output->dect_osd_cnt = mpp_read(mpp, IEP2_REG_RO_OSD_NUM);
+	output->dect_osd_cnt = min_t(u32, output->dect_osd_cnt,
+				     ARRAY_SIZE(output->x_sta));
 
 	reg = mpp_read(mpp, IEP2_REG_RO_COMB_CNT);
 	output->out_comb_cnt = IEP2_REG_RO_OUT_COMB_CNT(reg);
@@ -954,7 +964,7 @@ static int iep2_init(struct mpp_dev *mpp)
 	}
 
 	/* for mmu pagefault */
-	iep->aux_page = alloc_page(GFP_KERNEL | GFP_DMA32);
+	iep->aux_page = alloc_page(GFP_KERNEL | __GFP_ZERO | GFP_DMA32);
 	if (!iep->aux_page) {
 		dev_err(mpp->dev, "allocate a page for auxiliary usage\n");
 		return -ENOMEM;
