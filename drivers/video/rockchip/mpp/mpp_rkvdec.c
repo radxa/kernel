@@ -455,8 +455,8 @@ static int devfreq_notifier_call(struct notifier_block *nb,
  * address then copy it all pps buffer.
  */
 static int fill_scaling_list_pps(struct rkvdec_task *task,
-				 int fd, int offset, int count,
-				 int pps_info_size, int sub_addr_offset)
+				 int fd, u32 offset, u32 count,
+				 u32 pps_info_size, u32 sub_addr_offset)
 {
 	struct dma_buf *dmabuf = NULL;
 	struct iosys_map map;
@@ -464,11 +464,25 @@ static int fill_scaling_list_pps(struct rkvdec_task *task,
 	u32 scaling_fd = 0;
 	int ret = 0;
 	u32 base = sub_addr_offset;
+	u64 need;
+
+	if (!count)
+		return -EINVAL;
+
+	need = (u64)offset + sub_addr_offset +
+	       (u64)(count - 1) * pps_info_size + sizeof(scaling_fd);
 
 	dmabuf = dma_buf_get(fd);
 	if (IS_ERR_OR_NULL(dmabuf)) {
 		mpp_err("invliad pps buffer\n");
 		return -ENOENT;
+	}
+
+	if (need > dmabuf->size) {
+		mpp_err("pps offset %u need %llu over buffer size %llu\n",
+			offset, need, (u64)dmabuf->size);
+		ret = -EINVAL;
+		goto access_failed;
 	}
 
 	ret = dma_buf_begin_cpu_access(dmabuf, DMA_FROM_DEVICE);
@@ -540,10 +554,10 @@ static int rkvdec_process_scl_fd(struct mpp_session *session,
 
 	pps_offset += mpp_query_reg_offset_info(&task->off_inf, idx);
 	if (pps_fd > 0) {
-		int pps_info_offset;
-		int pps_info_count;
-		int pps_info_size;
-		int scaling_list_addr_offset;
+		u32 pps_info_offset;
+		u32 pps_info_count;
+		u32 pps_info_size;
+		u32 scaling_list_addr_offset;
 
 		switch (fmt) {
 		case RKVDEC_FMT_H264D:
@@ -569,13 +583,13 @@ static int rkvdec_process_scl_fd(struct mpp_session *session,
 		mpp_debug(DEBUG_PPS_FILL,
 			  "scaling list filling parameter:\n");
 		mpp_debug(DEBUG_PPS_FILL,
-			  "pps_info_offset %d\n", pps_info_offset);
+			  "pps_info_offset %u\n", pps_info_offset);
 		mpp_debug(DEBUG_PPS_FILL,
-			  "pps_info_count  %d\n", pps_info_count);
+			  "pps_info_count  %u\n", pps_info_count);
 		mpp_debug(DEBUG_PPS_FILL,
-			  "pps_info_size   %d\n", pps_info_size);
+			  "pps_info_size   %u\n", pps_info_size);
 		mpp_debug(DEBUG_PPS_FILL,
-			  "scaling_list_addr_offset %d\n",
+			  "scaling_list_addr_offset %u\n",
 			  scaling_list_addr_offset);
 
 		if (pps_info_count) {
