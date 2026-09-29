@@ -353,7 +353,7 @@ static int mpp_procfs_init(struct mpp_service *srv)
 	/* show version */
 	proc_create_single("version", 0444, srv->procfs, mpp_show_version);
 	/* for show session info */
-	proc_create_single_data("sessions-summary", 0444,
+	proc_create_single_data("sessions-summary", 0400,
 				srv->procfs, mpp_show_session_summary, srv);
 	/* show support dev cmd */
 	proc_create_single("supports-cmd", 0444, srv->procfs, mpp_show_support_cmd);

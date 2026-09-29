@@ -403,7 +403,7 @@ static int jpgenc_procfs_init(struct mpp_dev *mpp)
 	mpp_procfs_create_u32("hclk", 0644, enc->procfs, &enc->hclk_info.debug_rate_hz);
 	mpp_procfs_create_u32("session_buffers", 0644, enc->procfs, &mpp->session_max_buffers);
 	mpp_procfs_create_u32("link_mode", 0644, enc->procfs, &enc->link_mode);
-	proc_create_single_data("sessions-info", 0444, enc->procfs, jpgenc_show_session_info, mpp);
+	proc_create_single_data("sessions-info", 0400, enc->procfs, jpgenc_show_session_info, mpp);
 
 	mpp_debug_leave();
 	return 0;
