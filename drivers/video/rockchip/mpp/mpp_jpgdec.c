@@ -132,16 +132,9 @@ static int jpgdec_process_reg_fd(struct mpp_session *session,
 				 struct jpgdec_task *task,
 				 struct mpp_task_msgs *msgs)
 {
-	int ret = 0;
 
-	ret = mpp_translate_reg_address(session, &task->mpp_task,
+	return mpp_translate_reg_address(session, &task->mpp_task,
 					JPEGDEC_FMT_DEFAULT, task->reg, &task->off_inf);
-	if (ret)
-		return ret;
-
-	mpp_translate_reg_offset_info(&task->mpp_task,
-				      &task->off_inf, task->reg);
-	return 0;
 }
 
 static int jpgdec_extract_task_msg(struct jpgdec_task *task,

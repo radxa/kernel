@@ -613,7 +613,6 @@ static int rkvdec_process_reg_fd(struct mpp_session *session,
 				 struct rkvdec_task *task,
 				 struct mpp_task_msgs *msgs)
 {
-	int ret = 0;
 	u32 fmt = RKVDEC_GET_FORMAT(task->reg[RKVDEC_REG_SYS_CTRL_INDEX]);
 
 	/*
@@ -632,8 +631,7 @@ static int rkvdec_process_reg_fd(struct mpp_session *session,
 	 */
 	if (fmt == RKVDEC_FMT_VP9D) {
 		int fd;
-		u32 offset;
-		dma_addr_t iova = 0;
+		u64 offset = 0;
 		struct mpp_mem_region *mem_region = NULL;
 		int idx = RKVDEC_REG_VP9_REFCOLMV_BASE_INDEX;
 
@@ -644,25 +642,25 @@ static int rkvdec_process_reg_fd(struct mpp_session *session,
 			fd = task->reg[idx] & 0x3ff;
 			offset = task->reg[idx] >> 10 << 4;
 		}
+		offset += mpp_query_reg_offset_info(&task->off_inf, idx);
 		mem_region = mpp_task_attach_fd(&task->mpp_task, fd);
 		if (IS_ERR(mem_region)) {
 			mpp_err("reg[%03d]: %08x fd %d attach failed\n",
 				idx, task->reg[idx], fd);
-			return -EFAULT;
+			return -EINVAL;
 		}
 
-		iova = mem_region->iova;
-		task->reg[idx] = iova + offset;
+		if (offset >= mem_region->len) {
+			mpp_err("reg[%03d]: fd %d offset %llu over buffer len %lx\n",
+				idx, fd, offset, mem_region->len);
+			return -EINVAL;
+		}
+
+		task->reg[idx] = mem_region->iova + offset;
 	}
 
-	ret = mpp_translate_reg_address(session, &task->mpp_task,
+	return mpp_translate_reg_address(session, &task->mpp_task,
 					fmt, task->reg, &task->off_inf);
-	if (ret)
-		return ret;
-
-	mpp_translate_reg_offset_info(&task->mpp_task,
-				      &task->off_inf, task->reg);
-	return 0;
 }
 
 static int rkvdec_extract_task_msg(struct rkvdec_task *task,

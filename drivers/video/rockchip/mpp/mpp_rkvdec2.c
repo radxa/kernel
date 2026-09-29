@@ -364,8 +364,6 @@ int rkvdec2_task_init(struct mpp_dev *mpp, struct mpp_session *session,
 						fmt, task->reg, &task->off_inf);
 		if (ret)
 			goto fail;
-
-		mpp_translate_reg_offset_info(mpp_task, &task->off_inf, task->reg);
 	}
 
 	task->strm_addr = task->reg[RKVDEC_REG_RLC_BASE_INDEX];

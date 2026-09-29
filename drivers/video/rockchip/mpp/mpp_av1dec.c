@@ -438,6 +438,7 @@ static void *av1dec_alloc_task(struct mpp_session *session,
 	/* process fd in register */
 	if (!(msgs->flags & MPP_FLAGS_REG_FD_NO_TRANS)) {
 		int cnt;
+		u32 region_from;
 		const u16 *tbl;
 		u32 offset;
 		struct av1dec_hw_info *hw = task->hw_info;
@@ -461,6 +462,7 @@ static void *av1dec_alloc_task(struct mpp_session *session,
 				if (!reg)
 					continue;
 
+				region_from = mpp_task->mem_count;
 				ret = mpp_translate_reg_address(session, mpp_task, fmt, reg, NULL);
 				if (ret)
 					goto fail;
@@ -468,8 +470,27 @@ static void *av1dec_alloc_task(struct mpp_session *session,
 				cnt = mpp->var->trans_info[fmt].count;
 				tbl = mpp->var->trans_info[fmt].table;
 				for (j = 0; j < cnt; j++) {
+					struct mpp_mem_region *mem_region;
+					u64 total;
+
 					offset = mpp_query_reg_offset_info(&task->off_inf,
 									tbl[j] + base_idx);
+					if (!offset)
+						continue;
+
+					mem_region = mpp_task_find_region_by_reg(mpp_task, tbl[j],
+										region_from);
+					if (!mem_region) {
+						mpp_err("reg[%d]: offset %u without buffer\n",
+							tbl[j], offset);
+						goto fail;
+					}
+					total = (u64)(reg[tbl[j]] - mem_region->iova) + offset;
+					if (total >= mem_region->len) {
+						mpp_err("reg[%d]: offset %llu over buffer len %lx\n",
+							tbl[j], total, mem_region->len);
+						goto fail;
+					}
 					mpp_debug(DEBUG_IOMMU,
 						"reg[%d] + offset %d\n", tbl[j] + base_idx, offset);
 					reg[tbl[j]] += offset;

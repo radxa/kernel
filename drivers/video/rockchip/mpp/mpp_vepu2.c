@@ -197,15 +197,19 @@ static int vepu_process_reg_fd(struct mpp_session *session,
 	if (ret)
 		return ret;
 
-	mpp_translate_reg_offset_info(&task->mpp_task,
-				      &task->off_inf, task->reg);
 
 	if (fmt == VEPU2_FMT_JPEGE) {
 		struct mpp_dma_buffer *bs_buf = mpp_dma_find_buffer_fd(session->dma, fd_bs);
 
 		task->offset_bs = mpp_query_reg_offset_info(&task->off_inf, VEPU2_REG_OUT_INDEX);
-		if (bs_buf && task->offset_bs > 0)
+		if (bs_buf && task->offset_bs > 0) {
+			if (task->offset_bs >= bs_buf->size) {
+				mpp_err("bs offset %u over buffer size %lx\n",
+					task->offset_bs, bs_buf->size);
+				return -EINVAL;
+			}
 			mpp_dma_buf_sync(bs_buf, 0, task->offset_bs, DMA_TO_DEVICE, false);
+		}
 		task->bs_buf = bs_buf;
 	}
 

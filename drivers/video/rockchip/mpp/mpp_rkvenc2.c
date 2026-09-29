@@ -1106,6 +1106,7 @@ static void *rkvenc_alloc_task(struct mpp_session *session,
 		u32 i, j;
 		int cnt;
 		u32 off;
+		u32 region_from;
 		const u16 *tbl;
 		struct rkvenc_hw_info *hw = task->hw_info;
 		int fd_bs = -1;
@@ -1128,6 +1129,7 @@ static void *rkvenc_alloc_task(struct mpp_session *session,
 									    bs_index + ss);
 			}
 
+			region_from = mpp_task->mem_count;
 			ret = mpp_translate_reg_address(session, mpp_task, fmt, reg, NULL);
 			if (ret)
 				goto fail;
@@ -1135,7 +1137,26 @@ static void *rkvenc_alloc_task(struct mpp_session *session,
 			cnt = mpp->var->trans_info[fmt].count;
 			tbl = mpp->var->trans_info[fmt].table;
 			for (j = 0; j < cnt; j++) {
+				struct mpp_mem_region *mem_region;
+				u64 total;
+
 				off = mpp_query_reg_offset_info(&task->off_inf, tbl[j] + ss);
+				if (!off)
+					continue;
+
+				mem_region = mpp_task_find_region_by_reg(mpp_task, tbl[j],
+									region_from);
+				if (!mem_region) {
+					mpp_err("reg[%d]: offset %u without buffer\n",
+						tbl[j], off);
+					goto fail;
+				}
+				total = (u64)(reg[tbl[j]] - mem_region->iova) + off;
+				if (total >= mem_region->len) {
+					mpp_err("reg[%d]: offset %llu over buffer len %lx\n",
+						tbl[j], total, mem_region->len);
+					goto fail;
+				}
 				mpp_debug(DEBUG_IOMMU, "reg[%d] + offset %d\n", tbl[j] + ss, off);
 				reg[tbl[j]] += off;
 			}
@@ -1145,8 +1166,14 @@ static void *rkvenc_alloc_task(struct mpp_session *session,
 			struct mpp_dma_buffer *bs_buf =
 					mpp_dma_find_buffer_fd(session->dma, fd_bs);
 
-			if (bs_buf && task->offset_bs > 0)
+			if (bs_buf && task->offset_bs > 0) {
+				if (task->offset_bs >= bs_buf->size) {
+					mpp_err("bs offset %u over buffer size %lx\n",
+						task->offset_bs, bs_buf->size);
+					goto fail;
+				}
 				mpp_dma_buf_sync(bs_buf, 0, task->offset_bs, DMA_TO_DEVICE, false);
+			}
 			task->bs_buf = bs_buf;
 		}
 	}
@@ -1799,9 +1826,11 @@ static int rkvenc_finish(struct mpp_dev *mpp, struct mpp_task *mpp_task)
 
 	if (task->bs_buf) {
 		u32 bs_size = mpp_read(mpp, 0x4064);
+		u64 len = (u64)bs_size + task->offset_bs;
 
-		mpp_dma_buf_sync(task->bs_buf, 0, bs_size + task->offset_bs,
-				 DMA_FROM_DEVICE, true);
+		if (len > task->bs_buf->size)
+			len = task->bs_buf->size;
+		mpp_dma_buf_sync(task->bs_buf, 0, (u32)len, DMA_FROM_DEVICE, true);
 	}
 
 	/* revert hack for irq status */

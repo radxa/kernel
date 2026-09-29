@@ -1895,8 +1895,8 @@ mpp_task_attach_fd(struct mpp_task *task, int fd)
 	if (fd <= 0 || !mpp)
 		return ERR_PTR(-EINVAL);
 
-	if (task->mem_count > mem_num) {
-		mpp_err("mem_count %d must less than %d\n", task->mem_count, mem_num);
+	if (task->mem_count >= mem_num) {
+		mpp_err("mem_count %u must less than %u\n", task->mem_count, mem_num);
 		return ERR_PTR(-ENOMEM);
 	}
 
@@ -1957,7 +1957,7 @@ int mpp_translate_reg_address(struct mpp_session *session,
 
 	for (i = 0; i < cnt; i++) {
 		int usr_fd;
-		u32 offset;
+		u64 offset;
 		struct mpp_mem_region *mem_region = NULL;
 
 		if (session->msg_flags & MPP_FLAGS_REG_NO_OFFSET) {
@@ -1977,8 +1977,16 @@ int mpp_translate_reg_address(struct mpp_session *session,
 				tbl[i], reg[tbl[i]], usr_fd);
 			return PTR_ERR(mem_region);
 		}
-		mpp_debug(DEBUG_IOMMU,
-			  "reg[%3d]: %d => %pad, offset %10d, size %lx\n",
+
+		if (off_inf)
+			offset += mpp_query_reg_offset_info(off_inf, tbl[i]);
+
+		if (offset >= mem_region->len) {
+			mpp_err("reg[%3d]: fd %d offset %llu over buffer len %lx\n",
+				tbl[i], usr_fd, offset, mem_region->len);
+			return -EINVAL;
+		}
+		mpp_debug(DEBUG_IOMMU, "reg[%3d]: %d => %pad, offset %llu, size %lx\n",
 			  tbl[i], usr_fd, &mem_region->iova,
 			  offset, mem_region->len);
 		mem_region->reg_idx = tbl[i];
@@ -1988,6 +1996,26 @@ int mpp_translate_reg_address(struct mpp_session *session,
 	mpp_debug_leave();
 
 	return 0;
+}
+
+struct mpp_mem_region *
+mpp_task_find_region_by_reg(struct mpp_task *task, u32 reg_idx,
+			    u32 region_from)
+{
+	u32 i;
+
+	/*
+	 * The class-local register index of one translation table can
+	 * collide with the index of another table whose buffers were
+	 * attached earlier, so only search the regions attached by the
+	 * translation round that started at region_from.
+	 */
+	for (i = region_from; i < task->mem_count; i++) {
+		if (task->mem_regions[i].reg_idx == reg_idx)
+			return &task->mem_regions[i];
+	}
+
+	return NULL;
 }
 
 int mpp_check_req(struct mpp_request *req, u32 base,
@@ -2062,27 +2090,6 @@ int mpp_query_reg_offset_info(struct reg_offset_info *off_inf,
 		for (i = 0; i < off_inf->cnt; i++) {
 			if (off_inf->elem[i].index == index)
 				return off_inf->elem[i].offset;
-		}
-	}
-	mpp_debug_leave();
-
-	return 0;
-}
-
-int mpp_translate_reg_offset_info(struct mpp_task *task,
-				  struct reg_offset_info *off_inf,
-				  u32 *reg)
-{
-	mpp_debug_enter();
-
-	if (off_inf) {
-		int i;
-
-		for (i = 0; i < off_inf->cnt; i++) {
-			mpp_debug(DEBUG_IOMMU, "reg[%d] + offset %d\n",
-				  off_inf->elem[i].index,
-				  off_inf->elem[i].offset);
-			reg[off_inf->elem[i].index] += off_inf->elem[i].offset;
 		}
 	}
 	mpp_debug_leave();
