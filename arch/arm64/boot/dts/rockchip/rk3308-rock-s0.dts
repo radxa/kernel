@@ -280,6 +280,22 @@
 	pinctrl-0 = <&pwm0_pin_pull_down>;
 };
 
+&rockchip_suspend {
+	/* Route USB PHY wake interrupts through the GIC. */
+	rockchip,wakeup-config = <
+		(0
+		| RKPM_ARM_GIC_WAKEUP_EN
+		| RKPM_GPIO0_WAKEUP_EN
+		)
+	>;
+	rockchip,pwm-regulator-config = <
+		(0
+		| RKPM_PWM_REGULATOR
+		)
+	>;
+	status = "okay";
+};
+
 &saradc {
 	vref-supply = <&vcc_1v8>;
 	status = "okay";
@@ -298,6 +314,7 @@
 };
 
 &u2phy {
+	wakeup-source;
 	status = "okay";
 
 	u2phy_host: host-port {
