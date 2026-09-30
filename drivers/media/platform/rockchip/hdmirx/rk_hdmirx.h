@@ -229,6 +229,8 @@
 #define AUDIO_PROC_STATUS1			0x0490
 #define AUD_SAMPLE_PRESENT			GENMASK(20, 17)
 #define AUD_SAMPLE_FLAT				GENMASK(16, 13)
+#define AUD_LAYOUT				BIT(3)
+#define AUD_FMT_ST				GENMASK(2, 0)
 #define SCDC_CONFIG				0x0580
 #define HPDLOW					BIT(1)
 #define POWERPROVIDED				BIT(0)
