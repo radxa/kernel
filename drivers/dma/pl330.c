@@ -547,6 +547,7 @@ struct dma_pl330_desc {
 	/* For cyclic capability */
 	bool cyclic;
 	size_t num_periods;
+	size_t cyclic_pos;
 
 	/* interleaved size */
 	struct data_chunk sgl;
@@ -1469,6 +1470,9 @@ static int _period(struct pl330_dmac *pl330, unsigned int dry_run, u8 buf[],
 		}
 	}
 
+	if (pxs->desc->rqtype == DMA_DEV_TO_MEM)
+		off += _emit_WMB(dry_run, &buf[off]);
+
 	off += _emit_SEV(dry_run, &buf[off], ev);
 
 	return off;
@@ -1905,7 +1909,11 @@ static int pl330_update(struct pl330_dmac *pl330)
 			/* Detach the req */
 			descdone = thrd->req[active].desc;
 			if (descdone) {
-				if (!descdone->cyclic) {
+				if (descdone->cyclic) {
+					descdone->cyclic_pos += descdone->px.bytes;
+					if (descdone->cyclic_pos >= descdone->bytes_requested)
+						descdone->cyclic_pos = 0;
+				} else {
 					thrd->req[active].desc = NULL;
 					thrd->req_running = -1;
 					/* Get going again ASAP */
@@ -2616,6 +2624,9 @@ static int pl330_get_current_xferred_count(struct dma_pl330_chan *pch,
 	void __iomem *regs = thrd->dmac->base;
 	u32 val, addr;
 
+	if (desc->cyclic && desc->rqtype == DMA_DEV_TO_MEM)
+		return desc->cyclic_pos;
+
 	pm_runtime_get_sync(pl330->ddma.dev);
 	val = addr = 0;
 	if (desc->rqcfg.src_inc) {
@@ -2852,6 +2863,7 @@ static struct dma_pl330_desc *pl330_get_desc(struct dma_pl330_chan *pch)
 
 	desc->cyclic = false;
 	desc->num_periods = 1;
+	desc->cyclic_pos = 0;
 
 	desc->sgl.size = 0;
 	desc->sgl.src_icg = 0;
@@ -3429,7 +3441,7 @@ pl330_probe(struct amba_device *adev, const struct amba_id *id)
 	pd->src_addr_widths = PL330_DMA_BUSWIDTHS;
 	pd->dst_addr_widths = PL330_DMA_BUSWIDTHS;
 	pd->directions = BIT(DMA_DEV_TO_MEM) | BIT(DMA_MEM_TO_DEV);
-	pd->residue_granularity = DMA_RESIDUE_GRANULARITY_BURST;
+	pd->residue_granularity = DMA_RESIDUE_GRANULARITY_SEGMENT;
 	pd->max_burst = PL330_MAX_BURST;
 
 	ret = dma_async_device_register(pd);
