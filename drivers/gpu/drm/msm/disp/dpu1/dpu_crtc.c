@@ -1213,7 +1213,7 @@ static void dpu_crtc_disable(struct drm_crtc *crtc,
 	}
 
 	/* Disable/save vblank irq handling */
-	drm_crtc_vblank_off(crtc);
+	msm_crtc_vblank_off(crtc);
 
 	drm_for_each_encoder_mask(encoder, crtc->dev,
 				  old_crtc_state->encoder_mask) {
@@ -1301,7 +1301,7 @@ static void dpu_crtc_enable(struct drm_crtc *crtc,
 	}
 
 	/* Enable/restore vblank irq handling */
-	drm_crtc_vblank_on(crtc);
+	msm_crtc_vblank_on(crtc);
 }
 
 static bool dpu_crtc_needs_dirtyfb(struct drm_crtc_state *cstate)
