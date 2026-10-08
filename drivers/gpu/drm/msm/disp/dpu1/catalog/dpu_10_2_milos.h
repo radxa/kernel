@@ -9,7 +9,6 @@
 #define _DPU_10_2_MILOS_H
 
 static const struct dpu_caps milos_dpu_caps = {
-	.max_mixer_width = DEFAULT_DPU_OUTPUT_LINE_WIDTH,
 	.max_mixer_blendstages = 0x7,
 	.has_src_split = true,
 	.has_dim_layer = true,
