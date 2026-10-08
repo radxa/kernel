@@ -1376,6 +1376,25 @@ static int dpu_crtc_reassign_planes(struct drm_crtc *crtc, struct drm_crtc_state
 #define MAX_CHANNELS_PER_CRTC PIPES_PER_PLANE
 #define MAX_HDISPLAY_SPLIT 1080
 
+static u32 dpu_crtc_num_lm_for_mode(struct dpu_kms *dpu_kms,
+				    const struct drm_display_mode *mode)
+{
+	u64 mode_clk;
+
+	if (!dpu_kms->catalog->caps->has_3d_merge)
+		return 1;
+
+	if (mode->hdisplay > MAX_HDISPLAY_SPLIT)
+		return 2;
+
+	mode_clk = dpu_core_perf_adjusted_mode_clk(mode->clock,
+						   dpu_kms->perf.perf_cfg);
+	if (mode_clk * 1000 > dpu_kms->perf.max_core_clk_rate)
+		return 2;
+
+	return 1;
+}
+
 static struct msm_display_topology dpu_crtc_get_topology(
 		struct drm_crtc *crtc,
 		struct dpu_kms *dpu_kms,
@@ -1409,8 +1428,8 @@ static struct msm_display_topology dpu_crtc_get_topology(
 	 * enabled. This is because in cases where CWB is enabled, num_intf will
 	 * count both the WB and real-time phys encoders.
 	 *
-	 * For non-DSC CWB usecases, have the num_lm be decided by the
-	 * (mode->hdisplay > MAX_HDISPLAY_SPLIT) check.
+	 * For non-DSC CWB usecases, have the num_lm be decided by
+	 * dpu_crtc_num_lm_for_mode().
 	 */
 
 	if (topology.num_intf == 2 && !topology.cwb_enabled)
@@ -1419,7 +1438,7 @@ static struct msm_display_topology dpu_crtc_get_topology(
 		topology.num_lm = 2;
 	else if (dpu_kms->catalog->caps->has_3d_merge &&
 		 topology.num_dsc == 0)
-		topology.num_lm = (mode->hdisplay > MAX_HDISPLAY_SPLIT) ? 2 : 1;
+		topology.num_lm = dpu_crtc_num_lm_for_mode(dpu_kms, mode);
 	else
 		topology.num_lm = 1;
 
