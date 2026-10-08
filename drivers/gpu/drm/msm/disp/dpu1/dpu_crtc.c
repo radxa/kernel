@@ -791,6 +791,10 @@ static int _dpu_crtc_check_and_setup_lm_bounds(struct drm_crtc *crtc,
 	    adj_mode->hdisplay > max_pingpong_width)
 		return -E2BIG;
 
+	if (!test_bit(DPU_MIXER_SOURCESPLIT, &dpu_kms->catalog->mixer[0].features) &&
+	    adj_mode->hdisplay > dpu_kms->catalog->caps->max_linewidth)
+		return -E2BIG;
+
 	for (i = 0; i < cstate->num_mixers; i++) {
 		struct drm_rect *r = &cstate->lm_bounds[i];
 		r->x1 = crtc_split_width * i;
@@ -1690,6 +1694,10 @@ static enum drm_mode_status dpu_crtc_mode_valid(struct drm_crtc *crtc,
 	 */
 	if (!dpu_kms->catalog->caps->has_3d_merge &&
 	    mode->hdisplay > max_pingpong_width)
+		return MODE_BAD_HVALUE;
+
+	if (!test_bit(DPU_MIXER_SOURCESPLIT, &dpu_kms->catalog->mixer[0].features) &&
+	    mode->hdisplay > dpu_kms->catalog->caps->max_linewidth)
 		return MODE_BAD_HVALUE;
 
 	adjusted_mode_clk = dpu_core_perf_adjusted_mode_clk(mode->clock,
