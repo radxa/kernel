@@ -161,7 +161,7 @@
 	vccio0-supply = <&vcc_io>;
 	vccio1-supply = <&vcc_io>;
 	vccio2-supply = <&vcc_io>;
-	vccio3-supply = <&vcc_1v8>;
+	vccio3-supply = <&vcc_io>;
 	vccio4-supply = <&vcc_1v8>;
 	vccio5-supply = <&vcc_io>;
 };
@@ -173,7 +173,13 @@
 &emmc {
 	bus-width = <8>;
 	cap-mmc-highspeed;
+	mmc-ddr-3_3v;
 	non-removable;
+	pinctrl-names = "default";
+	pinctrl-0 = <&emmc_bus8 &emmc_clk &emmc_cmd &emmc_pwren>;
+	rockchip,default-sample-phase = <90>;
+	vmmc-supply = <&vcc_io>;
+	vqmmc-supply = <&vcc_io>;
 	status = "okay";
 };
 
