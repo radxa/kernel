@@ -825,6 +825,7 @@ struct drm_connector *drm_bridge_connector_init(struct drm_device *drm,
 	struct drm_bridge *panel_bridge __free(drm_bridge_put) = NULL;
 	unsigned int supported_formats = BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444);
 	unsigned int max_bpc = 8;
+	unsigned int chain_max_bpc = 0;
 	bool support_hdcp = false;
 	int connector_type;
 	int ret;
@@ -985,6 +986,10 @@ struct drm_connector *drm_bridge_connector_init(struct drm_device *drm,
 			panel_bridge = drm_bridge_get(bridge);
 		}
 
+		if (bridge->max_bpc)
+			chain_max_bpc = chain_max_bpc ?
+				min(chain_max_bpc, bridge->max_bpc) : bridge->max_bpc;
+
 		if (bridge->support_hdcp)
 			support_hdcp = true;
 	}
@@ -1026,6 +1031,19 @@ struct drm_connector *drm_bridge_connector_init(struct drm_device *drm,
 					  connector_type, ddc);
 		if (ret)
 			return ERR_PTR(ret);
+
+		if (chain_max_bpc > 8) {
+			unsigned int min_bpc = 8;
+
+			if (connector_type == DRM_MODE_CONNECTOR_DisplayPort ||
+			    connector_type == DRM_MODE_CONNECTOR_eDP)
+				min_bpc = 6;
+
+			ret = drm_connector_attach_max_bpc_property(connector, min_bpc,
+								    chain_max_bpc);
+			if (ret)
+				return ERR_PTR(ret);
+		}
 	}
 
 	if (bridge_connector->bridge_hdmi_audio ||
