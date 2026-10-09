@@ -1036,7 +1036,10 @@ static void drm_test_connector_hdmi_init_bpc_8(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, ret, 0);
 	KUNIT_EXPECT_EQ(test, val, 8);
 
+	KUNIT_EXPECT_NULL(test, connector->state);
+	drm_mode_config_reset(&priv->drm);
 	state = connector->state;
+	KUNIT_ASSERT_NOT_NULL(test, state);
 	KUNIT_EXPECT_EQ(test, state->max_bpc, 8);
 	KUNIT_EXPECT_EQ(test, state->max_requested_bpc, 8);
 
@@ -1077,7 +1080,10 @@ static void drm_test_connector_hdmi_init_bpc_10(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, ret, 0);
 	KUNIT_EXPECT_EQ(test, val, 10);
 
+	KUNIT_EXPECT_NULL(test, connector->state);
+	drm_mode_config_reset(&priv->drm);
 	state = connector->state;
+	KUNIT_ASSERT_NOT_NULL(test, state);
 	KUNIT_EXPECT_EQ(test, state->max_bpc, 10);
 	KUNIT_EXPECT_EQ(test, state->max_requested_bpc, 10);
 
@@ -1118,7 +1124,10 @@ static void drm_test_connector_hdmi_init_bpc_12(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, ret, 0);
 	KUNIT_EXPECT_EQ(test, val, 12);
 
+	KUNIT_EXPECT_NULL(test, connector->state);
+	drm_mode_config_reset(&priv->drm);
 	state = connector->state;
+	KUNIT_ASSERT_NOT_NULL(test, state);
 	KUNIT_EXPECT_EQ(test, state->max_bpc, 12);
 	KUNIT_EXPECT_EQ(test, state->max_requested_bpc, 12);
 
