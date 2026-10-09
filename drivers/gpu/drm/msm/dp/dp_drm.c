@@ -276,6 +276,7 @@ static void msm_edp_bridge_debugfs_init(struct drm_bridge *bridge, struct dentry
 }
 
 static const struct drm_bridge_funcs msm_edp_bridge_ops = {
+	.detect = msm_edp_bridge_detect,
 	.atomic_pre_enable = msm_dp_bridge_atomic_pre_enable,
 	.atomic_enable = msm_edp_bridge_atomic_enable,
 	.atomic_disable = msm_edp_bridge_atomic_disable,
@@ -311,9 +312,8 @@ int msm_dp_bridge_init(struct msm_dp *msm_dp_display, struct drm_device *dev,
 	 * Many ops only make sense for DP. Why?
 	 * - Detect/HPD are used by DRM to know if a display is _physically_
 	 *   there, not whether the display is powered on / finished initting.
-	 *   On eDP we assume the display is always there because you can't
-	 *   know until power is applied. If we don't implement the ops DRM will
-	 *   assume our display is always there.
+	 *   On eDP the fixed panel is always connected. Detect powers it briefly
+	 *   to cache link capabilities before the first modeset.
 	 * - Currently eDP mode reading is driven by the panel driver. This
 	 *   allows the panel driver to properly power itself on to read the
 	 *   modes.
@@ -327,6 +327,8 @@ int msm_dp_bridge_init(struct msm_dp *msm_dp_display, struct drm_device *dev,
 		bridge->hdmi_audio_dev = &msm_dp_display->pdev->dev;
 		bridge->hdmi_audio_max_i2s_playback_channels = 8;
 		bridge->hdmi_audio_dai_port = -1;
+	} else {
+		bridge->ops = DRM_BRIDGE_OP_DETECT;
 	}
 
 	rc = devm_drm_bridge_add(dev->dev, bridge);

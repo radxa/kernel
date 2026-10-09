@@ -159,7 +159,7 @@ static inline u32 msm_dp_read_pn(struct msm_dp_panel_private *panel,
 	return readl_relaxed(panel->pixel_base + offset);
 }
 
-static void msm_dp_panel_read_psr_cap(struct msm_dp_panel_private *panel)
+static bool msm_dp_panel_read_psr_cap(struct msm_dp_panel_private *panel)
 {
 	ssize_t rlen;
 	struct msm_dp_panel *msm_dp_panel;
@@ -175,12 +175,18 @@ static void msm_dp_panel_read_psr_cap(struct msm_dp_panel_private *panel)
 				"psr version: 0x%x, psr_cap: 0x%x\n",
 				msm_dp_panel->psr_cap.version,
 				msm_dp_panel->psr_cap.capabilities);
-		} else
+		} else {
+			memset(&msm_dp_panel->psr_cap, 0, sizeof(msm_dp_panel->psr_cap));
 			DRM_ERROR("failed to read psr info, rlen=%zd\n", rlen);
+			return false;
+		}
 	}
+
+	return true;
 }
 
-static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel)
+static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel,
+				  bool *caps_valid)
 {
 	int rc, max_lttpr_lanes, max_lttpr_rate;
 	struct msm_dp_panel_private *panel;
@@ -194,7 +200,20 @@ static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel)
 	if (rc)
 		return rc;
 
-	msm_dp_panel->vsc_sdp_supported = drm_dp_vsc_sdp_supported(panel->aux, dpcd);
+	*caps_valid = true;
+	if (dpcd[DP_DPCD_REV] >= DP_DPCD_REV_13) {
+		u8 rx_feature;
+
+		rc = drm_dp_dpcd_read_byte(panel->aux, DP_DPRX_FEATURE_ENUMERATION_LIST,
+					   &rx_feature);
+		if (rc) {
+			/* Retry discovery rather than caching a failed optional read. */
+			*caps_valid = false;
+		} else {
+			msm_dp_panel->vsc_sdp_supported =
+				rx_feature & DP_VSC_SDP_EXT_FOR_COLORIMETRY_SUPPORTED;
+		}
+	}
 	link_info = &msm_dp_panel->link_info;
 	link_info->revision = dpcd[DP_DPCD_REV];
 	major = (link_info->revision >> 4) & 0x0f;
@@ -220,15 +239,10 @@ static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel)
 		/* For eDP v1.4+, parse the SUPPORTED_LINK_RATES table */
 		if (edp_rev >= DP_EDP_14) {
 			__le16 rates[DP_MAX_SUPPORTED_RATES];
-			u8 bw_set;
 			int i;
 
 			rc = drm_dp_dpcd_read_data(panel->aux, DP_SUPPORTED_LINK_RATES,
 						   rates, sizeof(rates));
-			if (rc)
-				return rc;
-
-			rc = drm_dp_dpcd_read_byte(panel->aux, DP_LINK_BW_SET, &bw_set);
 			if (rc)
 				return rc;
 
@@ -262,10 +276,6 @@ static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel)
 				link_info->supported_rates[i] = rate;
 				link_info->rate_set = i;
 			}
-
-			/* Only use LINK_RATE_SET if LINK_BW_SET hasn't already been written to */
-			if (!bw_set && link_info->rate)
-				link_info->use_rate_set = true;
 		}
 	}
 
@@ -295,15 +305,34 @@ static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel)
 	drm_dbg_dp(panel->drm_dev, "version: %d.%d\n", major, minor);
 	drm_dbg_dp(panel->drm_dev, "link_rate=%d\n", link_info->rate);
 	drm_dbg_dp(panel->drm_dev, "link_rate_set=%d\n", link_info->rate_set);
-	drm_dbg_dp(panel->drm_dev, "use_rate_set=%d\n", link_info->use_rate_set);
 	drm_dbg_dp(panel->drm_dev, "lane_count=%d\n", link_info->num_lanes);
 
 	if (drm_dp_enhanced_frame_cap(dpcd))
 		link_info->capabilities |= DP_LINK_CAP_ENHANCED_FRAMING;
 
-	msm_dp_panel_read_psr_cap(panel);
+	if (!msm_dp_panel_read_psr_cap(panel))
+		*caps_valid = false;
 
-	return rc;
+	return 0;
+}
+
+static int msm_dp_panel_read_link_rate_set(struct msm_dp_panel_private *panel)
+{
+	struct msm_dp_link_info *link_info = &panel->msm_dp_panel.link_info;
+	u8 bw_set;
+	int ret;
+
+	if (!link_info->supported_rates[0])
+		return 0;
+
+	/* LINK_BW_SET is configuration state, not a cached capability. */
+	ret = drm_dp_dpcd_read_byte(panel->aux, DP_LINK_BW_SET, &bw_set);
+	if (ret)
+		return ret;
+
+	link_info->use_rate_set = !bw_set;
+	drm_dbg_dp(panel->drm_dev, "use_rate_set=%d\n", link_info->use_rate_set);
+	return 0;
 }
 
 static u32 msm_dp_panel_get_supported_bpp(struct msm_dp_panel *msm_dp_panel,
@@ -332,6 +361,7 @@ int msm_dp_panel_read_link_caps(struct msm_dp_panel *msm_dp_panel,
 {
 	int rc, bw_code;
 	int count;
+	bool caps_valid;
 	struct msm_dp_panel_private *panel;
 
 	if (!msm_dp_panel || !connector) {
@@ -341,7 +371,16 @@ int msm_dp_panel_read_link_caps(struct msm_dp_panel *msm_dp_panel,
 
 	panel = container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
 
-	rc = msm_dp_panel_read_dpcd(msm_dp_panel);
+	if (connector->connector_type == DRM_MODE_CONNECTOR_eDP &&
+	    msm_dp_panel->caps_cached)
+		return msm_dp_panel_read_link_rate_set(panel);
+
+	msm_dp_panel->link_caps_valid = false;
+	msm_dp_panel->caps_cached = false;
+	memset(&msm_dp_panel->link_info, 0, sizeof(msm_dp_panel->link_info));
+	memset(&msm_dp_panel->psr_cap, 0, sizeof(msm_dp_panel->psr_cap));
+	msm_dp_panel->vsc_sdp_supported = false;
+	rc = msm_dp_panel_read_dpcd(msm_dp_panel, &caps_valid);
 	if (rc) {
 		DRM_ERROR("read dpcd failed %d\n", rc);
 		return rc;
@@ -366,6 +405,14 @@ int msm_dp_panel_read_link_caps(struct msm_dp_panel *msm_dp_panel,
 
 	rc = drm_dp_read_downstream_info(panel->aux, msm_dp_panel->dpcd,
 					 msm_dp_panel->downstream_ports);
+	if (rc)
+		return rc;
+
+	rc = msm_dp_panel_read_link_rate_set(panel);
+	if (!rc) {
+		msm_dp_panel->link_caps_valid = true;
+		msm_dp_panel->caps_cached = caps_valid;
+	}
 	return rc;
 }
 

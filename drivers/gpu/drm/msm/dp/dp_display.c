@@ -16,6 +16,7 @@
 #include <drm/display/drm_dp_aux_bus.h>
 #include <drm/display/drm_hdmi_audio_helper.h>
 #include <drm/drm_edid.h>
+#include <drm/drm_panel.h>
 #include <drm/drm_probe_helper.h>
 
 #include "msm_drv.h"
@@ -319,10 +320,16 @@ static int msm_dp_display_process_hpd_high(struct msm_dp_display_private *dp)
 	u8 dpcd[DP_RECEIVER_CAP_SIZE];
 	const struct drm_edid *drm_edid = NULL;
 
-	rc = drm_dp_read_dpcd_caps(dp->aux, dpcd);
-	if (rc)
-		goto end;
+	if (dp->msm_dp_display.is_edp && dp->panel->caps_cached) {
+		memcpy(dpcd, dp->panel->dpcd, sizeof(dpcd));
+	} else {
+		dp->panel->link_caps_valid = false;
+		rc = drm_dp_read_dpcd_caps(dp->aux, dpcd);
+		if (rc)
+			goto end;
+	}
 
+	/* Reapply the LTTPR mode even when receiver capabilities are cached. */
 	dp->link->lttpr_count = msm_dp_display_lttpr_init(dp, dpcd);
 
 	rc = msm_dp_panel_read_link_caps(dp->panel, connector);
@@ -527,6 +534,11 @@ static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 			dp->msm_dp_display.connector_type,
 			dp->link->sink_count);
 
+	/* eDP uses this path for power-down, not a change of sink. */
+	if (!dp->msm_dp_display.is_edp) {
+		dp->panel->link_caps_valid = false;
+		dp->panel->caps_cached = false;
+	}
 	if (!dp->plugged) {
 		mutex_unlock(&dp->plugged_lock);
 		return 0;
@@ -973,6 +985,61 @@ void msm_dp_display_set_psr(struct msm_dp *msm_dp_display, bool enter)
 	guard(mutex)(&dp->plugged_lock);
 
 	msm_dp_ctrl_set_psr(dp->ctrl, dp->panel, enter);
+}
+
+enum drm_connector_status msm_edp_bridge_detect(struct drm_bridge *bridge,
+						struct drm_connector *connector)
+{
+	struct msm_dp *display = to_dp_bridge(bridge)->msm_dp_display;
+	struct msm_dp_display_private *dp = container_of(display,
+			struct msm_dp_display_private, msm_dp_display);
+	struct drm_panel *panel;
+	u8 dpcd[DP_RECEIVER_CAP_SIZE];
+	bool prepared;
+	int ret;
+
+	/* The fixed panel's bandwidth capabilities survive power cycles. */
+	scoped_guard(mutex, &dp->plugged_lock) {
+		if (dp->panel->link_caps_valid)
+			return connector_status_connected;
+	}
+
+	/* Discovery precedes the first modeset; do not power up in atomic check. */
+	panel = of_drm_find_panel(display->next_bridge->of_node);
+	if (IS_ERR(panel))
+		return connector_status_unknown;
+
+	ret = pm_runtime_resume_and_get(&display->pdev->dev);
+	if (ret < 0)
+		goto put_panel;
+
+	prepared = panel->prepared;
+	if (!prepared)
+		drm_panel_prepare(panel);
+	if (!panel->prepared) {
+		ret = -EIO;
+		goto put_pm;
+	}
+
+	scoped_guard(mutex, &dp->plugged_lock) {
+		ret = drm_dp_read_dpcd_caps(dp->aux, dpcd);
+		if (!ret) {
+			dp->link->lttpr_count = msm_dp_display_lttpr_init(dp, dpcd);
+			ret = msm_dp_panel_read_link_caps(dp->panel, connector);
+		}
+	}
+
+	if (!prepared)
+		drm_panel_unprepare(panel);
+put_pm:
+	pm_runtime_put_sync(&display->pdev->dev);
+put_panel:
+	drm_panel_put(panel);
+	if (ret < 0)
+		drm_dbg_dp(dp->drm_dev, "eDP capability discovery failed: %d\n", ret);
+
+	/* A failed AUX access does not mean the fixed panel was disconnected. */
+	return connector_status_connected;
 }
 
 /**
