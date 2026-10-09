@@ -441,10 +441,20 @@ static void msm_dp_display_host_deinit(struct msm_dp_display_private *dp)
 	dp->core_initialized = false;
 }
 
+static int msm_dp_display_set_video_test_locked(struct msm_dp_display_private *dp,
+						bool enable)
+{
+	lockdep_assert_held(&dp->plugged_lock);
+
+	dp->panel->video_test = enable;
+	return 0;
+}
+
 static void msm_dp_display_handle_video_request(struct msm_dp_display_private *dp)
 {
 	if (dp->link->sink_request & DP_TEST_LINK_VIDEO_PATTERN) {
-		dp->panel->video_test = true;
+		if (msm_dp_display_set_video_test_locked(dp, true))
+			dp->link->test_response = DP_TEST_NAK;
 		msm_dp_link_send_test_response(dp->link);
 	}
 }
@@ -697,8 +707,10 @@ static int msm_dp_display_set_mode(struct msm_dp *msm_dp_display,
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 
-	if (msm_dp_display_check_video_test(msm_dp_display))
-		bpp = msm_dp_display_get_test_bpp(msm_dp_display);
+	guard(mutex)(&dp->plugged_lock);
+
+	if (dp->panel->video_test)
+		bpp = msm_dp_link_bit_depth_to_bpp(dp->link->test_video.test_bit_depth);
 	else
 		bpp = state->bpp;
 
@@ -967,22 +979,20 @@ bool msm_dp_display_check_video_test(struct msm_dp *dp)
 
 	msm_dp_display = container_of(dp, struct msm_dp_display_private, msm_dp_display);
 
+	guard(mutex)(&msm_dp_display->plugged_lock);
+
 	return msm_dp_display->panel->video_test;
 }
 
-int msm_dp_display_get_test_bpp(struct msm_dp *dp)
+int msm_dp_display_set_video_test(struct msm_dp *dp, bool enable)
 {
 	struct msm_dp_display_private *msm_dp_display;
 
-	if (!dp) {
-		DRM_ERROR("invalid params\n");
-		return 0;
-	}
-
 	msm_dp_display = container_of(dp, struct msm_dp_display_private, msm_dp_display);
 
-	return msm_dp_link_bit_depth_to_bpp(
-		msm_dp_display->link->test_video.test_bit_depth);
+	guard(mutex)(&msm_dp_display->plugged_lock);
+
+	return msm_dp_display_set_video_test_locked(msm_dp_display, enable);
 }
 
 void msm_dp_snapshot(struct msm_disp_state *disp_state, struct msm_dp *dp)
@@ -1645,7 +1655,7 @@ void msm_dp_display_debugfs_init(struct msm_dp *msm_dp_display, struct dentry *r
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 	dev = &dp->msm_dp_display.pdev->dev;
 
-	rc = msm_dp_debug_init(dev, dp->panel, dp->link, dp->msm_dp_display.connector, root, is_edp);
+	rc = msm_dp_debug_init(dev, dp->panel, dp->link, msm_dp_display, root, is_edp);
 	if (rc)
 		DRM_ERROR("failed to initialize debug, rc = %d\n", rc);
 }

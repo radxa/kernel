@@ -21,7 +21,7 @@
 struct msm_dp_debug_private {
 	struct msm_dp_link *link;
 	struct msm_dp_panel *panel;
-	struct drm_connector *connector;
+	struct msm_dp *dp;
 };
 
 static int msm_dp_debug_show(struct seq_file *seq, void *p)
@@ -89,7 +89,7 @@ DEFINE_SHOW_ATTRIBUTE(msm_dp_debug);
 static int msm_dp_test_data_show(struct seq_file *m, void *data)
 {
 	const struct msm_dp_debug_private *debug = m->private;
-	const struct drm_connector *connector = debug->connector;
+	const struct drm_connector *connector = debug->dp->connector;
 	u32 bpc;
 
 	if (connector->status == connector_status_connected) {
@@ -111,7 +111,7 @@ DEFINE_SHOW_ATTRIBUTE(msm_dp_test_data);
 static int msm_dp_test_type_show(struct seq_file *m, void *data)
 {
 	const struct msm_dp_debug_private *debug = m->private;
-	const struct drm_connector *connector = debug->connector;
+	const struct drm_connector *connector = debug->dp->connector;
 
 	if (connector->status == connector_status_connected)
 		seq_printf(m, "%02x", DP_TEST_LINK_VIDEO_PATTERN);
@@ -133,7 +133,7 @@ static ssize_t msm_dp_test_active_write(struct file *file,
 	int val = 0;
 
 	debug = ((struct seq_file *)file->private_data)->private;
-	connector = debug->connector;
+	connector = debug->dp->connector;
 
 	if (len == 0)
 		return 0;
@@ -154,10 +154,11 @@ static ssize_t msm_dp_test_active_write(struct file *file,
 		/* To prevent erroneous activation of the compliance
 		 * testing code, only accept an actual value of 1 here
 		 */
-		if (val == 1)
-			debug->panel->video_test = true;
-		else
-			debug->panel->video_test = false;
+		status = msm_dp_display_set_video_test(debug->dp, val == 1);
+		if (status) {
+			kfree(input_buffer);
+			return status;
+		}
 	}
 	kfree(input_buffer);
 
@@ -168,10 +169,10 @@ static ssize_t msm_dp_test_active_write(struct file *file,
 static int msm_dp_test_active_show(struct seq_file *m, void *data)
 {
 	struct msm_dp_debug_private *debug = m->private;
-	struct drm_connector *connector = debug->connector;
+	struct drm_connector *connector = debug->dp->connector;
 
 	if (connector->status == connector_status_connected) {
-		if (debug->panel->video_test)
+		if (msm_dp_display_check_video_test(debug->dp))
 			seq_puts(m, "1");
 		else
 			seq_puts(m, "0");
@@ -200,12 +201,12 @@ static const struct file_operations test_active_fops = {
 
 int msm_dp_debug_init(struct device *dev, struct msm_dp_panel *panel,
 		  struct msm_dp_link *link,
-		  struct drm_connector *connector,
+		  struct msm_dp *dp,
 		  struct dentry *root, bool is_edp)
 {
 	struct msm_dp_debug_private *debug;
 
-	if (!dev || !panel || !link) {
+	if (!dev || !panel || !link || !dp || !dp->connector) {
 		DRM_ERROR("invalid input\n");
 		return -EINVAL;
 	}
@@ -216,7 +217,7 @@ int msm_dp_debug_init(struct device *dev, struct msm_dp_panel *panel,
 
 	debug->link = link;
 	debug->panel = panel;
-	debug->connector = connector;
+	debug->dp = dp;
 
 	debugfs_create_file("dp_debug", 0444, root,
 			debug, &msm_dp_debug_fops);
