@@ -48,7 +48,7 @@ void msm_dp_ctrl_irq_phy_exit(struct msm_dp_ctrl *msm_dp_ctrl);
 void msm_dp_ctrl_set_psr(struct msm_dp_ctrl *msm_dp_ctrl,
 			 struct msm_dp_panel *panel, bool enable);
 void msm_dp_ctrl_config_psr(struct msm_dp_ctrl *msm_dp_ctrl,
-			    struct msm_dp_panel *panel);
+			    struct msm_dp_panel *panel, bool enable);
 
 int msm_dp_ctrl_core_clk_enable(struct msm_dp_ctrl *msm_dp_ctrl);
 void msm_dp_ctrl_core_clk_disable(struct msm_dp_ctrl *msm_dp_ctrl);

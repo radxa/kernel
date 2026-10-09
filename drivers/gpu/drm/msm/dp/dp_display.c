@@ -830,7 +830,8 @@ static int msm_dp_display_post_enable(struct msm_dp *msm_dp_display)
 	msm_dp_display_handle_plugged_change(msm_dp_display, true);
 
 	if (msm_dp_display->psr_supported)
-		msm_dp_ctrl_config_psr(dp->ctrl, dp->panel);
+		msm_dp_ctrl_config_psr(dp->ctrl, dp->panel,
+				       !dp->panel->msm_dp_mode.out_fmt_is_yuv_420);
 
 	return 0;
 }

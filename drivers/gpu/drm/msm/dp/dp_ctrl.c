@@ -458,7 +458,7 @@ static void msm_dp_ctrl_config_ctrl_streams(struct msm_dp_ctrl_private *ctrl,
 
 	config |= tbd << DP_CONFIGURATION_CTRL_BPC_SHIFT;
 
-	if (msm_dp_panel->psr_cap.version)
+	if (msm_dp_panel->psr_cap.version && !msm_dp_panel->msm_dp_mode.out_fmt_is_yuv_420)
 		config |= DP_CONFIGURATION_CTRL_SEND_VSC;
 
 	drm_dbg_dp(ctrl->drm_dev, "stream DP_CONFIGURATION_CTRL=0x%x\n", config);
@@ -1961,7 +1961,7 @@ static void msm_dp_ctrl_psr_exit(struct msm_dp_ctrl_private *ctrl)
 }
 
 void msm_dp_ctrl_config_psr(struct msm_dp_ctrl *msm_dp_ctrl,
-			    struct msm_dp_panel *panel)
+			    struct msm_dp_panel *panel, bool enable)
 {
 	struct msm_dp_ctrl_private *ctrl = container_of(msm_dp_ctrl,
 			struct msm_dp_ctrl_private, msm_dp_ctrl);
@@ -1970,15 +1970,20 @@ void msm_dp_ctrl_config_psr(struct msm_dp_ctrl *msm_dp_ctrl,
 	if (!panel->psr_cap.version)
 		return;
 
-	/* enable PSR1 function */
+	/* Colorimetry VSC packets cannot share the PSR packet generator. */
 	cfg = msm_dp_read_link(ctrl, REG_PSR_CONFIG);
-	cfg |= PSR1_SUPPORTED;
+	if (enable)
+		cfg |= PSR1_SUPPORTED;
+	else
+		cfg &= ~PSR1_SUPPORTED;
 	msm_dp_write_link(ctrl, REG_PSR_CONFIG, cfg);
 
-	msm_dp_ctrl_config_psr_interrupt(ctrl);
-	msm_dp_ctrl_enable_sdp(ctrl);
+	if (enable) {
+		msm_dp_ctrl_config_psr_interrupt(ctrl);
+		msm_dp_ctrl_enable_sdp(ctrl);
+	}
 
-	cfg = DP_PSR_ENABLE;
+	cfg = enable ? DP_PSR_ENABLE : 0;
 	drm_dp_dpcd_write(ctrl->aux, DP_PSR_EN_CFG, &cfg, 1);
 }
 
