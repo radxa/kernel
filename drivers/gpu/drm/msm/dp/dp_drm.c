@@ -14,6 +14,7 @@
 #include "msm_kms.h"
 #include "dp_audio.h"
 #include "dp_drm.h"
+#include "dp_utils.h"
 
 /**
  * msm_dp_bridge_get_modes - callback to add drm modes via drm_mode_probed_add()
@@ -54,6 +55,26 @@ static void msm_dp_bridge_atomic_pre_enable(struct drm_bridge *drm_bridge,
 {
 	struct msm_dp_bridge *dp_bridge = to_dp_bridge(drm_bridge);
 	struct msm_dp *dp = dp_bridge->msm_dp_display;
+	struct drm_crtc *crtc;
+	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
+
+	crtc = drm_atomic_get_new_crtc_for_encoder(state, drm_bridge->encoder);
+	if (!crtc)
+		return;
+
+	old_crtc_state = drm_atomic_get_old_crtc_state(state, crtc);
+	new_crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
+	/*
+	 * The helpers skip bridge disable when waking an active CRTC from
+	 * self refresh, even when its color configuration requires a modeset.
+	 * Tear down the retained stream before installing the new state.
+	 */
+	if (dp->is_edp && dp->power_on && old_crtc_state->self_refresh_active &&
+	    new_crtc_state->active && msm_dp_utils_psr_needs_modeset(new_crtc_state)) {
+		msm_dp_display_set_psr(dp, false);
+		msm_dp_display_atomic_disable(dp);
+		msm_dp_display_atomic_post_disable(dp);
+	}
 
 	msm_dp_display_atomic_pre_enable(dp, state);
 }
@@ -157,7 +178,8 @@ static void msm_edp_bridge_atomic_enable(struct drm_bridge *drm_bridge,
 
 	old_crtc_state = drm_atomic_get_old_crtc_state(state, crtc);
 
-	if (old_crtc_state && old_crtc_state->self_refresh_active) {
+	if (dp->power_on && old_crtc_state && old_crtc_state->self_refresh_active &&
+	    !msm_dp_utils_psr_needs_modeset(drm_atomic_get_new_crtc_state(state, crtc))) {
 		msm_dp_display_set_psr(dp, false);
 		return;
 	}

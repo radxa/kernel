@@ -4,6 +4,7 @@
  */
 
 #include <linux/types.h>
+#include <drm/drm_crtc.h>
 
 #include "dp_utils.h"
 
@@ -86,4 +87,10 @@ void msm_dp_utils_pack_sdp_header(const struct dp_sdp_header *sdp_header,
 		FIELD_PREP(PARITY_2_MASK, msm_dp_utils_calculate_parity(sdp_header->HB2)) |
 		FIELD_PREP(HEADER_3_MASK, sdp_header->HB3) |
 		FIELD_PREP(PARITY_3_MASK, msm_dp_utils_calculate_parity(sdp_header->HB3));
+}
+
+bool msm_dp_utils_psr_needs_modeset(const struct drm_crtc_state *state)
+{
+	/* active_changed alone also describes a normal self-refresh exit. */
+	return state->mode_changed || state->connectors_changed;
 }
