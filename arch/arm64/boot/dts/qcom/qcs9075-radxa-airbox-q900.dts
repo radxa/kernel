@@ -152,6 +152,35 @@
 		pwms = <&pwm_gpio 0 1000000 0>; // default pwm0, 1ms period, normal polarity
 		cooling-levels = <0 100 170 255>; // max 255
 	};
+
+	sound {
+		compatible = "qcom,lemans-amr-sndcard";
+		model = "LEMANS-Radxa-AIRbox-Q900";
+
+		dp0-dai-link {
+			link-name = "DISPLAY_PORT-RX";
+
+			cpu {
+				sound-dai = <&q6apmbedai DISPLAY_PORT_RX_0>;
+			};
+
+			codec {
+				sound-dai = <&mdss0_dp0>;
+			};
+
+			platform {
+				sound-dai = <&q6apm>;
+			};
+		};
+	};
+};
+
+&q6apm {
+	/delete-property/ qcom,protection-domain;
+};
+
+&q6prm {
+	/delete-property/ qcom,protection-domain;
 };
 
 &thermal_zones {
