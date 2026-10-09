@@ -2591,6 +2591,11 @@ bool pci_bus_generic_read_dev_vendor_id(struct pci_bus *bus, int devfn, u32 *l,
 bool pci_bus_read_dev_vendor_id(struct pci_bus *bus, int devfn, u32 *l,
 				int timeout)
 {
+	if (pci_of_device_skip_config_read(bus, devfn)) {
+		PCI_SET_ERROR_RESPONSE(l);
+		return false;
+	}
+
 	return pci_bus_generic_read_dev_vendor_id(bus, devfn, l, timeout);
 }
 EXPORT_SYMBOL(pci_bus_read_dev_vendor_id);
