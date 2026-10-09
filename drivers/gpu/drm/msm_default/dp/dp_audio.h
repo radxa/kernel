@@ -22,6 +22,8 @@ struct msm_dp_audio {
 	u32 bw_code;
 };
 
+struct msm_dp;
+
 /**
  * msm_dp_audio_get()
  *
@@ -68,6 +70,8 @@ int msm_dp_audio_hw_params(struct device *dev,
 	void *data,
 	struct hdmi_codec_daifmt *daifmt,
 	struct hdmi_codec_params *params);
+
+void msm_dp_audio_reenable(struct msm_dp *msm_dp_display);
 
 #endif /* _DP_AUDIO_H_ */
 

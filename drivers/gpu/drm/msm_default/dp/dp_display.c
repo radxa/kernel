@@ -65,6 +65,7 @@ enum {
 
 #define EVENT_TIMEOUT	(HZ/10)	/* 100ms */
 #define DP_EVENT_Q_MAX	8
+#define DP_AUDIO_DISABLE_TIMEOUT	msecs_to_jiffies(200)
 
 #define DP_TIMEOUT_NONE		0
 
@@ -260,14 +261,28 @@ static int msm_dp_add_event(struct msm_dp_display_private *msm_dp_priv, u32 even
 {
 	unsigned long flag;
 	struct msm_dp_event *todo;
+	u32 gndx;
 	int pndx;
 
 	spin_lock_irqsave(&msm_dp_priv->event_lock, flag);
+	gndx = msm_dp_priv->event_gndx;
+	while (msm_dp_priv->event_pndx != gndx) {
+		todo = &msm_dp_priv->event_list[gndx];
+		if (todo->event_id == event && todo->data == data) {
+			todo->delay = min(todo->delay, delay);
+			spin_unlock_irqrestore(&msm_dp_priv->event_lock, flag);
+			return 0;
+		}
+		gndx++;
+		gndx %= DP_EVENT_Q_MAX;
+	}
+
 	pndx = msm_dp_priv->event_pndx + 1;
 	pndx %= DP_EVENT_Q_MAX;
 	if (pndx == msm_dp_priv->event_gndx) {
-		pr_err("event_q is full: pndx=%d gndx=%d\n",
-			msm_dp_priv->event_pndx, msm_dp_priv->event_gndx);
+		pr_err_ratelimited("event_q is full: pndx=%d gndx=%d\n",
+				   msm_dp_priv->event_pndx,
+				   msm_dp_priv->event_gndx);
 		spin_unlock_irqrestore(&msm_dp_priv->event_lock, flag);
 		return -EPERM;
 	}
@@ -517,6 +532,11 @@ static int msm_dp_display_process_hpd_high(struct msm_dp_display_private *dp)
 	}
 
 	msm_dp_display_set_mst_mgr_state(dp, true);
+
+	if (dp->audio_supported) {
+		dp->audio->bw_code = drm_dp_link_rate_to_bw_code(dp->link->link_params.rate);
+		dp->audio->lane_count = dp->link->link_params.num_lanes;
+	}
 
 	msm_dp_add_event(dp, EV_USER_NOTIFICATION, true, 0);
 
@@ -1078,11 +1098,19 @@ static void msm_dp_display_audio_notify_disable(struct msm_dp_display_private *d
 
 	/* wait only if audio was enabled */
 	if (msm_dp_display->audio_enabled) {
-		/* signal the disconnect event */
-		msm_dp_display_handle_plugged_change(msm_dp_display, false);
+		/*
+		 * Keep long-running userspace streams alive across DP hotplug.
+		 * PipeWire may keep the PCM open after the jack event; reporting
+		 * unplug while the stream is active can leave the q6apm graph in a
+		 * RUNNING state without period progress.
+		 */
+		if (!msm_dp_display->audio_stream_active)
+			msm_dp_display_handle_plugged_change(msm_dp_display, false);
+
 		if (!wait_for_completion_timeout(&dp->audio_comp,
-				HZ * 5))
-			DRM_ERROR("audio comp timeout\n");
+						 DP_AUDIO_DISABLE_TIMEOUT))
+			drm_dbg_dp(dp->drm_dev,
+				   "audio comp timeout during display disable\n");
 	}
 
 	msm_dp_display->audio_enabled = false;
@@ -1545,6 +1573,7 @@ static int msm_dp_display_probe(struct platform_device *pdev)
 
 	dp->msm_dp_display.pdev = pdev;
 	dp->id = desc->id;
+	dp->msm_dp_display.id = desc->id;
 	dp->msm_dp_display.connector_type = msm_dp_display_get_connector_type(pdev, desc);
 	dp->wide_bus_supported = desc->wide_bus_supported;
 	dp->msm_dp_display.is_edp =
@@ -1822,6 +1851,17 @@ void msm_dp_display_enable_helper(struct msm_dp *dp, struct msm_dp_panel *msm_dp
 
 	drm_dbg_dp(dp->drm_dev, "type=%d Done\n", dp->connector_type);
 	mutex_unlock(&msm_dp_display->event_mutex);
+}
+
+void msm_dp_display_audio_reenable(struct msm_dp *msm_dp)
+{
+	struct msm_dp_display_private *dp;
+
+	dp = container_of(msm_dp, struct msm_dp_display_private, msm_dp_display);
+	mutex_lock(&dp->event_mutex);
+	if (dp->hpd_state == ST_CONNECTED && dp->active_stream_cnt && msm_dp->link_ready)
+		msm_dp_audio_reenable(msm_dp);
+	mutex_unlock(&dp->event_mutex);
 }
 
 void msm_dp_display_atomic_enable(struct msm_dp *msm_dp)

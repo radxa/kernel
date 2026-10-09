@@ -6,6 +6,8 @@
 
 #define pr_fmt(fmt)	"[drm-dp] %s: " fmt, __func__
 
+#include <dt-bindings/sound/qcom,q6dsp-lpass-ports.h>
+#include <linux/module.h>
 #include <linux/platform_device.h>
 
 #include <drm/display/drm_dp_helper.h>
@@ -16,6 +18,7 @@
 #include "dp_panel.h"
 #include "dp_display.h"
 #include "dp_utils.h"
+#include "msm_drv.h"
 
 struct msm_dp_audio_private {
 	struct platform_device *audio_pdev;
@@ -27,6 +30,27 @@ struct msm_dp_audio_private {
 
 	struct msm_dp_audio msm_dp_audio;
 };
+
+typedef int (*q6apm_lpass_dp_restart_fn)(int port_id,
+					 void (*enable_audio)(void *), void *data);
+
+#define Q6APM_LPASS_DP_RESTART "q6apm_lpass_display_port_restart"
+
+static int msm_dp_audio_port_id(const struct msm_dp *msm_dp_display)
+{
+	switch (msm_dp_display->id) {
+	case MSM_DP_CONTROLLER_0:
+		return DISPLAY_PORT_RX_0;
+	case MSM_DP_CONTROLLER_1:
+		return DISPLAY_PORT_RX_1;
+	case MSM_DP_CONTROLLER_2:
+		return DISPLAY_PORT_RX_2;
+	case MSM_DP_CONTROLLER_3:
+		return DISPLAY_PORT_RX_3;
+	default:
+		return -EINVAL;
+	}
+}
 
 static u32 msm_dp_audio_get_header(struct msm_dp_catalog *catalog,
 		enum msm_dp_catalog_audio_sdp_type sdp,
@@ -346,6 +370,68 @@ static void msm_dp_audio_enable(struct msm_dp_audio_private *audio, bool enable)
 	msm_dp_catalog_audio_enable(catalog, enable);
 }
 
+static void msm_dp_audio_restore(void *data)
+{
+	struct msm_dp *msm_dp_display = data;
+	struct msm_dp_audio_private *audio;
+
+	audio = container_of(msm_dp_display->msm_dp_audio,
+			     struct msm_dp_audio_private, msm_dp_audio);
+	msm_dp_audio_enable(audio, false);
+	msm_dp_audio_setup_sdp(audio);
+	msm_dp_audio_setup_acr(audio);
+	msm_dp_audio_safe_to_exit_level(audio);
+	msm_dp_audio_enable(audio, true);
+	msm_dp_display_signal_audio_start(msm_dp_display);
+	msm_dp_display->audio_enabled = true;
+}
+
+void msm_dp_audio_reenable(struct msm_dp *msm_dp_display)
+{
+	struct msm_dp_audio_private *audio;
+	q6apm_lpass_dp_restart_fn restart_display_port;
+	int port_id;
+	int ret;
+
+	if (!msm_dp_display || !msm_dp_display->msm_dp_audio ||
+	    !msm_dp_display->audio_stream_active)
+		return;
+
+	if (!msm_dp_display_get_active_stream_cnt(msm_dp_display))
+		return;
+
+	audio = container_of(msm_dp_display->msm_dp_audio,
+			     struct msm_dp_audio_private, msm_dp_audio);
+	port_id = msm_dp_audio_port_id(msm_dp_display);
+	if (port_id < 0) {
+		drm_warn(audio->drm_dev, "unsupported DP audio controller id %u\n",
+			 msm_dp_display->id);
+		return;
+	}
+
+	drm_info(audio->drm_dev, "reenable DP audio stream after hotplug on port %d\n",
+		 port_id);
+	msm_dp_audio_restore(msm_dp_display);
+
+	restart_display_port = __symbol_get(Q6APM_LPASS_DP_RESTART);
+	if (!restart_display_port) {
+		msm_dp_audio_restore(msm_dp_display);
+		drm_dbg_dp(audio->drm_dev, "q6apm DP restart hook unavailable\n");
+		return;
+	}
+
+	ret = restart_display_port(port_id, msm_dp_audio_restore, msm_dp_display);
+	symbol_put_addr(restart_display_port);
+
+	if (ret <= 0)
+		msm_dp_audio_restore(msm_dp_display);
+
+	if (ret < 0)
+		drm_warn(audio->drm_dev, "failed to restart q6apm DP backend: %d\n", ret);
+	else if (ret > 0)
+		drm_info(audio->drm_dev, "recreated q6apm DP backend after hotplug\n");
+}
+
 static struct msm_dp_audio_private *msm_dp_audio_get_data(struct platform_device *pdev)
 {
 	struct msm_dp_audio *msm_dp_audio;
@@ -460,6 +546,7 @@ int msm_dp_audio_hw_params(struct device *dev,
 	msm_dp_audio_enable(audio, true);
 	msm_dp_display_signal_audio_start(msm_dp_display);
 	msm_dp_display->audio_enabled = true;
+	msm_dp_display->audio_stream_active = true;
 
 end:
 	return rc;
@@ -487,10 +574,15 @@ static void msm_dp_audio_shutdown(struct device *dev, void *data)
 	 * connected. is_connected cannot be used here as its set
 	 * to false earlier than this call
 	 */
-	if (!msm_dp_display->audio_enabled)
+	if (!msm_dp_display->audio_enabled) {
+		msm_dp_display->audio_stream_active = false;
+		msm_dp_display_signal_audio_complete(msm_dp_display);
 		return;
+	}
 
 	msm_dp_audio_enable(audio, false);
+	msm_dp_display->audio_enabled = false;
+	msm_dp_display->audio_stream_active = false;
 	/* signal the dp display to safely shutdown clocks */
 	msm_dp_display_signal_audio_complete(msm_dp_display);
 }

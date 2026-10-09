@@ -7,6 +7,7 @@
 #define _DP_DRM_H_
 
 #include <linux/types.h>
+#include <linux/workqueue.h>
 #include <drm/drm_bridge.h>
 
 #include "msm_drv.h"
@@ -15,6 +16,8 @@
 struct msm_dp_bridge {
 	struct drm_bridge bridge;
 	struct msm_dp *msm_dp_display;
+	struct work_struct audio_work;
+	struct drm_crtc_commit *audio_commit;
 };
 
 #define to_dp_bridge(x)     container_of((x), struct msm_dp_bridge, bridge)

@@ -8,6 +8,7 @@
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/device.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -39,6 +40,94 @@ struct q6apm_lpass_dai_data {
 	struct q6apm_dai_priv_data priv[APM_PORT_MAX];
 	struct q6dsp_cc *cc;
 };
+
+static DEFINE_MUTEX(q6apm_dp_lock);
+static struct q6apm_lpass_dai_data *q6apm_lpass_data;
+
+static void q6apm_lpass_clear_data(void *data)
+{
+	guard(mutex)(&q6apm_dp_lock);
+	if (q6apm_lpass_data == data)
+		q6apm_lpass_data = NULL;
+}
+
+int q6apm_lpass_display_port_restart(int port_id,
+				   void (*enable_audio)(void *), void *data)
+{
+	struct q6apm_lpass_dai_data *dai_data;
+	struct q6apm_graph *graph;
+	struct device *dev;
+	int ret;
+
+	guard(mutex)(&q6apm_dp_lock);
+	dai_data = q6apm_lpass_data;
+	if (!dai_data || !enable_audio || port_id < 0 || port_id >= APM_PORT_MAX)
+		return -EINVAL;
+
+	switch (port_id) {
+	case DISPLAY_PORT_RX_0:
+	case DISPLAY_PORT_RX_1 ... DISPLAY_PORT_RX_7:
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (!dai_data->graph[port_id] || !dai_data->is_port_started[port_id])
+		return 0;
+
+	graph = dai_data->graph[port_id];
+	dev = graph->dev;
+	dev_info(dev, "DP recovery: graph %u, users %u, starts %d\n",
+		 graph->id, kref_read(&graph->ar_graph->refcount),
+		 graph->ar_graph->start_count);
+	ret = q6apm_graph_stop(graph);
+	if (ret < 0) {
+		dev_err(graph->dev, "DP recovery: stop failed: %d\n", ret);
+		return ret;
+	}
+
+	dai_data->is_port_started[port_id] = false;
+	dai_data->graph[port_id] = NULL;
+
+	/* Recreate the hardware endpoint after the DP link has been reset. */
+	q6apm_graph_close(graph);
+	enable_audio(data);
+	graph = q6apm_graph_open(dev, NULL, dev, port_id);
+	if (IS_ERR(graph)) {
+		ret = PTR_ERR(graph);
+		dev_err(dev, "DP recovery: open failed: %d\n", ret);
+		return ret;
+	}
+	dai_data->graph[port_id] = graph;
+
+	ret = q6apm_graph_media_format_pcm(graph, &dai_data->module_config[port_id]);
+	if (ret < 0) {
+		dev_err(graph->dev, "DP recovery: media format failed: %d\n", ret);
+		goto close_graph;
+	}
+
+	ret = q6apm_graph_prepare(graph);
+	if (ret < 0) {
+		dev_err(graph->dev, "DP recovery: prepare failed: %d\n", ret);
+		goto close_graph;
+	}
+
+	ret = q6apm_graph_start(graph);
+	if (ret < 0) {
+		dev_err(graph->dev, "DP recovery: start failed: %d\n", ret);
+		goto close_graph;
+	}
+
+	dai_data->is_port_started[port_id] = true;
+
+	return 1;
+
+close_graph:
+	q6apm_graph_close(graph);
+	dai_data->graph[port_id] = NULL;
+	return ret;
+}
+EXPORT_SYMBOL_GPL(q6apm_lpass_display_port_restart);
 
 static int q6dma_set_channel_map(struct snd_soc_dai *dai,
 				 unsigned int tx_num, unsigned int *tx_ch_mask,
@@ -117,6 +206,7 @@ static int q6hdmi_hw_params(struct snd_pcm_substream *substream,
 	int channels = hw_param_interval_c(params, SNDRV_PCM_HW_PARAM_CHANNELS)->max;
 	int ret;
 
+	guard(mutex)(&q6apm_dp_lock);
 	cfg->bit_width = params_width(params);
 	cfg->sample_rate = params_rate(params);
 	cfg->num_channels = channels;
@@ -406,13 +496,45 @@ static const struct snd_soc_dai_ops q6i2s_ops = {
 	.trigger	= q6apm_lpass_dai_trigger,
 };
 
+static int q6hdmi_prepare(struct snd_pcm_substream *substream, struct snd_soc_dai *dai)
+{
+	guard(mutex)(&q6apm_dp_lock);
+	return q6apm_lpass_dai_prepare(substream, dai);
+}
+
+static int q6hdmi_startup(struct snd_pcm_substream *substream, struct snd_soc_dai *dai)
+{
+	guard(mutex)(&q6apm_dp_lock);
+	return q6apm_lpass_dai_startup(substream, dai);
+}
+
+static void q6hdmi_shutdown(struct snd_pcm_substream *substream, struct snd_soc_dai *dai)
+{
+	guard(mutex)(&q6apm_dp_lock);
+	q6apm_lpass_dai_shutdown(substream, dai);
+}
+
+static int q6hdmi_trigger(struct snd_pcm_substream *substream, int cmd, struct snd_soc_dai *dai)
+{
+	struct q6apm_lpass_dai_data *dai_data = dev_get_drvdata(dai->dev);
+
+	guard(mutex)(&q6apm_dp_lock);
+	if (!dai_data->graph[dai->id]) {
+		if (cmd == SNDRV_PCM_TRIGGER_START || cmd == SNDRV_PCM_TRIGGER_RESUME ||
+		    cmd == SNDRV_PCM_TRIGGER_PAUSE_RELEASE)
+			return -ENODEV;
+		return 0;
+	}
+	return q6apm_lpass_dai_trigger(substream, cmd, dai);
+}
+
 static const struct snd_soc_dai_ops q6hdmi_ops = {
-	.prepare	= q6apm_lpass_dai_prepare,
-	.startup	= q6apm_lpass_dai_startup,
-	.shutdown	= q6apm_lpass_dai_shutdown,
+	.prepare	= q6hdmi_prepare,
+	.startup	= q6hdmi_startup,
+	.shutdown	= q6hdmi_shutdown,
 	.hw_params	= q6hdmi_hw_params,
 	.set_fmt	= q6i2s_set_fmt,
-	.trigger	= q6apm_lpass_dai_trigger,
+	.trigger	= q6hdmi_trigger,
 };
 
 static const struct snd_soc_dai_ops q6i2sdummy_ops = {
@@ -532,6 +654,7 @@ static int q6apm_lpass_dai_dev_probe(struct platform_device *pdev)
 	}
 
 	dev_set_drvdata(dev, dai_data);
+
 	ret = of_q6apm_parse_dai_data(dev, dai_data);
 	if (ret)
 		return ret;
@@ -557,7 +680,17 @@ static int q6apm_lpass_dai_dev_probe(struct platform_device *pdev)
 
 	dais = q6dsp_audio_ports_set_config(dev, &cfg, &num_dais);
 
-	return devm_snd_soc_register_component(dev, q6apm_lpass_component, dais, num_dais);
+	ret = devm_snd_soc_register_component(dev, q6apm_lpass_component, dais, num_dais);
+	if (ret || q6apm_lpass_dai_uses_dummy_ops)
+		return ret;
+
+	ret = devm_add_action_or_reset(dev, q6apm_lpass_clear_data, dai_data);
+	if (ret)
+		return ret;
+
+	guard(mutex)(&q6apm_dp_lock);
+	q6apm_lpass_data = dai_data;
+	return 0;
 }
 
 #ifdef CONFIG_OF

@@ -17,10 +17,12 @@ struct msm_dp {
 	struct drm_device *drm_dev;
 	struct platform_device *pdev;
 	struct device *codec_dev;
+	unsigned int id;
 	struct drm_connector *connector;
 	struct drm_bridge *next_bridge;
 	bool link_ready;
 	bool audio_enabled;
+	bool audio_stream_active;
 	bool prepared;
 	bool mst_active;
 	unsigned int connector_type;
@@ -46,6 +48,7 @@ void msm_dp_display_debugfs_init(struct msm_dp *msm_dp_display, struct dentry *d
 void msm_dp_display_atomic_post_disable(struct msm_dp *dp_display);
 void msm_dp_display_atomic_disable(struct msm_dp *dp_display);
 void msm_dp_display_atomic_enable(struct msm_dp *dp_display);
+void msm_dp_display_audio_reenable(struct msm_dp *dp_display);
 void msm_dp_display_atomic_prepare(struct msm_dp *dp);
 void msm_dp_display_mode_set(struct msm_dp *dp,
 			     const struct drm_display_mode *mode,

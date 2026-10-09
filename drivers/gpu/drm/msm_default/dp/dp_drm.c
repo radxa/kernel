@@ -97,14 +97,64 @@ static void msm_dp_bridge_debugfs_init(struct drm_bridge *bridge, struct dentry 
 	msm_dp_display_debugfs_init(dp, root, false);
 }
 
+static void msm_dp_bridge_audio_work(struct work_struct *work)
+{
+	struct msm_dp_bridge *bridge = container_of(work, struct msm_dp_bridge, audio_work);
+	struct drm_crtc_commit *commit = bridge->audio_commit;
+	int ret;
+
+	/* The display flush happens after bridge atomic_enable returns. */
+	ret = drm_crtc_commit_wait(commit);
+	if (!ret)
+		msm_dp_display_audio_reenable(bridge->msm_dp_display);
+	else
+		drm_warn(bridge->msm_dp_display->drm_dev,
+			 "DP audio recovery: display commit failed: %d\n", ret);
+
+	drm_crtc_commit_put(commit);
+	bridge->audio_commit = NULL;
+}
+
+static void msm_dp_bridge_audio_cancel(void *data)
+{
+	struct msm_dp_bridge *bridge = data;
+
+	cancel_work_sync(&bridge->audio_work);
+	if (bridge->audio_commit) {
+		drm_crtc_commit_put(bridge->audio_commit);
+		bridge->audio_commit = NULL;
+	}
+}
+
+static void msm_dp_bridge_detach(struct drm_bridge *bridge)
+{
+	msm_dp_bridge_audio_cancel(to_dp_bridge(bridge));
+}
+
 static void msm_dp_bridge_atomic_enable(struct drm_bridge *drm_bridge,
 					struct drm_bridge_state *old_bridge_state)
 {
 	struct msm_dp_bridge *dp_bridge = to_dp_bridge(drm_bridge);
 	struct msm_dp *dp = dp_bridge->msm_dp_display;
+	struct drm_atomic_state *state = old_bridge_state->base.state;
+	struct drm_connector_state *conn_state;
+	struct drm_crtc_state *crtc_state;
 
+	msm_dp_bridge_audio_cancel(dp_bridge);
 	msm_dp_display_atomic_prepare(dp);
 	msm_dp_display_atomic_enable(dp);
+
+	if (!dp->audio_stream_active)
+		return;
+	conn_state = drm_atomic_get_new_connector_state(state, dp->connector);
+	if (!conn_state || !conn_state->crtc)
+		return;
+	crtc_state = drm_atomic_get_new_crtc_state(state, conn_state->crtc);
+	if (!crtc_state || !crtc_state->commit)
+		return;
+
+	dp_bridge->audio_commit = drm_crtc_commit_get(crtc_state->commit);
+	schedule_work(&dp_bridge->audio_work);
 }
 
 static void msm_dp_bridge_atomic_disable(struct drm_bridge *drm_bridge,
@@ -113,6 +163,7 @@ static void msm_dp_bridge_atomic_disable(struct drm_bridge *drm_bridge,
 	struct msm_dp_bridge *dp_bridge = to_dp_bridge(drm_bridge);
 	struct msm_dp *dp = dp_bridge->msm_dp_display;
 
+	msm_dp_bridge_audio_cancel(dp_bridge);
 	msm_dp_display_atomic_disable(dp);
 }
 
@@ -149,6 +200,7 @@ static const struct drm_bridge_funcs msm_dp_bridge_ops = {
 	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
 	.atomic_destroy_state   = drm_atomic_helper_bridge_destroy_state,
 	.atomic_reset           = drm_atomic_helper_bridge_reset,
+	.detach                 = msm_dp_bridge_detach,
 	.atomic_enable          = msm_dp_bridge_atomic_enable,
 	.atomic_disable         = msm_dp_bridge_atomic_disable,
 	.atomic_post_disable    = msm_dp_bridge_atomic_post_disable,
@@ -349,6 +401,10 @@ int msm_dp_bridge_init(struct msm_dp *msm_dp_display, struct drm_device *dev,
 		return -ENOMEM;
 
 	msm_dp_bridge->msm_dp_display = msm_dp_display;
+	INIT_WORK(&msm_dp_bridge->audio_work, msm_dp_bridge_audio_work);
+	rc = devm_add_action_or_reset(dev->dev, msm_dp_bridge_audio_cancel, msm_dp_bridge);
+	if (rc)
+		return rc;
 
 	bridge = &msm_dp_bridge->bridge;
 	bridge->funcs = msm_dp_display->is_edp ? &msm_edp_bridge_ops : &msm_dp_bridge_ops;
