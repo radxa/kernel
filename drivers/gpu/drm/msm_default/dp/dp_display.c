@@ -1954,6 +1954,10 @@ void msm_dp_display_atomic_post_disable_helper(struct msm_dp *dp, struct msm_dp_
 
 	msm_dp_display_disable(msm_dp_display, msm_dp_panel);
 
+	/* Finish PHY teardown before a pending HPD plug can start a new link. */
+	if (!dp->mst_active)
+		msm_dp_display_unprepare(dp);
+
 	state =  msm_dp_display->hpd_state;
 	if (state == ST_DISCONNECT_PENDING && !msm_dp_display->active_stream_cnt) {
 		/* completed disconnection */
@@ -1975,8 +1979,6 @@ void msm_dp_display_atomic_post_disable(struct msm_dp *msm_dp)
 	msm_dp_display = container_of(msm_dp, struct msm_dp_display_private, msm_dp_display);
 
 	msm_dp_display_atomic_post_disable_helper(msm_dp, msm_dp_display->panel);
-
-	msm_dp_display_unprepare(msm_dp);
 }
 
 void msm_dp_display_mode_set_helper(struct msm_dp *msm_dp,

@@ -416,9 +416,6 @@ static void msm_dp_mst_bridge_atomic_post_disable(struct drm_bridge *drm_bridge,
 
 	msm_dp_display_atomic_post_disable_helper(dp, bridge->msm_dp_panel);
 
-	if (!dp->mst_active)
-		msm_dp_display_unprepare(dp);
-
 	bridge->connector = NULL;
 	bridge->msm_dp_panel =  NULL;
 
