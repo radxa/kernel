@@ -12,9 +12,11 @@
 #include <linux/phy/phy.h>
 #include <linux/delay.h>
 #include <linux/string_choices.h>
+#include <linux/workqueue.h>
 #include <drm/display/drm_dp_aux_bus.h>
 #include <drm/display/drm_hdmi_audio_helper.h>
 #include <drm/drm_edid.h>
+#include <drm/drm_probe_helper.h>
 
 #include "msm_drv.h"
 #include "msm_kms.h"
@@ -54,10 +56,14 @@ struct msm_dp_display_private {
 	bool audio_supported;
 	bool stream_pm_active;
 	bool stream_link_attempted;
+	struct work_struct link_status_work;
 
 	/* Serializes HPD, stream and PSR operations while runtime active. */
 	struct mutex plugged_lock;
 	bool plugged;
+	/* Protected by plugged_lock, including accesses from link_status_work. */
+	bool link_failed;
+	bool link_status_notified;
 
 	struct drm_device *drm_dev;
 
@@ -211,6 +217,39 @@ void msm_dp_display_signal_audio_complete(struct msm_dp *msm_dp_display)
 	complete_all(&dp->audio_comp);
 }
 
+static void msm_dp_display_reset_link_status(struct msm_dp_display_private *dp)
+{
+	lockdep_assert_held(&dp->plugged_lock);
+
+	dp->link_failed = false;
+	dp->link_status_notified = false;
+}
+
+static void msm_dp_display_link_status_work(struct work_struct *work)
+{
+	struct msm_dp_display_private *dp = container_of(work,
+			struct msm_dp_display_private, link_status_work);
+	struct drm_connector *connector = dp->msm_dp_display.connector;
+	bool notify;
+
+	scoped_guard(mutex, &dp->plugged_lock) {
+		/* Skip failures superseded before this work starts. */
+		if (!dp->link_failed)
+			return;
+
+		notify = !dp->link_status_notified;
+		dp->link_status_notified = true;
+	}
+
+	/* The helper takes connection_mutex, so drop plugged_lock first. */
+	drm_connector_set_link_status_property(connector,
+					       DRM_MODE_LINK_STATUS_BAD);
+
+	/* fbdev can retry the modeset synchronously from this notification. */
+	if (notify)
+		drm_kms_helper_connector_hotplug_event(connector);
+}
+
 static int msm_dp_display_bind(struct device *dev, struct device *master,
 			   void *data)
 {
@@ -241,6 +280,7 @@ static void msm_dp_display_unbind(struct device *dev, struct device *master,
 	struct msm_dp_display_private *dp = dev_get_dp_display_private(dev);
 	struct msm_drm_private *priv = dev_get_drvdata(master);
 
+	cancel_work_sync(&dp->link_status_work);
 	of_dp_aux_depopulate_bus(dp->aux);
 
 	msm_dp_aux_unregister(dp->aux);
@@ -430,6 +470,10 @@ static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
 
 	mutex_lock(&dp->plugged_lock);
 
+	/* eDP calls this for every enable, including automatic retries. */
+	if (!dp->msm_dp_display.is_edp && !dp->plugged)
+		msm_dp_display_reset_link_status(dp);
+
 	msm_dp_aux_enable_xfers(dp->aux, true);
 
 	ret = msm_dp_display_host_phy_init(dp);
@@ -471,6 +515,9 @@ static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 	struct platform_device *pdev = dp->msm_dp_display.pdev;
 
 	mutex_lock(&dp->plugged_lock);
+
+	if (!dp->msm_dp_display.is_edp)
+		msm_dp_display_reset_link_status(dp);
 
 	dp->panel->video_test = false;
 
@@ -535,10 +582,12 @@ static int msm_dp_irq_hpd_handle(struct msm_dp_display_private *dp)
 	if (!rc) {
 		sink_request = dp->link->sink_request;
 		drm_dbg_dp(dp->drm_dev, "sink_request=%d\n", sink_request);
-		if (sink_request & DS_PORT_STATUS_CHANGED)
+		if (sink_request & DS_PORT_STATUS_CHANGED) {
+			msm_dp_display_reset_link_status(dp);
 			rc = msm_dp_display_process_hpd_high(dp);
-		else
+		} else {
 			rc = msm_dp_display_handle_irq_hpd(dp);
+		}
 	}
 
 	drm_dbg_dp(dp->drm_dev, "After, type=%d, sink_count=%d\n",
@@ -690,7 +739,6 @@ static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp)
 	rc = msm_dp_ctrl_on_link(dp->ctrl, dp->panel);
 	if (rc) {
 		DRM_ERROR("Failed link training (rc=%d)\n", rc);
-		// TODO: schedule drm_connector_set_link_status_property()
 		return rc;
 	}
 
@@ -1319,6 +1367,7 @@ static int msm_dp_display_probe(struct platform_device *pdev)
 	dp->hpd_isr_status = 0;
 
 	mutex_init(&dp->plugged_lock);
+	INIT_WORK(&dp->link_status_work, msm_dp_display_link_status_work);
 
 	rc = msm_dp_display_get_io(dp);
 	if (rc)
@@ -1634,6 +1683,7 @@ void msm_dp_display_atomic_enable(struct msm_dp *msm_dp_display,
 		goto err;
 	}
 
+	msm_dp_display_reset_link_status(dp);
 	mutex_unlock(&dp->plugged_lock);
 
 	drm_dbg_dp(msm_dp_display->drm_dev, "type=%d Done\n", msm_dp_display->connector_type);
@@ -1646,6 +1696,11 @@ err_prepare:
 	if (msm_dp_display->is_edp)
 		msm_dp_hpd_unplug_handle(dp);
 	msm_dp_display_unprepare(dp);
+	scoped_guard(mutex, &dp->plugged_lock) {
+		dp->link_failed = true;
+		/* Keep reporting BAD, but notify only once until recovery. */
+		schedule_work(&dp->link_status_work);
+	}
 }
 
 void msm_dp_display_atomic_disable(struct msm_dp *dp)
