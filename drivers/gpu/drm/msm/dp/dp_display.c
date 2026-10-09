@@ -736,14 +736,16 @@ int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
 		return bpp;
 
 	state->bpp = bpp;
-	state->vsc_enabled = drm_mode_is_420_only(info, mode);
+	state->colorspace = conn_state->colorspace;
+	state->vsc_enabled = drm_mode_is_420_only(info, mode) ||
+			     state->colorspace != DRM_MODE_COLORIMETRY_DEFAULT;
 	if (!state->vsc_enabled)
 		return 0;
 
 	if (dp->panel->link_caps_valid && !dp->panel->vsc_sdp_supported)
 		return -EINVAL;
 
-	return msm_dp_utils_pack_vsc_sdp(&state->vsc_sdp, DRM_MODE_COLORIMETRY_DEFAULT,
+	return msm_dp_utils_pack_vsc_sdp(&state->vsc_sdp, state->colorspace,
 					bpp / 3, drm_mode_is_420_only(info, mode));
 }
 

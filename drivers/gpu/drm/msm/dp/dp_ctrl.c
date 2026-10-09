@@ -2718,7 +2718,7 @@ int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *
 		/* Compliance tests may override the checked stream depth. */
 		if (panel->video_test) {
 			ret = msm_dp_utils_pack_vsc_sdp(&test_vsc_sdp,
-							DRM_MODE_COLORIMETRY_DEFAULT,
+							state->colorspace,
 							panel->msm_dp_mode.bpp / 3,
 							panel->msm_dp_mode.out_fmt_is_yuv_420);
 			if (ret)

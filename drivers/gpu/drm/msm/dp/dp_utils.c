@@ -140,12 +140,24 @@ int msm_dp_utils_pack_vsc_sdp(struct dp_sdp *sdp, enum drm_colorspace colorspace
 	case DRM_MODE_COLORIMETRY_DEFAULT:
 		vsc.colorimetry = DP_COLORIMETRY_DEFAULT;
 		break;
+	case DRM_MODE_COLORIMETRY_BT2020_RGB:
+		if (yuv420)
+			return -EINVAL;
+		vsc.colorimetry = DP_COLORIMETRY_BT2020_RGB;
+		break;
 	default:
 		return -EINVAL;
 	}
 
 	ret = drm_dp_vsc_sdp_pack(&vsc, sdp);
 	return ret < 0 ? ret : 0;
+}
+
+bool msm_dp_utils_needs_modeset(struct drm_connector_state *old_state,
+				struct drm_connector_state *new_state)
+{
+	return old_state->max_requested_bpc != new_state->max_requested_bpc ||
+	       old_state->colorspace != new_state->colorspace;
 }
 
 bool msm_dp_utils_psr_needs_modeset(const struct drm_crtc_state *state)

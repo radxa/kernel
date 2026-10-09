@@ -171,7 +171,7 @@ static int msm_dp_bridge_atomic_check(struct drm_bridge *bridge,
 
 	old_conn_state = drm_atomic_get_old_connector_state(conn_state->state,
 							    conn_state->connector);
-	if (old_conn_state->max_requested_bpc != conn_state->max_requested_bpc)
+	if (msm_dp_utils_needs_modeset(old_conn_state, conn_state))
 		crtc_state->mode_changed = true;
 
 	return 0;
@@ -456,10 +456,17 @@ struct drm_connector *msm_dp_drm_connector_init(struct msm_dp *msm_dp_display,
 					    struct drm_encoder *encoder)
 {
 	struct drm_connector *connector = NULL;
+	int ret;
 
 	connector = drm_bridge_connector_init(msm_dp_display->drm_dev, encoder);
 	if (IS_ERR(connector))
 		return connector;
+
+	ret = drm_mode_create_dp_colorspace_property(connector,
+						     BIT(DRM_MODE_COLORIMETRY_BT2020_RGB));
+	if (ret)
+		return ERR_PTR(ret);
+	drm_connector_attach_colorspace_property(connector);
 
 	if (!msm_dp_display->is_edp)
 		drm_connector_attach_dp_subconnector_property(connector);
