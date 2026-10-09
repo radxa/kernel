@@ -24,8 +24,8 @@
  * pci_set_of_node - Find and set device's DT device_node
  * @dev: the PCI device structure to fill
  *
- * Returns 0 on success with of_node set or when no device is described in the
- * DT. Returns -ENODEV if the device is present, but disabled in the DT.
+ * Return: 0 on success with of_node set or when no device is described in the
+ * DT.
  */
 int pci_set_of_node(struct pci_dev *dev)
 {
