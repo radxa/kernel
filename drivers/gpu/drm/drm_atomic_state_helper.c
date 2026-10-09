@@ -494,7 +494,15 @@ void
 __drm_atomic_helper_connector_state_init(struct drm_connector_state *conn_state,
 					 struct drm_connector *connector)
 {
+	u64 val;
+
 	conn_state->connector = connector;
+	if (connector->max_bpc_property &&
+	    !drm_object_property_get_default_value(&connector->base,
+						   connector->max_bpc_property, &val)) {
+		conn_state->max_requested_bpc = val;
+		conn_state->max_bpc = val;
+	}
 }
 EXPORT_SYMBOL(__drm_atomic_helper_connector_state_init);
 

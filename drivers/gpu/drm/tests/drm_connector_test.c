@@ -12,6 +12,7 @@
 #include <drm/drm_file.h>
 #include <drm/drm_kunit_helpers.h>
 #include <drm/drm_modes.h>
+#include <drm/drm_property.h>
 
 #include <drm/display/drm_hdmi_helper.h>
 
@@ -187,7 +188,59 @@ KUNIT_ARRAY_PARAM(drm_connector_init_type_valid,
 		  drm_connector_init_type_valid_tests,
 		  drm_connector_init_type_desc);
 
+/* The attached default need not equal the upper end of the property range. */
+static void drm_test_connector_max_bpc_default(struct kunit *test)
+{
+	struct drm_connector_init_priv *priv = test->priv;
+	struct drm_connector *connector = &priv->connector;
+	struct drm_property *prop;
+	int ret;
+
+	ret = drmm_connector_init(&priv->drm, connector, &dummy_funcs,
+				  DRM_MODE_CONNECTOR_DisplayPort, NULL);
+	KUNIT_ASSERT_EQ(test, ret, 0);
+
+	prop = drm_property_create_range(&priv->drm, 0, "max bpc", 6, 12);
+	KUNIT_ASSERT_NOT_NULL(test, prop);
+	connector->max_bpc_property = prop;
+	ret = drm_connector_attach_max_bpc_property(connector, 6, 10);
+	KUNIT_ASSERT_EQ(test, ret, 0);
+	KUNIT_EXPECT_NULL(test, connector->state);
+
+	drm_mode_config_reset(&priv->drm);
+	KUNIT_ASSERT_NOT_NULL(test, connector->state);
+	KUNIT_EXPECT_EQ(test, connector->state->max_requested_bpc, 10);
+	KUNIT_EXPECT_EQ(test, connector->state->max_bpc, 10);
+
+	connector->state->max_requested_bpc = 8;
+	connector->state->max_bpc = 8;
+	drm_mode_config_reset(&priv->drm);
+	KUNIT_ASSERT_NOT_NULL(test, connector->state);
+	KUNIT_EXPECT_EQ(test, connector->state->max_requested_bpc, 10);
+	KUNIT_EXPECT_EQ(test, connector->state->max_bpc, 10);
+}
+
+static void drm_test_connector_max_bpc_existing_state(struct kunit *test)
+{
+	struct drm_connector_init_priv *priv = test->priv;
+	struct drm_connector *connector = &priv->connector;
+	int ret;
+
+	ret = drmm_connector_init(&priv->drm, connector, &dummy_funcs,
+				  DRM_MODE_CONNECTOR_DisplayPort, NULL);
+	KUNIT_ASSERT_EQ(test, ret, 0);
+	drm_mode_config_reset(&priv->drm);
+	KUNIT_ASSERT_NOT_NULL(test, connector->state);
+
+	ret = drm_connector_attach_max_bpc_property(connector, 6, 10);
+	KUNIT_ASSERT_EQ(test, ret, 0);
+	KUNIT_EXPECT_EQ(test, connector->state->max_requested_bpc, 10);
+	KUNIT_EXPECT_EQ(test, connector->state->max_bpc, 10);
+}
+
 static struct kunit_case drmm_connector_init_tests[] = {
+	KUNIT_CASE(drm_test_connector_max_bpc_default),
+	KUNIT_CASE(drm_test_connector_max_bpc_existing_state),
 	KUNIT_CASE(drm_test_drmm_connector_init),
 	KUNIT_CASE(drm_test_drmm_connector_init_null_ddc),
 	KUNIT_CASE_PARAM(drm_test_drmm_connector_init_type_valid,
