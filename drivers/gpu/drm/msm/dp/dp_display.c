@@ -53,6 +53,7 @@ struct msm_dp_display_private {
 	bool phy_initialized;
 	bool audio_supported;
 
+	/* Serializes HPD, stream and PSR operations while runtime active. */
 	struct mutex plugged_lock;
 	bool plugged;
 
@@ -631,13 +632,10 @@ static int msm_dp_display_set_mode(struct msm_dp *msm_dp_display,
 	return 0;
 }
 
-static int msm_dp_display_prepare_link(struct msm_dp_display_private *dp)
+static int msm_dp_display_prepare(struct msm_dp_display_private *dp)
 {
 	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
-	int rc = 0;
-	bool force_link_train = false;
-
-	drm_dbg_dp(dp->drm_dev, "sink_count=%d\n", dp->link->sink_count);
+	int rc;
 
 	if (msm_dp_display->is_edp)
 		msm_dp_hpd_plug_handle(dp);
@@ -647,6 +645,19 @@ static int msm_dp_display_prepare_link(struct msm_dp_display_private *dp)
 		DRM_ERROR("failed to pm_runtime_resume\n");
 		return rc;
 	}
+
+	return 0;
+}
+
+static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp)
+{
+	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
+	int rc = 0;
+	bool force_link_train = false;
+
+	drm_dbg_dp(dp->drm_dev, "sink_count=%d\n", dp->link->sink_count);
+
+	lockdep_assert_held(&dp->plugged_lock);
 
 	if (dp->link->sink_count == 0)
 		return -ENOTCONN;
@@ -672,6 +683,8 @@ static int msm_dp_display_enable(struct msm_dp_display_private *dp,
 	int rc = 0;
 	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
 
+	lockdep_assert_held(&dp->plugged_lock);
+
 	drm_dbg_dp(dp->drm_dev, "sink_count=%d\n", dp->link->sink_count);
 	if (msm_dp_display->power_on) {
 		drm_dbg_dp(dp->drm_dev, "Link already setup, return\n");
@@ -691,6 +704,8 @@ static int msm_dp_display_post_enable(struct msm_dp *msm_dp_display)
 	u32 rate;
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
+
+	lockdep_assert_held(&dp->plugged_lock);
 
 	rate = dp->link->link_params.rate;
 
@@ -728,6 +743,8 @@ static int msm_dp_display_disable(struct msm_dp_display_private *dp,
 				  struct msm_dp_panel *msm_dp_panel)
 {
 	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
+
+	lockdep_assert_held(&dp->plugged_lock);
 
 	if (!msm_dp_display->power_on)
 		return 0;
@@ -885,6 +902,8 @@ void msm_dp_display_set_psr(struct msm_dp *msm_dp_display, bool enter)
 	}
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
+	guard(mutex)(&dp->plugged_lock);
+
 	msm_dp_ctrl_set_psr(dp->ctrl, dp->panel, enter);
 }
 
@@ -1491,7 +1510,13 @@ void msm_dp_display_atomic_enable(struct msm_dp *msm_dp_display,
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 
-	rc = msm_dp_display_prepare_link(dp);
+	rc = msm_dp_display_prepare(dp);
+	if (rc)
+		return;
+
+	guard(mutex)(&dp->plugged_lock);
+
+	rc = msm_dp_display_prepare_link_locked(dp);
 	if (rc) {
 		DRM_ERROR("DP display prepare failed, rc=%d\n", rc);
 		return;
@@ -1515,6 +1540,8 @@ void msm_dp_display_atomic_disable(struct msm_dp *dp)
 	struct msm_dp_display_private *msm_dp_display;
 
 	msm_dp_display = container_of(dp, struct msm_dp_display_private, msm_dp_display);
+
+	guard(mutex)(&msm_dp_display->plugged_lock);
 
 	/*
 	 * If .atomic_enable() bailed out - link training failure is the common
@@ -1567,7 +1594,8 @@ void msm_dp_display_atomic_post_disable(struct msm_dp *dp)
 
 	msm_dp_display_audio_notify_disable(msm_dp_display);
 
-	msm_dp_display_disable(msm_dp_display, msm_dp_display->panel);
+	scoped_guard(mutex, &msm_dp_display->plugged_lock)
+		msm_dp_display_disable(msm_dp_display, msm_dp_display->panel);
 
 	msm_dp_display_unprepare(msm_dp_display);
 }
