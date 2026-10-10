@@ -84,6 +84,7 @@
 #define MDSS_MDP_OP_IGC_EN                 BIT(16)
 #define MDSS_MDP_OP_FLIP_UD                BIT(14)
 #define MDSS_MDP_OP_FLIP_LR                BIT(13)
+#define MDSS_MDP_OP_SRC_SPLIT_ORDER        BIT(4)
 #define MDSS_MDP_OP_BWC_EN                 BIT(0)
 #define MDSS_MDP_OP_PE_OVERRIDE            BIT(31)
 #define MDSS_MDP_OP_BWC_LOSSLESS           (0 << 1)
@@ -258,6 +259,38 @@ static void dpu_hw_sspp_setup_format(struct dpu_sw_pipe *pipe,
 	dpu_hw_setup_format_impl(pipe, fmt, flags, ctx, op_mode_off,
 				 unpack_pat_off, format_off,
 				 ubwc_ctrl_off, ubwc_error_off);
+}
+
+void dpu_hw_setup_src_split_order_impl(struct dpu_hw_sspp *ctx,
+				       u32 op_mode_off, bool right)
+{
+	u32 opmode;
+
+	opmode = DPU_REG_READ(&ctx->hw, op_mode_off);
+	if (right)
+		opmode |= MDSS_MDP_OP_SRC_SPLIT_ORDER;
+	else
+		opmode &= ~MDSS_MDP_OP_SRC_SPLIT_ORDER;
+
+	DPU_REG_WRITE(&ctx->hw, op_mode_off, opmode);
+}
+
+static void dpu_hw_sspp_setup_src_split_order(struct dpu_sw_pipe *pipe,
+					      bool right)
+{
+	struct dpu_hw_sspp *ctx = pipe->sspp;
+	u32 op_mode_off;
+
+	if (!ctx)
+		return;
+
+	if (pipe->multirect_index == DPU_SSPP_RECT_SOLO ||
+	    pipe->multirect_index == DPU_SSPP_RECT_0)
+		op_mode_off = SSPP_SRC_OP_MODE;
+	else
+		op_mode_off = SSPP_SRC_OP_MODE_REC1;
+
+	dpu_hw_setup_src_split_order_impl(ctx, op_mode_off, right);
 }
 
 void dpu_hw_setup_format_impl(struct dpu_sw_pipe *pipe, const struct msm_format *fmt,
@@ -636,6 +669,8 @@ static void _setup_layer_ops(struct dpu_hw_sspp *c,
 	c->ops.setup_sourceaddress = dpu_hw_sspp_setup_sourceaddress;
 	c->ops.setup_solidfill = dpu_hw_sspp_setup_solidfill;
 	c->ops.setup_pe = dpu_hw_sspp_setup_pe_config;
+	if (mdss_rev->core_major_ver >= 5)
+		c->ops.setup_src_split_order = dpu_hw_sspp_setup_src_split_order;
 
 	if (test_bit(DPU_SSPP_QOS, &features)) {
 		c->ops.setup_qos_lut = dpu_hw_sspp_setup_qos_lut;

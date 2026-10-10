@@ -237,6 +237,14 @@ struct dpu_hw_sspp_ops {
 	void (*setup_multirect)(struct dpu_sw_pipe *pipe);
 
 	/**
+	 * @setup_src_split_order: program the position of the pipe within
+	 *                         a source split pair
+	 * @pipe: Pointer to pipe context
+	 * @right: true if the pipe fetches the right half of the pair
+	 */
+	void (*setup_src_split_order)(struct dpu_sw_pipe *pipe, bool right);
+
+	/**
 	 * @setup_sharpening: setup sharpening
 	 * @ctx: Pointer to pipe context
 	 * @cfg: Pointer to config structure
@@ -348,6 +356,9 @@ void dpu_hw_sspp_setup_csc(struct dpu_hw_sspp *ctx,
 void dpu_hw_setup_multirect_impl(struct dpu_sw_pipe *pipe,
 				 struct dpu_hw_sspp *ctx,
 				 u32 op_mode_off);
+
+void dpu_hw_setup_src_split_order_impl(struct dpu_hw_sspp *ctx,
+				       u32 op_mode_off, bool right);
 
 void dpu_hw_setup_format_impl(struct dpu_sw_pipe *pipe, const struct msm_format *fmt,
 			      u32 flags, struct dpu_hw_sspp *ctx,
