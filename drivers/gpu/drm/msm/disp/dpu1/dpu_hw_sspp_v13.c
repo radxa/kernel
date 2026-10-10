@@ -149,6 +149,19 @@ static void dpu_hw_sspp_setup_format_v13(struct dpu_sw_pipe *pipe,
 				 unpack_pat_off, format_off, ubwc_ctrl_off, ubwc_err_off);
 }
 
+static void dpu_hw_sspp_setup_src_split_order_v13(struct dpu_sw_pipe *pipe,
+						  bool right)
+{
+	struct dpu_hw_sspp *ctx = pipe->sspp;
+	u32 offset;
+
+	if (!ctx)
+		return;
+
+	offset = dpu_hw_sspp_calculate_rect_off(pipe->multirect_index, ctx);
+	dpu_hw_setup_src_split_order_impl(ctx, offset + SSPP_REC_SRC_OP_MODE, right);
+}
+
 static void dpu_hw_sspp_setup_pe_config_v13(struct dpu_hw_sspp *ctx,
 					    struct dpu_hw_pixel_ext *pe_ext)
 {
@@ -299,6 +312,7 @@ void dpu_hw_sspp_init_v13(struct dpu_hw_sspp *c,
 	c->ops.setup_sourceaddress = dpu_hw_sspp_setup_sourceaddress_v13;
 	c->ops.setup_solidfill = dpu_hw_sspp_setup_solidfill_v13;
 	c->ops.setup_pe = dpu_hw_sspp_setup_pe_config_v13;
+	c->ops.setup_src_split_order = dpu_hw_sspp_setup_src_split_order_v13;
 
 	if (test_bit(DPU_SSPP_QOS, &features)) {
 		c->ops.setup_qos_lut = dpu_hw_sspp_setup_qos_lut_v13;
