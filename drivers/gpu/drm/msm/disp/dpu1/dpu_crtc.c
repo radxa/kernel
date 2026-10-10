@@ -434,6 +434,18 @@ static void _dpu_crtc_blend_setup_pipe(struct drm_crtc *crtc,
 		mixer[lm_idx].lm_ctl->ops.update_pending_flush_sspp(mixer[lm_idx].lm_ctl, sspp_idx);
 }
 
+static bool _dpu_crtc_pipe_is_right(const struct dpu_plane_state *pstate,
+				    unsigned int pipe_idx)
+{
+	unsigned int other_idx = pipe_idx ^ 1;
+
+	if (!pstate->pipe[other_idx].sspp)
+		return false;
+
+	return pstate->pipe_cfg[pipe_idx].dst_rect.x1 >
+	       pstate->pipe_cfg[other_idx].dst_rect.x1;
+}
+
 static void _dpu_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 	struct dpu_crtc *dpu_crtc, struct dpu_crtc_mixer *mixer,
 	struct dpu_hw_stage_cfg *stage_cfg)
@@ -443,10 +455,13 @@ static void _dpu_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 	struct drm_plane_state *state;
 	struct dpu_crtc_state *cstate = to_dpu_crtc_state(crtc->state);
 	struct dpu_plane_state *pstate = NULL;
+	struct dpu_sw_pipe *pipe;
 	const struct msm_format *format;
 	struct dpu_hw_ctl *ctl = mixer->lm_ctl;
 	u32 lm_idx, stage, i, pipe_idx, head_pipe_in_stage, lms_in_pair;
 	bool bg_alpha_enable = false;
+	bool src_split = test_bit(DPU_MIXER_SOURCESPLIT,
+				  &mixer->hw_lm->cap->features);
 	DECLARE_BITMAP(active_fetch, SSPP_MAX);
 	DECLARE_BITMAP(active_pipes, SSPP_MAX);
 
@@ -475,6 +490,10 @@ static void _dpu_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 				pipe_idx = i + head_pipe_in_stage;
 				if (!pstate->pipe[pipe_idx].sspp)
 					continue;
+				pipe = &pstate->pipe[pipe_idx];
+				if (src_split && pipe->sspp->ops.setup_src_split_order)
+					pipe->sspp->ops.setup_src_split_order(pipe,
+						_dpu_crtc_pipe_is_right(pstate, pipe_idx));
 				lms_in_pair = min(cstate->num_mixers - (stage * PIPES_PER_STAGE),
 						  PIPES_PER_STAGE);
 				set_bit(pstate->pipe[pipe_idx].sspp->idx, active_fetch);
