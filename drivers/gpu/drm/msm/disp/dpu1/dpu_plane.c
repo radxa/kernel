@@ -1246,6 +1246,10 @@ static int dpu_plane_assign_resource_in_stage(struct dpu_sw_pipe *pipe,
 	r_pipe->multirect_index = DPU_SSPP_RECT_SOLO;
 	r_pipe->multirect_mode = DPU_SSPP_MULTIRECT_NONE;
 
+	if (dpu_kms->catalog->mdss_ver->core_major_ver < 5 &&
+	    r_pipe->sspp->idx < pipe->sspp->idx)
+		swap(pipe->sspp, r_pipe->sspp);
+
 	return 0;
 }
 
