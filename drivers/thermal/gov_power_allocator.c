@@ -705,12 +705,46 @@ static void power_allocator_unbind(struct thermal_zone_device *tz)
 	tz->governor_data = NULL;
 }
 
+static void step_non_actors(struct thermal_zone_device *tz, int trip)
+{
+	struct thermal_instance *instance;
+	int trip_temp, hyst;
+
+	if (!tz->ops->get_trip_hyst ||
+	    tz->ops->get_trip_temp(tz, trip, &trip_temp) ||
+	    tz->ops->get_trip_hyst(tz, trip, &hyst))
+		return;
+
+	mutex_lock(&tz->lock);
+	list_for_each_entry(instance, &tz->thermal_instances, tz_node) {
+		struct thermal_cooling_device *cdev = instance->cdev;
+		unsigned long cur;
+
+		if (instance->trip != trip || cdev_is_power_actor(cdev))
+			continue;
+
+		mutex_lock(&cdev->lock);
+		if (tz->temperature >= trip_temp) {
+			cdev->ops->get_cur_state(cdev, &cur);
+			instance->target = clamp(cur + 1, instance->lower,
+						 instance->upper);
+		} else if (tz->temperature < trip_temp - hyst) {
+			instance->target = THERMAL_NO_TARGET;
+		}
+		__thermal_cdev_update(cdev);
+		mutex_unlock(&cdev->lock);
+	}
+	mutex_unlock(&tz->lock);
+}
+
 static int power_allocator_throttle(struct thermal_zone_device *tz, int trip)
 {
 	int ret;
 	int switch_on_temp, control_temp;
 	struct power_allocator_params *params = tz->governor_data;
 	bool update;
+
+	step_non_actors(tz, trip);
 
 	/*
 	 * We get called for every trip point but we only need to do
