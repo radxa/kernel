@@ -1619,9 +1619,9 @@ static bool _opp_supported_by_regulators(struct dev_pm_opp *opp,
 		if (!regulator_is_supported_voltage(reg,
 					opp->supplies[i].u_volt_min,
 					opp->supplies[i].u_volt_max)) {
-			pr_warn("%s: OPP minuV: %lu maxuV: %lu, not supported by regulator\n",
-				__func__, opp->supplies[i].u_volt_min,
-				opp->supplies[i].u_volt_max);
+			pr_debug("%s: OPP minuV: %lu maxuV: %lu, not supported by regulator\n",
+				 __func__, opp->supplies[i].u_volt_min,
+				 opp->supplies[i].u_volt_max);
 			return false;
 		}
 	}
@@ -1730,8 +1730,8 @@ int _opp_add(struct device *dev, struct dev_pm_opp *new_opp,
 
 	if (!_opp_supported_by_regulators(new_opp, opp_table)) {
 		new_opp->available = false;
-		dev_warn(dev, "%s: OPP not supported by regulators (%lu)\n",
-			 __func__, new_opp->rate);
+		dev_dbg(dev, "%s: OPP not supported by regulators (%lu)\n",
+			__func__, new_opp->rate);
 	}
 
 	/* required-opps not fully initialized yet */
