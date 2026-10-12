@@ -165,6 +165,35 @@
 		#cooling-cells = <2>;
 		status = "okay";
 	};
+
+	sound {
+		compatible = "qcom,lemans-amr-sndcard";
+		model = "LEMANS-Radxa-VMARC-Q9075-IO";
+
+		dp0-dai-link {
+			link-name = "DISPLAY_PORT-RX";
+
+			cpu {
+				sound-dai = <&q6apmbedai DISPLAY_PORT_RX_0>;
+			};
+
+			codec {
+				sound-dai = <&mdss0_dp0>;
+			};
+
+			platform {
+				sound-dai = <&q6apm>;
+			};
+		};
+	};
+};
+
+&q6apm {
+	/delete-property/ qcom,protection-domain;
+};
+
+&q6prm {
+	/delete-property/ qcom,protection-domain;
 };
 
 &thermal_zones {
