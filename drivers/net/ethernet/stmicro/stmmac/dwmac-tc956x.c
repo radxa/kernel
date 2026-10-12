@@ -632,6 +632,8 @@ static int tc956x_plat_dat_init(struct tc956x_data *td)
 		min(TC956X_TX_FIFO_KB, 8 * plat->tx_queues_to_use) * SZ_1K;
 	plat->rx_fifo_size =
 		min(TC956X_RX_FIFO_KB, 8 * plat->rx_queues_to_use) * SZ_1K;
+	/* Cover in-flight frames while PCIe exits an ASPM low-power state. */
+	plat->rx_fifo_flow_ctrl_headroom = SZ_4K;
 	plat->host_dma_width = 36;
 
 	plat->rx_sched_algorithm = MTL_RX_ALGORITHM_SP;

@@ -158,6 +158,7 @@ static void dwxgmac2_dma_rx_mode(struct stmmac_priv *priv, void __iomem *ioaddr,
 	if ((fifosz >= 4096) && (qmode != MTL_QUEUE_AVB)) {
 		u32 flow = readl(ioaddr + XGMAC_MTL_RXQ_FLOW_CONTROL(channel));
 		unsigned int rfd, rfa;
+		unsigned int headroom = priv->plat->rx_fifo_flow_ctrl_headroom;
 
 		value |= XGMAC_EHFC;
 
@@ -180,6 +181,15 @@ static void dwxgmac2_dma_rx_mode(struct stmmac_priv *priv, void __iomem *ioaddr,
 			rfd = 0x07; /* Full-4.5K */
 			rfa = 0x04; /* Full-3K */
 			break;
+		}
+
+		/* Leave room for packets arriving while the receive DMA wakes up.
+		 * Keep a positive deactivation threshold and at least 512 bytes
+		 * of hysteresis. Platforms without an override keep the defaults.
+		 */
+		if (headroom >= 1024 && headroom <= fifosz - 1024) {
+			rfa = max(rfa, DIV_ROUND_UP(headroom, 512) - 2);
+			rfd = max(rfd, rfa + 1);
 		}
 
 		flow = u32_replace_bits(flow, rfd, XGMAC_RFD);

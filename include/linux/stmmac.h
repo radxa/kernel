@@ -245,6 +245,8 @@ struct plat_stmmacenet_data {
 	int unicast_filter_entries;
 	int tx_fifo_size;
 	int rx_fifo_size;
+	/* Minimum free RX FIFO space when hardware flow control is asserted. */
+	unsigned int rx_fifo_flow_ctrl_headroom;
 	u32 host_dma_width;
 	u32 rx_queues_to_use;
 	u32 tx_queues_to_use;
