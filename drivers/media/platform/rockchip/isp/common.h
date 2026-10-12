@@ -64,6 +64,7 @@
 #define RKISP_MOTION_DECT_TS_SIZE	16
 
 struct rkisp_device;
+struct rkisp_hw_dev;
 
 /* ISP_V10_1 for only support MP */
 enum rkisp_isp_ver {
@@ -213,5 +214,6 @@ int rkisp_alloc_common_dummy_buf(struct rkisp_device *dev);
 void rkisp_free_common_dummy_buf(struct rkisp_device *dev);
 
 void rkisp_set_clk_rate(struct clk *clk, unsigned long rate);
+void rkisp_set_core_clk_rate(struct rkisp_hw_dev *hw_dev, unsigned long rate);
 u64 rkisp_time_get_ns(struct rkisp_device *dev);
 #endif /* _RKISP_COMMON_H */

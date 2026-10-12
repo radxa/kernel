@@ -584,10 +584,7 @@ static void rkisp_dvfs(struct rkisp_device *dev)
 	if (i == hw->num_clk_rate_tbl)
 		i--;
 
-	/* set isp clock rate */
-	rkisp_set_clk_rate(hw->clks[0], hw->clk_rate_tbl[i].clk_rate * 1000000UL);
-	if (hw->unite == ISP_UNITE_TWO)
-		rkisp_set_clk_rate(hw->clks[5], hw->clk_rate_tbl[i].clk_rate * 1000000UL);
+	rkisp_set_core_clk_rate(hw, hw->clk_rate_tbl[i].clk_rate * 1000000UL);
 	/* aclk equal to core clk */
 	if (dev->isp_ver == ISP_V32 || dev->isp_ver == ISP_V33)
 		rkisp_set_clk_rate(hw->clks[1], hw->clk_rate_tbl[i].clk_rate * 1000000UL);
@@ -2495,9 +2492,7 @@ static int rkisp_isp_stop(struct rkisp_device *dev)
 		old_rate = clk_get_rate(hw->clks[0]);
 		safe_rate = hw->clk_rate_tbl[0].clk_rate * 1000000UL;
 		if (old_rate > safe_rate) {
-			rkisp_set_clk_rate(hw->clks[0], safe_rate);
-			if (hw->unite == ISP_UNITE_TWO)
-				rkisp_set_clk_rate(hw->clks[5], safe_rate);
+			rkisp_set_core_clk_rate(hw, safe_rate);
 			udelay(100);
 		}
 		rkisp_soft_reset(hw, false);

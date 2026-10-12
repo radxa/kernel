@@ -4,6 +4,10 @@
 #ifndef _RKISP_HW_H
 #define _RKISP_HW_H
 
+#include <linux/devfreq.h>
+#include <soc/rockchip/rockchip_opp_select.h>
+#include <soc/rockchip/rockchip_system_monitor.h>
+
 #include "bridge.h"
 
 #define RKISP_MAX_BUS_CLK 10
@@ -110,6 +114,16 @@ struct rkisp_hw_dev {
 	bool is_frm_buf;
 	bool is_dvfs;
 	bool is_assigned_clk;
+
+#ifdef CONFIG_PM_DEVFREQ
+	struct devfreq *devfreq;
+	struct devfreq_dev_profile devfreq_profile;
+	unsigned long core_rate_hz;
+	unsigned long core_current_rate_hz;
+	struct rockchip_opp_info opp_info;
+	struct monitor_dev_profile mdevp;
+	struct monitor_dev_info *mdev_info;
+#endif
 };
 
 int rkisp_register_irq(struct rkisp_hw_dev *dev);

@@ -122,6 +122,39 @@ void rkisp_set_clk_rate(struct clk *clk, unsigned long rate)
 	clk_set_rate(clk, rate);
 }
 
+/*
+ * Set the isp core clock rate. If opp is available, scale the rate and
+ * voltage together through devfreq, otherwise fall back to plain
+ * clk_set_rate. The second isp core clock (unite mode) is kept in sync
+ * with the core clock here.
+ */
+void rkisp_set_core_clk_rate(struct rkisp_hw_dev *hw_dev, unsigned long rate)
+{
+	if (rkisp_clk_dbg)
+		return;
+
+#ifdef CONFIG_PM_DEVFREQ
+	if (hw_dev->devfreq && rate) {
+		mutex_lock(&hw_dev->devfreq->lock);
+		if (hw_dev->core_rate_hz != rate) {
+			hw_dev->core_rate_hz = rate;
+			update_devfreq(hw_dev->devfreq);
+		} else {
+			/* Restore frequency if it was changed elsewhere */
+			clk_set_rate(hw_dev->clks[0], hw_dev->core_current_rate_hz);
+		}
+		mutex_unlock(&hw_dev->devfreq->lock);
+	} else {
+		rkisp_set_clk_rate(hw_dev->clks[0], rate);
+	}
+#else
+	rkisp_set_clk_rate(hw_dev->clks[0], rate);
+#endif
+
+	if (hw_dev->unite == ISP_UNITE_TWO)
+		rkisp_set_clk_rate(hw_dev->clks[5], rate);
+}
+
 static int __maybe_unused __rkisp_clr_unready_dev(void)
 {
 	struct rkisp_device *isp_dev;
@@ -231,6 +264,7 @@ static int __isp_pipeline_s_isp_clk(struct rkisp_pipeline *p)
 	}
 
 	if (dev->isp_inp == INP_DMARX_ISP && dev->hw_dev->clks[0]) {
+		/* read from ddr, debug only, keep a fixed rate */
 		rkisp_set_clk_rate(hw_dev->clks[0], 400 * 1000000UL);
 		return 0;
 	}
@@ -277,9 +311,7 @@ end:
 		i--;
 
 	/* set isp clock rate */
-	rkisp_set_clk_rate(hw_dev->clks[0], hw_dev->clk_rate_tbl[i].clk_rate * 1000000UL);
-	if (hw_dev->unite == ISP_UNITE_TWO)
-		rkisp_set_clk_rate(hw_dev->clks[5], hw_dev->clk_rate_tbl[i].clk_rate * 1000000UL);
+	rkisp_set_core_clk_rate(hw_dev, hw_dev->clk_rate_tbl[i].clk_rate * 1000000UL);
 	/* aclk equal to core clk */
 	if (dev->isp_ver == ISP_V32 || dev->isp_ver == ISP_V33)
 		rkisp_set_clk_rate(hw_dev->clks[1], hw_dev->clk_rate_tbl[i].clk_rate * 1000000UL);

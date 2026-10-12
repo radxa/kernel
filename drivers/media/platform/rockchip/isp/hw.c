@@ -14,11 +14,16 @@
 #include <linux/of_platform.h>
 #include <linux/of_reserved_mem.h>
 #include <linux/pinctrl/consumer.h>
+#include <linux/pm_opp.h>
 #include <linux/pm_runtime.h>
 #include <linux/reset.h>
 #include <media/videobuf2-cma-sg.h>
 #include <media/videobuf2-dma-sg.h>
 #include <soc/rockchip/rockchip_iommu.h>
+#include <soc/rockchip/rockchip_opp_select.h>
+#include <soc/rockchip/rockchip_system_monitor.h>
+
+#include "../../../../devfreq/governor.h"
 
 #include "common.h"
 #include "dev.h"
@@ -46,6 +51,9 @@ struct isp_irqs_data {
 	const char *name;
 	irqreturn_t (*irq_hdl)(int irq, void *ctx);
 };
+
+static int rkisp_devfreq_init(struct rkisp_hw_dev *hw_dev);
+static void rkisp_devfreq_remove(struct rkisp_hw_dev *hw_dev);
 
 /* using default value if reg no write for multi device */
 static void default_sw_reg_flag(struct rkisp_device *dev)
@@ -1537,6 +1545,8 @@ static int rkisp_hw_probe(struct platform_device *pdev)
 		hw_dev->is_dma_contig = false;
 	hw_dev->mem_ops = &vb2_cma_sg_memops;
 
+	rkisp_devfreq_init(hw_dev);
+
 	pm_runtime_enable(dev);
 
 	return 0;
@@ -1548,6 +1558,7 @@ static void rkisp_hw_remove(struct platform_device *pdev)
 {
 	struct rkisp_hw_dev *hw_dev = platform_get_drvdata(pdev);
 
+	rkisp_devfreq_remove(hw_dev);
 	rkisp_put_sram(hw_dev);
 	pm_runtime_disable(&pdev->dev);
 	mutex_destroy(&hw_dev->dev_lock);
@@ -1565,6 +1576,203 @@ static void rkisp_hw_shutdown(struct platform_device *pdev)
 	}
 	dev_info(&pdev->dev, "%s\n", __func__);
 }
+
+#ifdef CONFIG_PM_DEVFREQ
+static int rkisp_devfreq_target(struct device *dev,
+				unsigned long *freq, u32 flags)
+{
+	struct rkisp_hw_dev *hw_dev = dev_get_drvdata(dev);
+	struct rockchip_opp_info *opp_info = &hw_dev->opp_info;
+	struct dev_pm_opp *opp;
+	int ret = 0;
+
+	if (!opp_info->is_rate_volt_checked)
+		return -EINVAL;
+
+	opp = devfreq_recommended_opp(dev, freq, flags);
+	if (IS_ERR(opp))
+		return PTR_ERR(opp);
+	dev_pm_opp_put(opp);
+
+	if (*freq == hw_dev->core_current_rate_hz)
+		return 0;
+
+	rockchip_opp_dvfs_lock(opp_info);
+	if (pm_runtime_active(dev))
+		opp_info->is_runtime_active = true;
+	else
+		opp_info->is_runtime_active = false;
+	ret = dev_pm_opp_set_rate(dev, *freq);
+	if (!ret) {
+		hw_dev->core_current_rate_hz = *freq;
+		hw_dev->devfreq->last_status.current_frequency = *freq;
+	}
+	rockchip_opp_dvfs_unlock(opp_info);
+
+	return ret;
+}
+
+static int rkisp_devfreq_get_dev_status(struct device *dev,
+					struct devfreq_dev_status *stat)
+{
+	struct rkisp_hw_dev *hw_dev = dev_get_drvdata(dev);
+
+	stat->current_frequency = hw_dev->core_current_rate_hz;
+	stat->total_time = 1;
+	stat->busy_time = hw_dev->is_runing ? 1 : 0;
+
+	return 0;
+}
+
+static int rkisp_devfreq_get_cur_freq(struct device *dev, unsigned long *freq)
+{
+	struct rkisp_hw_dev *hw_dev = dev_get_drvdata(dev);
+
+	*freq = hw_dev->core_current_rate_hz;
+
+	return 0;
+}
+
+static int devfreq_isp_ondemand_func(struct devfreq *df, unsigned long *freq)
+{
+	struct rkisp_hw_dev *hw_dev = df->data;
+
+	if (hw_dev)
+		*freq = hw_dev->core_rate_hz;
+	else
+		*freq = df->previous_freq;
+
+	return 0;
+}
+
+static int devfreq_isp_ondemand_handler(struct devfreq *devfreq,
+					unsigned int event, void *data)
+{
+	return 0;
+}
+
+static struct devfreq_governor devfreq_isp_ondemand = {
+	.name = "isp_ondemand",
+	.get_target_freq = devfreq_isp_ondemand_func,
+	.event_handler = devfreq_isp_ondemand_handler,
+};
+
+static DEFINE_MUTEX(isp_governor_mutex);
+static int isp_governor_count;
+
+static int rkisp_devfreq_init(struct rkisp_hw_dev *hw_dev)
+{
+	struct device *dev = hw_dev->dev;
+	struct rockchip_opp_info *opp_info = &hw_dev->opp_info;
+	int ret;
+
+	if (!hw_dev->clks[0] || IS_ERR(hw_dev->clks[0]))
+		return 0;
+
+	/* no opp table, skip devfreq silently */
+	if (!of_find_property(dev->of_node, "operating-points-v2", NULL))
+		return 0;
+
+	ret = rockchip_init_opp_table(dev, opp_info, "clk_isp_core", "isp");
+	if (ret) {
+		dev_err(dev, "failed to init opp table\n");
+		return ret;
+	}
+
+	mutex_lock(&isp_governor_mutex);
+	if (!isp_governor_count) {
+		ret = devfreq_add_governor(&devfreq_isp_ondemand);
+		if (ret) {
+			dev_err(dev, "failed to add isp_ondemand governor\n");
+			mutex_unlock(&isp_governor_mutex);
+			goto err_remove_table;
+		}
+	}
+	isp_governor_count++;
+	mutex_unlock(&isp_governor_mutex);
+
+	hw_dev->devfreq_profile.target = rkisp_devfreq_target;
+	hw_dev->devfreq_profile.get_dev_status = rkisp_devfreq_get_dev_status;
+	hw_dev->devfreq_profile.get_cur_freq = rkisp_devfreq_get_cur_freq;
+	hw_dev->devfreq_profile.is_cooling_device = true;
+	hw_dev->devfreq_profile.initial_freq = clk_get_rate(hw_dev->clks[0]);
+	hw_dev->core_rate_hz = hw_dev->devfreq_profile.initial_freq;
+	hw_dev->devfreq = devm_devfreq_add_device(dev,
+						  &hw_dev->devfreq_profile,
+						  "isp_ondemand", (void *)hw_dev);
+	if (IS_ERR(hw_dev->devfreq)) {
+		ret = PTR_ERR(hw_dev->devfreq);
+		hw_dev->devfreq = NULL;
+		goto err_remove_governor;
+	}
+
+	devfreq_register_opp_notifier(dev, hw_dev->devfreq);
+
+	/*
+	 * Use a per-device monitor profile: the profile is stored by
+	 * reference in the system monitor, so a shared static one would be
+	 * overwritten when multiple isp instances register.
+	 */
+	hw_dev->mdevp.type = MONITOR_TYPE_DEV;
+	hw_dev->mdevp.check_rate_volt = rockchip_monitor_check_rate_volt;
+	hw_dev->mdevp.low_temp_adjust = rockchip_monitor_dev_low_temp_adjust;
+	hw_dev->mdevp.high_temp_adjust = rockchip_monitor_dev_high_temp_adjust;
+	hw_dev->mdevp.data = hw_dev->devfreq;
+	hw_dev->mdevp.opp_info = opp_info;
+	hw_dev->mdev_info = rockchip_system_monitor_register(dev, &hw_dev->mdevp);
+	if (IS_ERR(hw_dev->mdev_info)) {
+		dev_dbg(dev, "without system monitor\n");
+		hw_dev->mdev_info = NULL;
+	}
+
+	hw_dev->core_current_rate_hz = clk_get_rate(hw_dev->clks[0]);
+	hw_dev->core_rate_hz = hw_dev->core_current_rate_hz;
+	if (hw_dev->devfreq->suspend_freq)
+		hw_dev->devfreq->resume_freq = hw_dev->core_current_rate_hz;
+	hw_dev->devfreq->last_status.current_frequency = hw_dev->core_current_rate_hz;
+	hw_dev->devfreq->last_status.total_time = 1;
+	hw_dev->devfreq->last_status.busy_time = 1;
+
+	return 0;
+
+err_remove_governor:
+	mutex_lock(&isp_governor_mutex);
+	if (--isp_governor_count == 0)
+		devfreq_remove_governor(&devfreq_isp_ondemand);
+	mutex_unlock(&isp_governor_mutex);
+err_remove_table:
+	dev_pm_opp_of_remove_table(dev);
+
+	return ret;
+}
+
+static void rkisp_devfreq_remove(struct rkisp_hw_dev *hw_dev)
+{
+	struct device *dev = hw_dev->dev;
+
+	if (!hw_dev->devfreq)
+		return;
+
+	if (hw_dev->mdev_info) {
+		rockchip_system_monitor_unregister(hw_dev->mdev_info);
+		hw_dev->mdev_info = NULL;
+	}
+
+	devfreq_unregister_opp_notifier(dev, hw_dev->devfreq);
+	devm_devfreq_remove_device(dev, hw_dev->devfreq);
+	hw_dev->devfreq = NULL;
+
+	mutex_lock(&isp_governor_mutex);
+	if (--isp_governor_count == 0)
+		devfreq_remove_governor(&devfreq_isp_ondemand);
+	mutex_unlock(&isp_governor_mutex);
+
+	dev_pm_opp_of_remove_table(dev);
+}
+#else
+static int rkisp_devfreq_init(struct rkisp_hw_dev *hw_dev) { return 0; }
+static void rkisp_devfreq_remove(struct rkisp_hw_dev *hw_dev) { }
+#endif
 
 static int __maybe_unused rkisp_runtime_suspend(struct device *dev)
 {
@@ -1653,9 +1861,7 @@ static int __maybe_unused rkisp_runtime_resume(struct device *dev)
 		if (!hw_dev->is_assigned_clk) {
 			unsigned long rate = hw_dev->clk_rate_tbl[0].clk_rate * 1000000UL;
 
-			rkisp_set_clk_rate(hw_dev->clks[0], rate);
-			if (hw_dev->unite == ISP_UNITE_TWO)
-				rkisp_set_clk_rate(hw_dev->clks[5], rate);
+			rkisp_set_core_clk_rate(hw_dev, rate);
 		}
 		for (i = 0; i < hw_dev->dev_num; i++) {
 			isp = hw_dev->isp[i];
