@@ -102,6 +102,17 @@ properties:
   "#sound-dai-cells":
     const: 0
 
+  radxa,display-controller-index:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description: Index of the display controller used by board audio firmware.
+    maximum: 1
+
+  radxa,force-audio:
+    type: boolean
+    description:
+      Forces audio support for a DP-to-HDMI bridge whose fixed EDID omits the
+      CTA audio data block.
+
   vdda-0p9-supply:
     deprecated: true
   vdda-1p2-supply:

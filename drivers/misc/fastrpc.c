@@ -1616,7 +1616,9 @@ static int fastrpc_mmap_remove_pdr(struct fastrpc_user *fl)
 	if (session < 0)
 		return -EUSERS;
 
-	if (atomic_read(&fl->cctx->spd[session].ispdup) == 0)
+	/* The service cannot be up before its initial static PD is created. */
+	if (fl->cctx->spd[session].pdrcount &&
+	    atomic_read(&fl->cctx->spd[session].ispdup) == 0)
 		return -ENOTCONN;
 
 	if (fl->cctx->spd[session].pdrcount !=
