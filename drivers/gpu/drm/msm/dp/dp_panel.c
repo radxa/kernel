@@ -828,11 +828,6 @@ int msm_dp_panel_init_panel_info(struct msm_dp_panel *msm_dp_panel,
 				drm_mode->clock);
 	drm_dbg_dp(panel->drm_dev, "bpp = %d\n", msm_dp_panel->msm_dp_mode.bpp);
 
-	msm_dp_panel->msm_dp_mode.bpp = msm_dp_panel_get_mode_bpp(msm_dp_panel, msm_dp_panel->msm_dp_mode.bpp,
-						      msm_dp_panel->msm_dp_mode.drm_mode.clock);
-
-	drm_dbg_dp(panel->drm_dev, "updated bpp = %d\n",
-				msm_dp_panel->msm_dp_mode.bpp);
 
 	return 0;
 }

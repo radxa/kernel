@@ -17,6 +17,13 @@ struct msm_dp_bridge {
 	struct msm_dp *msm_dp_display;
 };
 
+struct msm_dp_bridge_state {
+	struct drm_bridge_state base;
+	u32 bpp;
+};
+
+#define to_dp_bridge_state(x) container_of((x), struct msm_dp_bridge_state, base)
+
 #define to_dp_bridge(x)     container_of((x), struct msm_dp_bridge, bridge)
 
 struct drm_connector *msm_dp_drm_connector_init(struct msm_dp *msm_dp_display,

@@ -89,6 +89,39 @@ void msm_dp_utils_pack_sdp_header(const struct dp_sdp_header *sdp_header,
 		FIELD_PREP(PARITY_3_MASK, msm_dp_utils_calculate_parity(sdp_header->HB3));
 }
 
+bool msm_dp_utils_link_fits(unsigned int clock, unsigned int bpp,
+			    unsigned int rate, unsigned int lanes, bool yuv420)
+{
+	u64 available = (u64)rate * lanes * 8;
+
+	if (!clock || !bpp || !rate || !lanes)
+		return false;
+
+	if (yuv420)
+		available *= 2;
+
+	return (u64)clock * bpp <= available;
+}
+
+int msm_dp_utils_select_bpp(unsigned int bpc, unsigned int max_bpc,
+			    unsigned int clock, unsigned int rate,
+			    unsigned int lanes, bool yuv420)
+{
+	unsigned int bpp;
+
+	bpc = min3(bpc ? bpc : 8, max_bpc, 10U);
+	bpc = round_down(bpc, 2);
+	if (bpc < 6)
+		return -EINVAL;
+
+	for (bpp = bpc * 3; bpp >= 18; bpp -= 6) {
+		if (msm_dp_utils_link_fits(clock, bpp, rate, lanes, yuv420))
+			return bpp;
+	}
+
+	return -EINVAL;
+}
+
 bool msm_dp_utils_psr_needs_modeset(const struct drm_crtc_state *state)
 {
 	/* active_changed alone also describes a normal self-refresh exit. */

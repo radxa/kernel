@@ -11,6 +11,8 @@
 
 #define DP_MAX_PIXEL_CLK_KHZ	675000
 
+struct msm_dp_bridge_state;
+
 struct msm_dp {
 	struct drm_device *drm_dev;
 	struct platform_device *pdev;
@@ -42,5 +44,9 @@ void msm_dp_display_atomic_enable(struct msm_dp *dp_display,
 enum drm_mode_status msm_dp_display_mode_valid(struct msm_dp *dp,
 					       const struct drm_display_info *info,
 					       const struct drm_display_mode *mode);
+
+int msm_dp_display_atomic_check(struct msm_dp *dp, struct msm_dp_bridge_state *state,
+				const struct drm_display_mode *mode,
+				const struct drm_connector_state *conn_state);
 
 #endif /* _DP_DISPLAY_H_ */

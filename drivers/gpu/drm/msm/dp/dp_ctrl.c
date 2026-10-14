@@ -23,6 +23,7 @@
 
 #include "dp_reg.h"
 #include "dp_ctrl.h"
+#include "dp_utils.h"
 #include "dp_link.h"
 
 #define POLLING_SLEEP_US			1000
@@ -2413,10 +2414,56 @@ static bool msm_dp_ctrl_channel_eq_ok(struct msm_dp_ctrl_private *ctrl)
 	return drm_dp_channel_eq_ok(link_status, num_lanes);
 }
 
+static bool msm_dp_ctrl_link_fits(struct msm_dp_ctrl_private *ctrl,
+				  const struct msm_dp_panel *panel)
+{
+	return msm_dp_utils_link_fits(panel->msm_dp_mode.drm_mode.clock,
+				      panel->msm_dp_mode.bpp,
+				      ctrl->link->link_params.rate,
+				      ctrl->link->link_params.num_lanes,
+				      panel->msm_dp_mode.out_fmt_is_yuv_420);
+}
+
+static int msm_dp_ctrl_next_link_params(struct msm_dp_ctrl_private *ctrl,
+					struct msm_dp_panel *panel,
+					unsigned int training_step,
+					const u8 *link_status, bool check_bw)
+{
+	unsigned int lanes;
+	int ret;
+
+	do {
+		lanes = ctrl->link->link_params.num_lanes;
+		if (training_step == DP_TRAINING_1) {
+			ret = msm_dp_ctrl_link_rate_down_shift(ctrl);
+			if (ret) {
+				if (!msm_dp_ctrl_clock_recovery_any_ok(link_status, lanes))
+					return ret;
+				ret = msm_dp_ctrl_link_lane_down_shift(ctrl, panel);
+			}
+		} else if (training_step == DP_TRAINING_2) {
+			if (!drm_dp_clock_recovery_ok(link_status, lanes))
+				ret = msm_dp_ctrl_link_rate_down_shift(ctrl);
+			else
+				ret = msm_dp_ctrl_link_lane_down_shift(ctrl, panel);
+		} else {
+			return -EIO;
+		}
+		if (ret)
+			return ret;
+
+		/* Reducing lanes restores the maximum rate; keep looking. */
+	} while (check_bw && !msm_dp_ctrl_link_fits(ctrl, panel));
+
+	return 0;
+}
+
 int msm_dp_ctrl_on_link(struct msm_dp_ctrl *msm_dp_ctrl,
 			struct msm_dp_panel *panel)
 {
 	int rc = 0;
+	bool trained = false;
+	bool check_bw;
 	struct msm_dp_ctrl_private *ctrl;
 	u32 rate;
 	int link_train_max_retries = 5;
@@ -2430,6 +2477,8 @@ int msm_dp_ctrl_on_link(struct msm_dp_ctrl *msm_dp_ctrl,
 
 	ctrl = container_of(msm_dp_ctrl, struct msm_dp_ctrl_private, msm_dp_ctrl);
 
+	check_bw = !(ctrl->link->sink_request & DP_TEST_LINK_PHY_TEST_PATTERN) &&
+		   !panel->video_test;
 	rate = panel->link_info.rate;
 	pixel_rate = panel->msm_dp_mode.drm_mode.clock;
 
@@ -2452,6 +2501,9 @@ int msm_dp_ctrl_on_link(struct msm_dp_ctrl *msm_dp_ctrl,
 		ctrl->link->link_params.rate, ctrl->link->link_params.num_lanes,
 		pixel_rate);
 
+	if (check_bw && !msm_dp_ctrl_link_fits(ctrl, panel))
+		return -ENOSPC;
+
 	rc = msm_dp_ctrl_enable_mainlink_clocks(ctrl, panel);
 	if (rc)
 		return rc;
@@ -2459,55 +2511,22 @@ int msm_dp_ctrl_on_link(struct msm_dp_ctrl *msm_dp_ctrl,
 	while (--link_train_max_retries) {
 		training_step = DP_TRAINING_NONE;
 		rc = msm_dp_ctrl_setup_main_link(ctrl, panel, &training_step);
-		if (rc == 0) {
-			/* training completed successfully */
+		if (!rc) {
+			trained = true;
 			break;
-		} else if (training_step == DP_TRAINING_1) {
-			/* link train_1 failed */
-			if (!msm_dp_aux_is_link_connected(ctrl->aux))
-				break;
-
-			drm_dp_dpcd_read_link_status(ctrl->aux, link_status);
-
-			rc = msm_dp_ctrl_link_rate_down_shift(ctrl);
-			if (rc < 0) { /* already in RBR = 1.6G */
-				if (msm_dp_ctrl_clock_recovery_any_ok(link_status,
-					ctrl->link->link_params.num_lanes)) {
-					/*
-					 * some lanes are ready,
-					 * reduce lane number
-					 */
-					rc = msm_dp_ctrl_link_lane_down_shift(ctrl, panel);
-					if (rc < 0) { /* lane == 1 already */
-						/* end with failure */
-						break;
-					}
-				} else {
-					/* end with failure */
-					break; /* lane == 1 already */
-				}
-			}
-		} else if (training_step == DP_TRAINING_2) {
-			/* link train_2 failed */
-			if (!msm_dp_aux_is_link_connected(ctrl->aux))
-				break;
-
-			drm_dp_dpcd_read_link_status(ctrl->aux, link_status);
-
-			if (!drm_dp_clock_recovery_ok(link_status,
-					ctrl->link->link_params.num_lanes))
-				rc = msm_dp_ctrl_link_rate_down_shift(ctrl);
-			else
-				rc = msm_dp_ctrl_link_lane_down_shift(ctrl, panel);
-
-			if (rc < 0) {
-				/* end with failure */
-				break; /* lane == 1 already */
-			}
-
-			/* stop link training before start re training  */
-			msm_dp_ctrl_clear_training_pattern(ctrl, panel, DP_PHY_DPRX);
 		}
+
+		if (!msm_dp_aux_is_link_connected(ctrl->aux))
+			break;
+
+		if (drm_dp_dpcd_read_link_status(ctrl->aux, link_status) < 0)
+			break;
+
+		msm_dp_ctrl_clear_training_pattern(ctrl, panel, DP_PHY_DPRX);
+		rc = msm_dp_ctrl_next_link_params(ctrl, panel, training_step,
+						  link_status, check_bw);
+		if (rc)
+			break;
 
 		rc = msm_dp_ctrl_reinitialize_mainlink(ctrl, panel);
 		if (rc) {
@@ -2515,6 +2534,10 @@ int msm_dp_ctrl_on_link(struct msm_dp_ctrl *msm_dp_ctrl,
 			break;
 		}
 	}
+
+	/* Reinitializing the PHY is not a successful training attempt. */
+	if (!trained && !rc)
+		rc = -EIO;
 
 	if (ctrl->link->sink_request & DP_TEST_LINK_PHY_TEST_PATTERN)
 		return rc;
@@ -2665,6 +2688,10 @@ int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *
 		return -EINVAL;
 
 	ctrl = container_of(msm_dp_ctrl, struct msm_dp_ctrl_private, msm_dp_ctrl);
+
+	/* Never change the stream depth selected by atomic check. */
+	if (!panel->video_test && !msm_dp_ctrl_link_fits(ctrl, panel))
+		return -ENOSPC;
 
 	pixel_rate = panel->msm_dp_mode.drm_mode.clock;
 

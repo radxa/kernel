@@ -4,6 +4,7 @@
  */
 
 #include <linux/string_choices.h>
+#include <linux/slab.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_bridge.h>
@@ -116,10 +117,71 @@ static enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *drm_brid
 	return msm_dp_display_mode_valid(dp, info, mode);
 }
 
+static struct drm_bridge_state *msm_dp_bridge_create_state(struct drm_bridge *bridge)
+{
+	struct msm_dp_bridge_state *state;
+
+	state = kzalloc_obj(*state);
+	if (!state)
+		return ERR_PTR(-ENOMEM);
+
+	__drm_atomic_helper_bridge_state_init(&state->base, bridge);
+	return &state->base;
+}
+
+static struct drm_bridge_state *msm_dp_bridge_duplicate_state(struct drm_bridge *bridge)
+{
+	struct msm_dp_bridge_state *state;
+	struct drm_bridge_state *old_state;
+
+	if (WARN_ON(!bridge->base.state))
+		return NULL;
+
+	old_state = drm_priv_to_bridge_state(bridge->base.state);
+	state = kmemdup(to_dp_bridge_state(old_state), sizeof(*state), GFP_KERNEL);
+	if (!state)
+		return NULL;
+
+	__drm_atomic_helper_bridge_duplicate_state(bridge, &state->base);
+	return &state->base;
+}
+
+static void msm_dp_bridge_destroy_state(struct drm_bridge *bridge,
+					struct drm_bridge_state *state)
+{
+	kfree(to_dp_bridge_state(state));
+}
+
+static int msm_dp_bridge_atomic_check(struct drm_bridge *bridge,
+				      struct drm_bridge_state *bridge_state,
+				      struct drm_crtc_state *crtc_state,
+				      struct drm_connector_state *conn_state)
+{
+	struct drm_connector_state *old_conn_state;
+	int ret;
+
+	if (!conn_state->crtc)
+		return 0;
+
+	ret = msm_dp_display_atomic_check(to_dp_bridge(bridge)->msm_dp_display,
+					  to_dp_bridge_state(bridge_state),
+					  &crtc_state->adjusted_mode, conn_state);
+	if (ret)
+		return ret;
+
+	old_conn_state = drm_atomic_get_old_connector_state(conn_state->state,
+							    conn_state->connector);
+	if (old_conn_state->max_requested_bpc != conn_state->max_requested_bpc)
+		crtc_state->mode_changed = true;
+
+	return 0;
+}
+
 static const struct drm_bridge_funcs msm_dp_bridge_ops = {
-	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
-	.atomic_destroy_state   = drm_atomic_helper_bridge_destroy_state,
-	.atomic_create_state           = drm_atomic_helper_bridge_create_state,
+	.atomic_check           = msm_dp_bridge_atomic_check,
+	.atomic_duplicate_state = msm_dp_bridge_duplicate_state,
+	.atomic_destroy_state   = msm_dp_bridge_destroy_state,
+	.atomic_create_state           = msm_dp_bridge_create_state,
 	.atomic_pre_enable      = msm_dp_bridge_atomic_pre_enable,
 	.atomic_enable          = msm_dp_bridge_atomic_enable,
 	.atomic_disable         = msm_dp_bridge_atomic_disable,
@@ -154,7 +216,7 @@ static int msm_edp_bridge_atomic_check(struct drm_bridge *drm_bridge,
 	if (crtc_state->self_refresh_active && !dp->psr_supported)
 		return -EINVAL;
 
-	return 0;
+	return msm_dp_bridge_atomic_check(drm_bridge, bridge_state, crtc_state, conn_state);
 }
 
 static void msm_edp_bridge_atomic_enable(struct drm_bridge *drm_bridge,
@@ -283,9 +345,8 @@ static enum drm_mode_status msm_edp_bridge_mode_valid(struct drm_bridge *bridge,
 		return MODE_CLOCK_HIGH;
 
 	/*
-	 * The eDP controller currently does not have a reliable way of
-	 * enabling panel power to read sink capabilities. So, we rely
-	 * on the panel driver to populate only supported modes for now.
+	 * Atomic check validates bandwidth for the selected component depth
+	 * against the capabilities cached during connector detection.
 	 */
 	return MODE_OK;
 }
@@ -304,9 +365,9 @@ static const struct drm_bridge_funcs msm_edp_bridge_ops = {
 	.atomic_disable = msm_edp_bridge_atomic_disable,
 	.atomic_post_disable = msm_edp_bridge_atomic_post_disable,
 	.mode_valid = msm_edp_bridge_mode_valid,
-	.atomic_create_state = drm_atomic_helper_bridge_create_state,
-	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
-	.atomic_destroy_state = drm_atomic_helper_bridge_destroy_state,
+	.atomic_create_state = msm_dp_bridge_create_state,
+	.atomic_duplicate_state = msm_dp_bridge_duplicate_state,
+	.atomic_destroy_state = msm_dp_bridge_destroy_state,
 	.atomic_check = msm_edp_bridge_atomic_check,
 	.debugfs_init = msm_edp_bridge_debugfs_init,
 };
@@ -328,6 +389,7 @@ int msm_dp_bridge_init(struct msm_dp *msm_dp_display, struct drm_device *dev,
 
 	bridge = &msm_dp_bridge->bridge;
 	bridge->type = msm_dp_display->connector_type;
+	bridge->max_bpc = 10;
 	bridge->ycbcr_420_allowed = yuv_supported;
 
 	/*
