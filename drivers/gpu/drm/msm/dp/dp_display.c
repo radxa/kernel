@@ -52,6 +52,8 @@ struct msm_dp_display_private {
 	bool core_initialized;
 	bool phy_initialized;
 	bool audio_supported;
+	bool stream_pm_active;
+	bool stream_link_attempted;
 
 	/* Serializes HPD, stream and PSR operations while runtime active. */
 	struct mutex plugged_lock;
@@ -329,22 +331,26 @@ end:
  *
  * Prepare DP PHY for the AUX transactions to succeed.
  *
- * Returns: true if this call has initliazed the PHY and false if the PHY has
- * already been setup beforehand.
+ * Returns: 1 if this call initialized the PHY, 0 if it was already
+ * initialized, or a negative error code on failure.
  */
-static bool msm_dp_display_host_phy_init(struct msm_dp_display_private *dp)
+static int msm_dp_display_host_phy_init(struct msm_dp_display_private *dp)
 {
+	int ret;
+
 	drm_dbg_dp(dp->drm_dev, "type=%d core_init=%d phy_init=%d\n",
 		dp->msm_dp_display.connector_type, dp->core_initialized,
 		dp->phy_initialized);
 
 	if (!dp->phy_initialized) {
-		msm_dp_ctrl_phy_init(dp->ctrl);
+		ret = msm_dp_ctrl_phy_init(dp->ctrl);
+		if (ret)
+			return ret;
 		dp->phy_initialized = true;
-		return true;
+		return 1;
 	}
 
-	return false;
+	return 0;
 }
 
 static void msm_dp_display_host_phy_exit(struct msm_dp_display_private *dp)
@@ -426,7 +432,13 @@ static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
 
 	msm_dp_aux_enable_xfers(dp->aux, true);
 
-	msm_dp_display_host_phy_init(dp);
+	ret = msm_dp_display_host_phy_init(dp);
+	if (ret < 0) {
+		msm_dp_aux_enable_xfers(dp->aux, false);
+		mutex_unlock(&dp->plugged_lock);
+		pm_runtime_put_sync(&pdev->dev);
+		return ret;
+	}
 
 	ret = msm_dp_display_process_hpd_high(dp);
 
@@ -637,14 +649,19 @@ static int msm_dp_display_prepare(struct msm_dp_display_private *dp)
 	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
 	int rc;
 
-	if (msm_dp_display->is_edp)
-		msm_dp_hpd_plug_handle(dp);
+	if (msm_dp_display->is_edp) {
+		rc = msm_dp_hpd_plug_handle(dp);
+		if (rc)
+			return rc;
+	}
 
 	rc = pm_runtime_resume_and_get(&msm_dp_display->pdev->dev);
 	if (rc) {
 		DRM_ERROR("failed to pm_runtime_resume\n");
 		return rc;
 	}
+
+	dp->stream_pm_active = true;
 
 	return 0;
 }
@@ -663,10 +680,13 @@ static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp)
 		return -ENOTCONN;
 
 	if (!msm_dp_display->power_on) {
-		msm_dp_display_host_phy_init(dp);
+		rc = msm_dp_display_host_phy_init(dp);
+		if (rc < 0)
+			return rc;
 		force_link_train = true;
 	}
 
+	dp->stream_link_attempted = true;
 	rc = msm_dp_ctrl_on_link(dp->ctrl, dp->panel);
 	if (rc) {
 		DRM_ERROR("Failed link training (rc=%d)\n", rc);
@@ -942,7 +962,12 @@ enum drm_connector_status msm_dp_bridge_detect(struct drm_bridge *bridge,
 	mutex_lock(&priv->plugged_lock);
 	put = false;
 
-	phy_deinit = msm_dp_display_host_phy_init(priv);
+	ret = msm_dp_display_host_phy_init(priv);
+	if (ret < 0) {
+		put = true;
+		goto unlock;
+	}
+	phy_deinit = ret;
 
 	msm_dp_aux_enable_xfers(priv->aux, true);
 
@@ -993,6 +1018,7 @@ end:
 
 		put = true;
 	}
+unlock:
 	mutex_unlock(&priv->plugged_lock);
 
 	if (put)
@@ -1365,6 +1391,7 @@ static int msm_dp_pm_runtime_suspend(struct device *dev)
 static int msm_dp_pm_runtime_resume(struct device *dev)
 {
 	struct msm_dp_display_private *dp = dev_get_dp_display_private(dev);
+	int ret;
 
 	/*
 	 * for eDP, host cotroller, HPD block and PHY are enabled here
@@ -1377,7 +1404,12 @@ static int msm_dp_pm_runtime_resume(struct device *dev)
 	msm_dp_display_host_init(dp);
 	if (dp->msm_dp_display.is_edp) {
 		msm_dp_aux_hpd_enable(dp->aux);
-		msm_dp_display_host_phy_init(dp);
+		ret = msm_dp_display_host_phy_init(dp);
+		if (ret < 0) {
+			msm_dp_aux_hpd_disable(dp->aux);
+			msm_dp_display_host_deinit(dp);
+			return ret;
+		}
 	}
 
 	enable_irq(dp->irq);
@@ -1502,6 +1534,74 @@ void msm_dp_display_atomic_pre_enable(struct msm_dp *msm_dp_display,
 	msm_dp_display_set_mode(msm_dp_display, &crtc_state->adjusted_mode, dp->panel);
 }
 
+static void msm_dp_display_abort_enable_locked(struct msm_dp_display_private *dp)
+{
+	bool keep_aux;
+	int ret;
+
+	lockdep_assert_held(&dp->plugged_lock);
+
+	keep_aux = !dp->msm_dp_display.is_edp && dp->plugged &&
+		msm_dp_aux_is_link_connected(dp->aux);
+
+	if (dp->stream_link_attempted) {
+		/* The AUX peer is the remaining dongle, not its absent sink. */
+		if (keep_aux && !dp->link->sink_count && dp->phy_initialized)
+			msm_dp_link_psm_config(dp->link, &dp->panel->link_info, true);
+
+		if (dp->msm_dp_display.power_on)
+			msm_dp_panel_disable_vsc_sdp(dp->panel);
+
+		msm_dp_ctrl_off_pixel_clk(dp->ctrl, dp->panel->stream_id);
+		msm_dp_ctrl_off_link(dp->ctrl, dp->panel);
+		dp->stream_link_attempted = false;
+
+		/* Mainlink power-off can also power down the AUX circuitry. */
+		msm_dp_display_host_phy_exit(dp);
+		if (keep_aux) {
+			ret = msm_dp_display_host_phy_init(dp);
+			if (ret < 0) {
+				DRM_ERROR("Failed to restore AUX PHY: %d\n", ret);
+				msm_dp_aux_enable_xfers(dp->aux, false);
+			}
+		}
+	} else if (!keep_aux) {
+		msm_dp_display_host_phy_exit(dp);
+	}
+	dp->msm_dp_display.power_on = false;
+}
+
+static void msm_dp_display_unprepare(struct msm_dp_display_private *dp)
+{
+	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
+
+	scoped_guard(mutex, &dp->plugged_lock) {
+		if (dp->stream_link_attempted) {
+			/* dongle is still connected but sinks are disconnected */
+			if (dp->link->sink_count == 0)
+				msm_dp_link_psm_config(dp->link, &dp->panel->link_info, true);
+
+			msm_dp_ctrl_off_link(dp->ctrl, dp->panel);
+			dp->stream_link_attempted = false;
+
+			if (dp->link->sink_count == 0)
+				/* re-init PHY to listen for Dongle disconnect */
+				msm_dp_ctrl_reinit_phy(dp->ctrl);
+			else
+				msm_dp_display_host_phy_exit(dp);
+
+			msm_dp_display->power_on = false;
+		}
+	}
+
+	if (dp->stream_pm_active) {
+		pm_runtime_put_sync(&msm_dp_display->pdev->dev);
+		dp->stream_pm_active = false;
+	}
+
+	drm_dbg_dp(dp->drm_dev, "type=%d Done\n", msm_dp_display->connector_type);
+}
+
 void msm_dp_display_atomic_enable(struct msm_dp *msm_dp_display,
 				  struct drm_atomic_commit *state)
 {
@@ -1512,27 +1612,40 @@ void msm_dp_display_atomic_enable(struct msm_dp *msm_dp_display,
 
 	rc = msm_dp_display_prepare(dp);
 	if (rc)
-		return;
+		goto err_prepare;
 
-	guard(mutex)(&dp->plugged_lock);
+	mutex_lock(&dp->plugged_lock);
 
 	rc = msm_dp_display_prepare_link_locked(dp);
 	if (rc) {
 		DRM_ERROR("DP display prepare failed, rc=%d\n", rc);
-		return;
+		goto err;
 	}
 
 	rc = msm_dp_display_enable(dp, dp->panel);
-	if (rc)
+	if (rc) {
 		DRM_ERROR("DP display enable failed, rc=%d\n", rc);
+		goto err;
+	}
 
 	rc = msm_dp_display_post_enable(msm_dp_display);
 	if (rc) {
 		DRM_ERROR("DP display post enable failed, rc=%d\n", rc);
-		msm_dp_display_disable(dp, dp->panel);
+		goto err;
 	}
 
+	mutex_unlock(&dp->plugged_lock);
+
 	drm_dbg_dp(msm_dp_display->drm_dev, "type=%d Done\n", msm_dp_display->connector_type);
+	return;
+
+err:
+	msm_dp_display_abort_enable_locked(dp);
+	mutex_unlock(&dp->plugged_lock);
+err_prepare:
+	if (msm_dp_display->is_edp)
+		msm_dp_hpd_unplug_handle(dp);
+	msm_dp_display_unprepare(dp);
 }
 
 void msm_dp_display_atomic_disable(struct msm_dp *dp)
@@ -1558,29 +1671,6 @@ void msm_dp_display_atomic_disable(struct msm_dp *dp)
 		return;
 
 	msm_dp_ctrl_push_idle(msm_dp_display->ctrl);
-}
-
-static void msm_dp_display_unprepare(struct msm_dp_display_private *dp)
-{
-	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
-
-	/* dongle is still connected but sinks are disconnected */
-	if (dp->link->sink_count == 0)
-		msm_dp_link_psm_config(dp->link, &dp->panel->link_info, true);
-
-	msm_dp_ctrl_off_link(dp->ctrl, dp->panel);
-
-	if (dp->link->sink_count == 0)
-		/* re-init the PHY so that we can listen to Dongle disconnect */
-		msm_dp_ctrl_reinit_phy(dp->ctrl);
-	else
-		msm_dp_display_host_phy_exit(dp);
-
-	msm_dp_display->power_on = false;
-
-	pm_runtime_put_sync(&msm_dp_display->pdev->dev);
-
-	drm_dbg_dp(dp->drm_dev, "type=%d Done\n", msm_dp_display->connector_type);
 }
 
 void msm_dp_display_atomic_post_disable(struct msm_dp *dp)
