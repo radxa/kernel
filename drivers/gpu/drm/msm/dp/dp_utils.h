@@ -9,6 +9,7 @@
 #include <linux/bitfield.h>
 #include <linux/bits.h>
 #include <drm/display/drm_dp_helper.h>
+#include <drm/drm_connector.h>
 
 struct drm_crtc_state;
 
@@ -41,6 +42,9 @@ bool msm_dp_utils_link_fits(unsigned int clock, unsigned int bpp,
 int msm_dp_utils_select_bpp(unsigned int bpc, unsigned int max_bpc,
 			    unsigned int clock, unsigned int rate,
 			    unsigned int lanes, bool yuv420);
+
+int msm_dp_utils_pack_vsc_sdp(struct dp_sdp *sdp, enum drm_colorspace colorspace,
+			      unsigned int bpc, bool yuv420);
 
 bool msm_dp_utils_psr_needs_modeset(const struct drm_crtc_state *state);
 

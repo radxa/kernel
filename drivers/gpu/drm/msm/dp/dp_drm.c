@@ -204,6 +204,7 @@ static int msm_edp_bridge_atomic_check(struct drm_bridge *drm_bridge,
 				   struct drm_connector_state *conn_state)
 {
 	struct msm_dp *dp = to_dp_bridge(drm_bridge)->msm_dp_display;
+	struct msm_dp_bridge_state *state = to_dp_bridge_state(bridge_state);
 	int ret;
 
 	if (WARN_ON(!conn_state))
@@ -218,9 +219,7 @@ static int msm_edp_bridge_atomic_check(struct drm_bridge *drm_bridge,
 		return ret;
 
 	/* Match the PSR configuration applied when enabling this stream. */
-	conn_state->self_refresh_aware = dp->psr_supported &&
-		!drm_mode_is_420_only(&conn_state->connector->display_info,
-				    &crtc_state->adjusted_mode);
+	conn_state->self_refresh_aware = dp->psr_supported && !state->vsc_enabled;
 	if (crtc_state->self_refresh_active && !conn_state->self_refresh_aware)
 		return -EINVAL;
 

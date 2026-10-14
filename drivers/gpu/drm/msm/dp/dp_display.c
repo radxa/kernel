@@ -56,6 +56,8 @@ struct msm_dp_display_private {
 	bool core_initialized;
 	bool phy_initialized;
 	bool audio_supported;
+	/* Pending DPU peripheral flush, set before encoder enable. */
+	bool sdp_needs_flush;
 	bool stream_pm_active;
 	bool stream_link_attempted;
 	struct work_struct link_status_work;
@@ -687,7 +689,8 @@ error:
 static int msm_dp_display_set_mode(struct msm_dp *msm_dp_display,
 				   const struct drm_display_mode *adjusted_mode,
 				   struct msm_dp_panel *msm_dp_panel,
-				   const struct msm_dp_bridge_state *state)
+				   const struct msm_dp_bridge_state *state,
+				   const struct msm_dp_bridge_state *old_state)
 {
 	struct msm_dp_display_private *dp;
 	u32 bpp;
@@ -699,8 +702,7 @@ static int msm_dp_display_set_mode(struct msm_dp *msm_dp_display,
 	else
 		bpp = state->bpp;
 
-	msm_dp_panel->sdp_needs_flush = msm_dp_panel->msm_dp_mode.out_fmt_is_yuv_420 ||
-		drm_mode_is_420_only(&msm_dp_panel->connector->display_info, adjusted_mode);
+	dp->sdp_needs_flush = old_state->vsc_enabled || state->vsc_enabled;
 	msm_dp_panel_init_panel_info(msm_dp_panel, adjusted_mode, bpp ? bpp : 24);
 
 	/* populate wide_bus_support to different layers */
@@ -734,7 +736,15 @@ int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
 		return bpp;
 
 	state->bpp = bpp;
-	return 0;
+	state->vsc_enabled = drm_mode_is_420_only(info, mode);
+	if (!state->vsc_enabled)
+		return 0;
+
+	if (dp->panel->link_caps_valid && !dp->panel->vsc_sdp_supported)
+		return -EINVAL;
+
+	return msm_dp_utils_pack_vsc_sdp(&state->vsc_sdp, DRM_MODE_COLORIMETRY_DEFAULT,
+					bpp / 3, drm_mode_is_420_only(info, mode));
 }
 
 static int msm_dp_display_prepare(struct msm_dp_display_private *dp)
@@ -759,7 +769,8 @@ static int msm_dp_display_prepare(struct msm_dp_display_private *dp)
 	return 0;
 }
 
-static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp)
+static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp,
+					      const struct msm_dp_bridge_state *state)
 {
 	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
 	int rc = 0;
@@ -768,6 +779,9 @@ static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp)
 	drm_dbg_dp(dp->drm_dev, "sink_count=%d\n", dp->link->sink_count);
 
 	lockdep_assert_held(&dp->plugged_lock);
+
+	if (state->vsc_enabled && !dp->panel->vsc_sdp_supported)
+		return -EINVAL;
 
 	if (dp->link->sink_count == 0)
 		return -ENOTCONN;
@@ -790,7 +804,8 @@ static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp)
 }
 
 static int msm_dp_display_enable(struct msm_dp_display_private *dp,
-				 struct msm_dp_panel *msm_dp_panel)
+				 struct msm_dp_panel *msm_dp_panel,
+				 const struct msm_dp_bridge_state *state)
 {
 	int rc = 0;
 	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
@@ -803,14 +818,15 @@ static int msm_dp_display_enable(struct msm_dp_display_private *dp,
 		return 0;
 	}
 
-	rc = msm_dp_ctrl_on_stream(dp->ctrl, msm_dp_panel);
+	rc = msm_dp_ctrl_on_stream(dp->ctrl, msm_dp_panel, state);
 	if (!rc)
 		msm_dp_display->power_on = true;
 
 	return rc;
 }
 
-static int msm_dp_display_post_enable(struct msm_dp *msm_dp_display)
+static int msm_dp_display_post_enable(struct msm_dp *msm_dp_display,
+				      const struct msm_dp_bridge_state *state)
 {
 	struct msm_dp_display_private *dp;
 	u32 rate;
@@ -830,8 +846,7 @@ static int msm_dp_display_post_enable(struct msm_dp *msm_dp_display)
 	msm_dp_display_handle_plugged_change(msm_dp_display, true);
 
 	if (msm_dp_display->psr_supported)
-		msm_dp_ctrl_config_psr(dp->ctrl, dp->panel,
-				       !dp->panel->msm_dp_mode.out_fmt_is_yuv_420);
+		msm_dp_ctrl_config_psr(dp->ctrl, dp->panel, !state->vsc_enabled);
 
 	return 0;
 }
@@ -1604,7 +1619,7 @@ bool msm_dp_needs_periph_flush(const struct msm_dp *msm_dp_display,
 	struct msm_dp_display_private *dp = container_of(msm_dp_display,
 					struct msm_dp_display_private, msm_dp_display);
 
-	return dp->panel->sdp_needs_flush;
+	return dp->sdp_needs_flush;
 }
 
 bool msm_dp_wide_bus_available(const struct msm_dp *msm_dp_display)
@@ -1670,7 +1685,7 @@ void msm_dp_display_atomic_pre_enable(struct msm_dp *msm_dp_display,
 	struct msm_dp_display_private *dp;
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *crtc_state;
-	struct drm_bridge_state *bridge_state;
+	struct drm_bridge_state *bridge_state, *old_bridge_state;
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 
@@ -1679,6 +1694,7 @@ void msm_dp_display_atomic_pre_enable(struct msm_dp *msm_dp_display,
 		return;
 	crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
 	bridge_state = drm_atomic_get_new_bridge_state(state, msm_dp_display->bridge);
+	old_bridge_state = drm_atomic_get_old_bridge_state(state, msm_dp_display->bridge);
 
 	/*
 	 * The DPU encoder's .atomic_enable() reads the mode's YUV420 / wide bus
@@ -1686,7 +1702,8 @@ void msm_dp_display_atomic_pre_enable(struct msm_dp *msm_dp_display,
 	 * be programmed here, in .atomic_pre_enable().
 	 */
 	msm_dp_display_set_mode(msm_dp_display, &crtc_state->adjusted_mode, dp->panel,
-				to_dp_bridge_state(bridge_state));
+				to_dp_bridge_state(bridge_state),
+				to_dp_bridge_state(old_bridge_state));
 }
 
 static void msm_dp_display_abort_enable_locked(struct msm_dp_display_private *dp)
@@ -1760,10 +1777,15 @@ static void msm_dp_display_unprepare(struct msm_dp_display_private *dp)
 void msm_dp_display_atomic_enable(struct msm_dp *msm_dp_display,
 				  struct drm_atomic_commit *state)
 {
+	struct drm_bridge_state *bridge_state;
+	const struct msm_dp_bridge_state *dp_state;
 	int rc = 0;
 	struct msm_dp_display_private *dp;
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
+
+	bridge_state = drm_atomic_get_new_bridge_state(state, msm_dp_display->bridge);
+	dp_state = to_dp_bridge_state(bridge_state);
 
 	rc = msm_dp_display_prepare(dp);
 	if (rc)
@@ -1771,19 +1793,19 @@ void msm_dp_display_atomic_enable(struct msm_dp *msm_dp_display,
 
 	mutex_lock(&dp->plugged_lock);
 
-	rc = msm_dp_display_prepare_link_locked(dp);
+	rc = msm_dp_display_prepare_link_locked(dp, dp_state);
 	if (rc) {
 		DRM_ERROR("DP display prepare failed, rc=%d\n", rc);
 		goto err;
 	}
 
-	rc = msm_dp_display_enable(dp, dp->panel);
+	rc = msm_dp_display_enable(dp, dp->panel, dp_state);
 	if (rc) {
 		DRM_ERROR("DP display enable failed, rc=%d\n", rc);
 		goto err;
 	}
 
-	rc = msm_dp_display_post_enable(msm_dp_display);
+	rc = msm_dp_display_post_enable(msm_dp_display, dp_state);
 	if (rc) {
 		DRM_ERROR("DP display post enable failed, rc=%d\n", rc);
 		goto err;

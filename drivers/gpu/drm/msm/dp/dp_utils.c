@@ -122,6 +122,32 @@ int msm_dp_utils_select_bpp(unsigned int bpc, unsigned int max_bpc,
 	return -EINVAL;
 }
 
+int msm_dp_utils_pack_vsc_sdp(struct dp_sdp *sdp, enum drm_colorspace colorspace,
+			      unsigned int bpc, bool yuv420)
+{
+	struct drm_dp_vsc_sdp vsc = {
+		.sdp_type = DP_SDP_VSC,
+		.revision = 0x05,
+		.length = 0x13,
+		.pixelformat = yuv420 ? DP_PIXELFORMAT_YUV420 : DP_PIXELFORMAT_RGB,
+		.bpc = bpc,
+		.dynamic_range = yuv420 ? DP_DYNAMIC_RANGE_CTA : DP_DYNAMIC_RANGE_VESA,
+		.content_type = DP_CONTENT_TYPE_GRAPHICS,
+	};
+	ssize_t ret;
+
+	switch (colorspace) {
+	case DRM_MODE_COLORIMETRY_DEFAULT:
+		vsc.colorimetry = DP_COLORIMETRY_DEFAULT;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	ret = drm_dp_vsc_sdp_pack(&vsc, sdp);
+	return ret < 0 ? ret : 0;
+}
+
 bool msm_dp_utils_psr_needs_modeset(const struct drm_crtc_state *state)
 {
 	/* active_changed alone also describes a normal self-refresh exit. */

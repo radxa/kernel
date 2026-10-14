@@ -610,7 +610,7 @@ static void msm_dp_panel_update_sdp(struct msm_dp_panel_private *panel)
 	}
 }
 
-void msm_dp_panel_enable_vsc_sdp(struct msm_dp_panel *msm_dp_panel, struct dp_sdp *vsc_sdp)
+void msm_dp_panel_enable_vsc_sdp(struct msm_dp_panel *msm_dp_panel, const struct dp_sdp *vsc_sdp)
 {
 	struct msm_dp_panel_private *panel =
 		container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
@@ -664,49 +664,6 @@ void msm_dp_panel_disable_vsc_sdp(struct msm_dp_panel *msm_dp_panel)
 	msm_dp_write_link(panel, REG_DP_MISC1_MISC0, misc);
 
 	msm_dp_panel_update_sdp(panel);
-}
-
-static int msm_dp_panel_setup_vsc_sdp_yuv_420(struct msm_dp_panel *msm_dp_panel)
-{
-	struct msm_dp_display_mode *msm_dp_mode;
-	struct drm_dp_vsc_sdp vsc_sdp_data;
-	struct dp_sdp vsc_sdp;
-	ssize_t len;
-
-	if (!msm_dp_panel) {
-		DRM_ERROR("invalid input\n");
-		return -EINVAL;
-	}
-
-	msm_dp_mode = &msm_dp_panel->msm_dp_mode;
-
-	memset(&vsc_sdp_data, 0, sizeof(vsc_sdp_data));
-
-	/* VSC SDP header as per table 2-118 of DP 1.4 specification */
-	vsc_sdp_data.sdp_type = DP_SDP_VSC;
-	vsc_sdp_data.revision = 0x05;
-	vsc_sdp_data.length = 0x13;
-
-	/* VSC SDP Payload for DB16 */
-	vsc_sdp_data.pixelformat = DP_PIXELFORMAT_YUV420;
-	vsc_sdp_data.colorimetry = DP_COLORIMETRY_DEFAULT;
-
-	/* VSC SDP Payload for DB17 */
-	vsc_sdp_data.bpc = msm_dp_mode->bpp / 3;
-	vsc_sdp_data.dynamic_range = DP_DYNAMIC_RANGE_CTA;
-
-	/* VSC SDP Payload for DB18 */
-	vsc_sdp_data.content_type = DP_CONTENT_TYPE_GRAPHICS;
-
-	len = drm_dp_vsc_sdp_pack(&vsc_sdp_data, &vsc_sdp);
-	if (len < 0) {
-		DRM_ERROR("unable to pack vsc sdp\n");
-		return len;
-	}
-
-	msm_dp_panel_enable_vsc_sdp(msm_dp_panel, &vsc_sdp);
-
-	return 0;
 }
 
 int msm_dp_panel_timing_cfg(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en)
@@ -778,11 +735,6 @@ int msm_dp_panel_timing_cfg(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en)
 
 	msm_dp_write_pn(panel, MMSS_DP_INTF_CONFIG, reg);
 
-	if (msm_dp_panel->msm_dp_mode.out_fmt_is_yuv_420)
-		msm_dp_panel_setup_vsc_sdp_yuv_420(msm_dp_panel);
-	else
-		msm_dp_panel_disable_vsc_sdp(msm_dp_panel);
-
 	panel->panel_on = true;
 
 	return 0;
@@ -804,8 +756,7 @@ int msm_dp_panel_init_panel_info(struct msm_dp_panel *msm_dp_panel,
 	msm_dp_panel->msm_dp_mode.h_active_low =
 		!!(adjusted_mode->flags & DRM_MODE_FLAG_NHSYNC);
 	msm_dp_panel->msm_dp_mode.out_fmt_is_yuv_420 =
-		drm_mode_is_420_only(&msm_dp_panel->connector->display_info, adjusted_mode) &&
-		msm_dp_panel->vsc_sdp_supported;
+		drm_mode_is_420_only(&msm_dp_panel->connector->display_info, adjusted_mode);
 
 	drm_mode = &msm_dp_panel->msm_dp_mode.drm_mode;
 

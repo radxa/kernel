@@ -23,6 +23,7 @@
 
 #include "dp_reg.h"
 #include "dp_ctrl.h"
+#include "dp_drm.h"
 #include "dp_utils.h"
 #include "dp_link.h"
 
@@ -436,7 +437,8 @@ void msm_dp_ctrl_push_idle(struct msm_dp_ctrl *msm_dp_ctrl)
 }
 
 static void msm_dp_ctrl_config_ctrl_streams(struct msm_dp_ctrl_private *ctrl,
-					    struct msm_dp_panel *msm_dp_panel)
+					    struct msm_dp_panel *msm_dp_panel,
+					    bool psr)
 {
 	u32 config = 0, tbd;
 
@@ -458,7 +460,7 @@ static void msm_dp_ctrl_config_ctrl_streams(struct msm_dp_ctrl_private *ctrl,
 
 	config |= tbd << DP_CONFIGURATION_CTRL_BPC_SHIFT;
 
-	if (msm_dp_panel->psr_cap.version && !msm_dp_panel->msm_dp_mode.out_fmt_is_yuv_420)
+	if (msm_dp_panel->psr_cap.version && psr)
 		config |= DP_CONFIGURATION_CTRL_SEND_VSC;
 
 	drm_dbg_dp(ctrl->drm_dev, "stream DP_CONFIGURATION_CTRL=0x%x\n", config);
@@ -535,13 +537,20 @@ static void msm_dp_ctrl_config_misc1_misc0(struct msm_dp_ctrl_private *ctrl,
 }
 
 static void msm_dp_ctrl_configure_source_params(struct msm_dp_ctrl_private *ctrl,
-						struct msm_dp_panel *panel)
+						struct msm_dp_panel *panel,
+						const struct msm_dp_bridge_state *state,
+						const struct dp_sdp *vsc_sdp)
 {
-	msm_dp_ctrl_config_ctrl_streams(ctrl, panel);
+	msm_dp_ctrl_config_ctrl_streams(ctrl, panel, !state->vsc_enabled);
 
 	msm_dp_ctrl_config_misc1_misc0(ctrl, panel);
 
 	msm_dp_panel_timing_cfg(panel, ctrl->msm_dp_ctrl.wide_bus_en);
+
+	if (state->vsc_enabled)
+		msm_dp_panel_enable_vsc_sdp(panel, vsc_sdp);
+	else
+		msm_dp_panel_disable_vsc_sdp(panel);
 }
 
 /*
@@ -1711,7 +1720,7 @@ static int msm_dp_ctrl_link_train(struct msm_dp_ctrl_private *ctrl,
 	struct msm_dp_link_info link_info = {0};
 
 	msm_dp_ctrl_config_ctrl_link(ctrl, panel);
-	msm_dp_ctrl_config_ctrl_streams(ctrl, panel);
+	msm_dp_ctrl_config_ctrl_streams(ctrl, panel, false);
 
 	link_info.num_lanes = ctrl->link->link_params.num_lanes;
 	link_info.rate = ctrl->link->link_params.rate;
@@ -2683,9 +2692,12 @@ int msm_dp_ctrl_prepare_stream_on(struct msm_dp_ctrl *msm_dp_ctrl,
 	return ret;
 }
 
-int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *panel)
+int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *panel,
+			  const struct msm_dp_bridge_state *state)
 {
 	int ret = 0;
+	struct dp_sdp test_vsc_sdp;
+	const struct dp_sdp *vsc_sdp = &state->vsc_sdp;
 	bool mainlink_ready = false;
 	struct msm_dp_ctrl_private *ctrl;
 	unsigned long pixel_rate;
@@ -2698,6 +2710,22 @@ int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *
 	/* Never change the stream depth selected by atomic check. */
 	if (!panel->video_test && !msm_dp_ctrl_link_fits(ctrl, panel))
 		return -ENOSPC;
+
+	if (state->vsc_enabled) {
+		if (!panel->vsc_sdp_supported)
+			return -EINVAL;
+
+		/* Compliance tests may override the checked stream depth. */
+		if (panel->video_test) {
+			ret = msm_dp_utils_pack_vsc_sdp(&test_vsc_sdp,
+							DRM_MODE_COLORIMETRY_DEFAULT,
+							panel->msm_dp_mode.bpp / 3,
+							panel->msm_dp_mode.out_fmt_is_yuv_420);
+			if (ret)
+				return ret;
+			vsc_sdp = &test_vsc_sdp;
+		}
+	}
 
 	pixel_rate = panel->msm_dp_mode.drm_mode.clock;
 
@@ -2719,7 +2747,7 @@ int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *
 	msm_dp_ctrl_lane_mapping(ctrl);
 	msm_dp_setup_peripheral_flush(ctrl);
 
-	msm_dp_ctrl_configure_source_params(ctrl, panel);
+	msm_dp_ctrl_configure_source_params(ctrl, panel, state, vsc_sdp);
 
 	msm_dp_ctrl_config_msa(ctrl, panel,
 		ctrl->link->link_params.rate);

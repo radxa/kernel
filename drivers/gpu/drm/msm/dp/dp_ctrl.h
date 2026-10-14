@@ -10,6 +10,8 @@
 #include "dp_panel.h"
 #include "dp_link.h"
 
+struct msm_dp_bridge_state;
+
 struct msm_dp_ctrl {
 	bool wide_bus_en;
 };
@@ -18,7 +20,8 @@ struct phy;
 
 int msm_dp_ctrl_on_link(struct msm_dp_ctrl *msm_dp_ctrl,
 			struct msm_dp_panel *panel);
-int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *panel);
+int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *panel,
+			  const struct msm_dp_bridge_state *state);
 int msm_dp_ctrl_prepare_stream_on(struct msm_dp_ctrl *msm_dp_ctrl,
 				  struct msm_dp_panel *panel,
 				  bool force_link_train);
