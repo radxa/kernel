@@ -23,6 +23,8 @@ struct msm_dp_bridge_state {
 	enum drm_colorspace colorspace;
 	bool vsc_enabled;
 	struct dp_sdp vsc_sdp;
+	bool hdr_enabled;
+	struct dp_sdp hdr_sdp;
 };
 
 #define to_dp_bridge_state(x) container_of((x), struct msm_dp_bridge_state, base)

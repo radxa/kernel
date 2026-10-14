@@ -58,6 +58,8 @@ struct msm_dp_display_private {
 	bool audio_supported;
 	/* Pending DPU peripheral flush, set before encoder enable. */
 	bool sdp_needs_flush;
+	/* Block asynchronous video tests while an HDR stream is pending or active. */
+	bool video_test_blocked;
 	bool stream_pm_active;
 	bool stream_link_attempted;
 	struct work_struct link_status_work;
@@ -446,6 +448,9 @@ static int msm_dp_display_set_video_test_locked(struct msm_dp_display_private *d
 {
 	lockdep_assert_held(&dp->plugged_lock);
 
+	if (enable && dp->video_test_blocked)
+		return -EBUSY;
+
 	dp->panel->video_test = enable;
 	return 0;
 }
@@ -709,12 +714,19 @@ static int msm_dp_display_set_mode(struct msm_dp *msm_dp_display,
 
 	guard(mutex)(&dp->plugged_lock);
 
+	dp->video_test_blocked = state->hdr_enabled;
+
+	/* A checked HDR modeset supersedes any intervening video test request. */
+	if (state->hdr_enabled)
+		dp->panel->video_test = false;
+
 	if (dp->panel->video_test)
 		bpp = msm_dp_link_bit_depth_to_bpp(dp->link->test_video.test_bit_depth);
 	else
 		bpp = state->bpp;
 
-	dp->sdp_needs_flush = old_state->vsc_enabled || state->vsc_enabled;
+	dp->sdp_needs_flush = old_state->vsc_enabled || state->vsc_enabled ||
+		old_state->hdr_enabled || state->hdr_enabled;
 	msm_dp_panel_init_panel_info(msm_dp_panel, adjusted_mode, bpp ? bpp : 24);
 
 	/* populate wide_bus_support to different layers */
@@ -731,7 +743,7 @@ int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
 	const struct drm_display_info *info = &conn_state->connector->display_info;
 	struct msm_dp_display_private *dp;
 	unsigned int clock = mode->clock;
-	int bpp;
+	int bpp, ret;
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 
@@ -740,17 +752,28 @@ int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
 	if (!dp->panel->link_caps_valid)
 		return -EINVAL;
 
+	ret = msm_dp_utils_pack_hdr_sdp(conn_state, &state->hdr_sdp);
+	if (ret)
+		return ret;
+
+	state->hdr_enabled = !!conn_state->hdr_output_metadata;
+	if (state->hdr_enabled && dp->panel->hw_revision < DP_HW_VERSION_1_0)
+		return -EINVAL;
+
 	bpp = msm_dp_utils_select_bpp(info->bpc, conn_state->max_requested_bpc ?: 8,
 				      clock, dp->panel->link_info.rate,
 				      dp->panel->link_info.num_lanes,
-				      drm_mode_is_420_only(info, mode));
+				      drm_mode_is_420_only(info, mode),
+				      state->hdr_enabled && state->hdr_sdp.db[2] !=
+				      HDMI_EOTF_TRADITIONAL_GAMMA_SDR);
 	if (bpp < 0)
 		return bpp;
 
 	state->bpp = bpp;
 	state->colorspace = conn_state->colorspace;
 	state->vsc_enabled = drm_mode_is_420_only(info, mode) ||
-			     state->colorspace != DRM_MODE_COLORIMETRY_DEFAULT;
+			     state->colorspace != DRM_MODE_COLORIMETRY_DEFAULT ||
+			     state->hdr_enabled;
 	if (!state->vsc_enabled)
 		return 0;
 
@@ -888,10 +911,13 @@ static int msm_dp_display_disable(struct msm_dp_display_private *dp,
 
 	lockdep_assert_held(&dp->plugged_lock);
 
+	dp->video_test_blocked = false;
+
 	if (!msm_dp_display->power_on)
 		return 0;
 
 	msm_dp_panel_disable_vsc_sdp(msm_dp_panel);
+	msm_dp_panel_disable_hdr_sdp(msm_dp_panel);
 
 	msm_dp_ctrl_off_pixel_clk(dp->ctrl, msm_dp_panel->stream_id);
 
@@ -1837,6 +1863,7 @@ err_prepare:
 		msm_dp_hpd_unplug_handle(dp);
 	msm_dp_display_unprepare(dp);
 	scoped_guard(mutex, &dp->plugged_lock) {
+		dp->video_test_blocked = false;
 		dp->link_failed = true;
 		/* Keep reporting BAD, but notify only once until recovery. */
 		schedule_work(&dp->link_status_work);

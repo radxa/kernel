@@ -514,13 +514,16 @@ static void msm_dp_ctrl_lane_mapping(struct msm_dp_ctrl_private *ctrl)
 }
 
 static void msm_dp_ctrl_config_misc1_misc0(struct msm_dp_ctrl_private *ctrl,
-					   struct msm_dp_panel *msm_dp_panel)
+					   struct msm_dp_panel *msm_dp_panel,
+					   const struct msm_dp_bridge_state *state)
 {
 	u32 colorimetry_cfg, test_bits_depth, misc_val;
 
 	test_bits_depth = msm_dp_link_get_test_bits_depth(ctrl->link,
 							  msm_dp_panel->msm_dp_mode.bpp);
-	colorimetry_cfg = msm_dp_link_get_colorimetry_config(ctrl->link);
+	/* A video test request must not override the HDR quantization range. */
+	colorimetry_cfg = state->hdr_enabled ? DP_MISC0_COLORIMERY_CFG_LEGACY_RGB :
+		msm_dp_link_get_colorimetry_config(ctrl->link);
 
 	misc_val = msm_dp_read_stream_link(ctrl, msm_dp_panel->stream_id, REG_DP_MISC1_MISC0);
 
@@ -543,7 +546,7 @@ static void msm_dp_ctrl_configure_source_params(struct msm_dp_ctrl_private *ctrl
 {
 	msm_dp_ctrl_config_ctrl_streams(ctrl, panel, !state->vsc_enabled);
 
-	msm_dp_ctrl_config_misc1_misc0(ctrl, panel);
+	msm_dp_ctrl_config_misc1_misc0(ctrl, panel, state);
 
 	msm_dp_panel_timing_cfg(panel, ctrl->msm_dp_ctrl.wide_bus_en);
 
@@ -551,6 +554,11 @@ static void msm_dp_ctrl_configure_source_params(struct msm_dp_ctrl_private *ctrl
 		msm_dp_panel_enable_vsc_sdp(panel, vsc_sdp);
 	else
 		msm_dp_panel_disable_vsc_sdp(panel);
+
+	if (state->hdr_enabled)
+		msm_dp_panel_enable_hdr_sdp(panel, &state->hdr_sdp);
+	else
+		msm_dp_panel_disable_hdr_sdp(panel);
 }
 
 /*
@@ -2790,8 +2798,11 @@ void msm_dp_ctrl_off_link(struct msm_dp_ctrl *msm_dp_ctrl,
 	ctrl = container_of(msm_dp_ctrl, struct msm_dp_ctrl_private, msm_dp_ctrl);
 
 	/* Link startup may have failed before enabling the link clocks. */
-	if (ctrl->link_clks_on)
+	if (ctrl->link_clks_on) {
+		msm_dp_panel_disable_vsc_sdp(panel);
+		msm_dp_panel_disable_hdr_sdp(panel);
 		msm_dp_ctrl_mainlink_disable(ctrl);
+	}
 
 	msm_dp_ctrl_reset(&ctrl->msm_dp_ctrl, panel);
 

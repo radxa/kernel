@@ -4,6 +4,8 @@
  */
 
 #include <linux/types.h>
+#include <drm/display/drm_hdmi_helper.h>
+#include <drm/drm_property.h>
 #include <drm/drm_crtc.h>
 
 #include "dp_utils.h"
@@ -105,16 +107,19 @@ bool msm_dp_utils_link_fits(unsigned int clock, unsigned int bpp,
 
 int msm_dp_utils_select_bpp(unsigned int bpc, unsigned int max_bpc,
 			    unsigned int clock, unsigned int rate,
-			    unsigned int lanes, bool yuv420)
+			    unsigned int lanes, bool yuv420, bool hdr)
 {
 	unsigned int bpp;
 
-	bpc = min3(bpc ? bpc : 8, max_bpc, 10U);
-	bpc = round_down(bpc, 2);
-	if (bpc < 6)
+	if (hdr && bpc < 10)
 		return -EINVAL;
 
-	for (bpp = bpc * 3; bpp >= 18; bpp -= 6) {
+	bpc = min3(bpc ? bpc : 8, max_bpc, 10U);
+	bpc = round_down(bpc, 2);
+	if (bpc < (hdr ? 10 : 6))
+		return -EINVAL;
+
+	for (bpp = bpc * 3; bpp >= (hdr ? 30 : 18); bpp -= 6) {
 		if (msm_dp_utils_link_fits(clock, bpp, rate, lanes, yuv420))
 			return bpp;
 	}
@@ -153,11 +158,59 @@ int msm_dp_utils_pack_vsc_sdp(struct dp_sdp *sdp, enum drm_colorspace colorspace
 	return ret < 0 ? ret : 0;
 }
 
+int msm_dp_utils_pack_hdr_sdp(const struct drm_connector_state *conn_state,
+			      struct dp_sdp *sdp)
+{
+	const struct hdr_output_metadata *metadata;
+	const struct hdr_static_metadata *sink;
+	struct hdmi_drm_infoframe frame;
+	u8 buffer[HDMI_INFOFRAME_HEADER_SIZE + HDMI_DRM_INFOFRAME_SIZE];
+	int ret;
+
+	memset(sdp, 0, sizeof(*sdp));
+	if (!conn_state->hdr_output_metadata)
+		return 0;
+
+	if (conn_state->hdr_output_metadata->length != sizeof(*metadata))
+		return -EINVAL;
+
+	metadata = conn_state->hdr_output_metadata->data;
+	sink = &conn_state->connector->display_info.hdr_sink_metadata.hdmi_type1;
+	if (metadata->metadata_type != HDMI_STATIC_METADATA_TYPE1 ||
+	    metadata->hdmi_metadata_type1.metadata_type != HDMI_STATIC_METADATA_TYPE1 ||
+	    metadata->hdmi_metadata_type1.eotf > HDMI_EOTF_BT_2100_HLG)
+		return -EINVAL;
+
+	if (!(sink->metadata_type & BIT(HDMI_STATIC_METADATA_TYPE1)) ||
+	    !(sink->eotf & BIT(metadata->hdmi_metadata_type1.eotf)))
+		return -EINVAL;
+
+	ret = drm_hdmi_infoframe_set_hdr_metadata(&frame, conn_state);
+	if (ret)
+		return ret;
+
+	ret = hdmi_drm_infoframe_pack_only(&frame, buffer, sizeof(buffer));
+	if (ret < 0)
+		return ret;
+
+	sdp->sdp_header.HB1 = HDMI_INFOFRAME_TYPE_DRM;
+	sdp->sdp_header.HB2 = 0x1d;
+	sdp->sdp_header.HB3 = 0x13 << 2;
+	sdp->db[0] = frame.version;
+	sdp->db[1] = frame.length;
+	/* DP carries the version and length, but no HDMI checksum. */
+	memcpy(&sdp->db[2], &buffer[HDMI_INFOFRAME_HEADER_SIZE],
+	       HDMI_DRM_INFOFRAME_SIZE);
+
+	return 0;
+}
+
 bool msm_dp_utils_needs_modeset(struct drm_connector_state *old_state,
 				struct drm_connector_state *new_state)
 {
 	return old_state->max_requested_bpc != new_state->max_requested_bpc ||
-	       old_state->colorspace != new_state->colorspace;
+	       old_state->colorspace != new_state->colorspace ||
+	       !drm_connector_atomic_hdr_metadata_equal(old_state, new_state);
 }
 
 bool msm_dp_utils_psr_needs_modeset(const struct drm_crtc_state *state)

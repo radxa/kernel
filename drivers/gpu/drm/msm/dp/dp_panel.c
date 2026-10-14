@@ -666,6 +666,35 @@ void msm_dp_panel_disable_vsc_sdp(struct msm_dp_panel *msm_dp_panel)
 	msm_dp_panel_update_sdp(panel);
 }
 
+void msm_dp_panel_enable_hdr_sdp(struct msm_dp_panel *msm_dp_panel,
+				 const struct dp_sdp *hdr_sdp)
+{
+	struct msm_dp_panel_private *panel =
+		container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
+	u32 cfg, cfg2;
+
+	msm_dp_panel_send_sdp(panel, hdr_sdp, MMSS_DP_GENERIC2_0);
+
+	cfg2 = msm_dp_read_link(panel, MMSS_DP_SDP_CFG2);
+	msm_dp_write_link(panel, MMSS_DP_SDP_CFG2, cfg2 | GENERIC2_SDPSIZE_VALID);
+	cfg = msm_dp_read_link(panel, MMSS_DP_SDP_CFG);
+	msm_dp_write_link(panel, MMSS_DP_SDP_CFG, cfg | GEN2_SDP_EN);
+	msm_dp_panel_update_sdp(panel);
+}
+
+void msm_dp_panel_disable_hdr_sdp(struct msm_dp_panel *msm_dp_panel)
+{
+	struct msm_dp_panel_private *panel =
+		container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
+	u32 cfg, cfg2;
+
+	cfg = msm_dp_read_link(panel, MMSS_DP_SDP_CFG);
+	msm_dp_write_link(panel, MMSS_DP_SDP_CFG, cfg & ~GEN2_SDP_EN);
+	cfg2 = msm_dp_read_link(panel, MMSS_DP_SDP_CFG2);
+	msm_dp_write_link(panel, MMSS_DP_SDP_CFG2, cfg2 & ~GENERIC2_SDPSIZE_VALID);
+	msm_dp_panel_update_sdp(panel);
+}
+
 int msm_dp_panel_timing_cfg(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en)
 {
 	u32 data, total_ver, total_hor;

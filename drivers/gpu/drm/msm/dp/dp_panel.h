@@ -75,6 +75,9 @@ void msm_dp_panel_clear_dsc_dto(struct msm_dp_panel *msm_dp_panel);
 
 void msm_dp_panel_enable_vsc_sdp(struct msm_dp_panel *msm_dp_panel, const struct dp_sdp *vsc_sdp);
 void msm_dp_panel_disable_vsc_sdp(struct msm_dp_panel *msm_dp_panel);
+void msm_dp_panel_enable_hdr_sdp(struct msm_dp_panel *msm_dp_panel,
+				 const struct dp_sdp *hdr_sdp);
+void msm_dp_panel_disable_hdr_sdp(struct msm_dp_panel *msm_dp_panel);
 
 /**
  * is_link_rate_valid() - validates the link rate

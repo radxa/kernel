@@ -467,6 +467,7 @@ struct drm_connector *msm_dp_drm_connector_init(struct msm_dp *msm_dp_display,
 	if (ret)
 		return ERR_PTR(ret);
 	drm_connector_attach_colorspace_property(connector);
+	drm_connector_attach_hdr_output_metadata_property(connector);
 
 	if (!msm_dp_display->is_edp)
 		drm_connector_attach_dp_subconnector_property(connector);
