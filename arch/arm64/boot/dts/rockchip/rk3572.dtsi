@@ -3059,6 +3059,7 @@
 				      "clk_isp_core", "clk_isp_core_marvin",
 				      "clk_isp_core_vicap";
 			power-domains = <&power RK3572_PD_VI>;
+			operating-points-v2 = <&rkisp_opp_table>;
 			iommus = <&rkisp_mmu>;
 			status = "disabled";
 		};
@@ -3074,6 +3075,45 @@
 			#iommu-cells = <0>;
 			rockchip,disable-mmu-reset;
 			status = "disabled";
+		};
+
+		rkisp_opp_table: rkisp-opp-table {
+			compatible = "operating-points-v2";
+
+			nvmem-cells = <&logic_leakage>;
+			nvmem-cell-names = "leakage";
+
+			rockchip,temp-hysteresis = <5000>;
+			rockchip,low-temp = <15000>;
+			rockchip,low-temp-min-volt = <825000>;
+
+			rockchip,leakage-voltage-sel = <
+				1	7	0
+				8	9	1
+				10	15	2
+				16	18	3
+				19	21	4
+				22	254	5
+			>;
+
+			opp-600000000 {
+				opp-hz = /bits/ 64 <600000000>;
+				opp-microvolt = <712500 712500 825000>;
+				opp-microvolt-L0 = <750000 750000 825000>;
+				opp-microvolt-L1 = <737500 737500 825000>;
+				opp-microvolt-L2 = <725000 725000 825000>;
+				opp-microvolt-L3 = <725000 725000 825000>;
+			};
+
+			opp-702000000 {
+				opp-hz = /bits/ 64 <702000000>;
+				opp-microvolt = <800000 800000 825000>;
+				opp-microvolt-L1 = <775000 775000 825000>;
+				opp-microvolt-L2 = <762500 762500 825000>;
+				opp-microvolt-L3 = <750000 750000 825000>;
+				opp-microvolt-L4 = <737500 737500 825000>;
+				opp-microvolt-L5 = <725000 725000 825000>;
+			};
 		};
 
 		rkvpss: vpss@27430000 {
