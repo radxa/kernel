@@ -574,6 +574,10 @@
 	status = "okay";
 };
 
+&rkisp {
+	isp-supply = <&vdd_logic_s0>;
+};
+
 &rkvdec {
 	status = "okay";
 };
