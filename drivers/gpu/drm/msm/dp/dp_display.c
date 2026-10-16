@@ -713,6 +713,10 @@ static int msm_dp_display_set_mode(struct msm_dp *msm_dp_display,
 	dp->panel->msm_dp_mode.bpp = mode->bpp;
 	dp->panel->msm_dp_mode.out_format = mode->out_format;
 	msm_dp_panel_init_panel_info(dp->panel);
+	drm_info(dp->drm_dev, "DP output: %dx%d@%d, %u bpc, format=%p4cc, clock=%d kHz\n",
+		 mode->drm_mode.hdisplay, mode->drm_mode.vdisplay,
+		 drm_mode_vrefresh(&mode->drm_mode), dp->panel->msm_dp_mode.bpp / 3,
+		 &mode->out_format, mode->drm_mode.clock);
 	return 0;
 }
 
@@ -810,13 +814,16 @@ static const struct msm_dp_bridge_mode_filter {
 	const char *compatible;
 	u32 max_pixels;
 	u32 max_vrefresh;
+	u32 max_hdisplay_yuv422;
+	u32 max_vdisplay_yuv422;
+	u32 max_vrefresh_yuv422;
 } msm_dp_bridge_mode_filters[] = {
-	{ "radxa,dragon-q6a", 3440 * 1440, 30 },
+	{ "radxa,dragon-q6a", 3440 * 1440, 30, 3840, 2160, 60 },
 	{ "radxa,dragon-q6b", 3440 * 1440, 60 },
 	{}
 };
 
-static bool msm_dp_bridge_mode_filter_valid(const struct drm_display_mode *mode)
+static bool msm_dp_bridge_mode_filter_valid(const struct drm_display_mode *mode, u32 format)
 {
 	const struct msm_dp_bridge_mode_filter *filter;
 	struct device_node *np;
@@ -834,9 +841,15 @@ static bool msm_dp_bridge_mode_filter_valid(const struct drm_display_mode *mode)
 		if (!of_device_is_compatible(np, filter->compatible))
 			continue;
 
-		if (pixels <= filter->max_pixels ||
-		    vrefresh <= filter->max_vrefresh)
+		if (format == DRM_FORMAT_YUYV && filter->max_hdisplay_yuv422) {
+			if (mode->hdisplay <= filter->max_hdisplay_yuv422 &&
+			    mode->vdisplay <= filter->max_vdisplay_yuv422 &&
+			    vrefresh <= filter->max_vrefresh_yuv422)
+				continue;
+		} else if (pixels <= filter->max_pixels ||
+			   vrefresh <= filter->max_vrefresh) {
 			continue;
+		}
 
 		DRM_INFO("mode filtered by %s: %ux%u@%u\n",
 			 filter->compatible, mode->hdisplay,
@@ -871,64 +884,99 @@ static u32 msm_dp_display_get_source_bpp(const struct drm_connector *connector,
 }
 
 /**
- * msm_dp_bridge_mode_valid - callback to determine if specified mode is valid
- * @bridge: Pointer to drm bridge structure
- * @info: display info
- * @mode: Pointer to drm mode structure
- * Returns: Validity status for specified mode
+ * msm_dp_mode_valid - validate a mode and output format against DP capabilities
+ * @dp: DP display
+ * @conn_state: requested connector state, or NULL during mode enumeration
+ * @mode: display mode
+ * @format: output pixel format
+ * Returns: Validity status for specified mode and format
  */
-enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
-					  const struct drm_display_info *info,
-					  const struct drm_display_mode *mode)
+enum drm_mode_status msm_dp_mode_valid(struct msm_dp *dp,
+				       const struct drm_connector_state *conn_state,
+				       const struct drm_display_mode *mode, u32 format)
 {
 	struct msm_dp_display_private *msm_dp_display;
 	struct msm_dp_link_info *link_info;
-	u32 mode_rate_khz = 0, supported_rate_khz = 0, mode_bpp = 0;
-	u32 source_bpp;
-	struct msm_dp *dp;
+	u64 mode_rate_khz, supported_rate_khz;
+	u32 source_bpp, mode_bpp;
 	int mode_pclk_khz = mode->clock;
 	int source_pclk_khz = mode->clock;
-	bool yuv420;
-
-	dp = to_dp_bridge(bridge)->msm_dp_display;
 
 	if (!dp || !mode_pclk_khz || !dp->connector) {
 		DRM_ERROR("invalid params\n");
-		return -EINVAL;
+		return MODE_BAD;
 	}
 
 	msm_dp_display = container_of(dp, struct msm_dp_display_private, msm_dp_display);
 	link_info = &msm_dp_display->panel->link_info;
+	supported_rate_khz = (u64)link_info->num_lanes * link_info->rate * 8;
 
-	yuv420 = drm_mode_is_420_only(&dp->connector->display_info, mode) &&
-		 msm_dp_display->panel->vsc_sdp_supported;
-
-	if (yuv420 || msm_dp_display->wide_bus_supported)
+	if (format == DRM_FORMAT_YUV420 || msm_dp_display->wide_bus_supported)
 		mode_pclk_khz /= 2;
 
 	if (mode_pclk_khz > DP_MAX_PIXEL_CLK_KHZ)
 		return MODE_CLOCK_HIGH;
 
-	if (!msm_dp_bridge_mode_filter_valid(mode))
+	if (!msm_dp_bridge_mode_filter_valid(mode, format))
 		return MODE_BAD;
 
-	source_bpp = msm_dp_display_get_source_bpp(dp->connector, NULL);
+	source_bpp = msm_dp_display_get_source_bpp(dp->connector, conn_state);
+	if (format == DRM_FORMAT_YUYV) {
+		if (dp->is_edp || source_bpp < 24 ||
+		    !(dp->connector->display_info.color_formats & DRM_COLOR_FORMAT_YCBCR422) ||
+		    drm_mode_is_420_only(&dp->connector->display_info, mode))
+			return MODE_BAD;
 
-	if (!yuv420 &&
-	    msm_dp_panel_dsc_needed(msm_dp_display->panel, mode, source_bpp,
-				    source_pclk_khz))
-		return MODE_OK;
+		/* The CDM conversion and legacy MSA currently describe SDR BT.601. */
+		if (conn_state && (conn_state->hdr_output_metadata ||
+				   conn_state->colorspace != DRM_MODE_COLORIMETRY_DEFAULT))
+			return MODE_BAD;
 
-	mode_bpp = msm_dp_panel_get_mode_bpp(msm_dp_display->panel,
-			source_bpp, source_pclk_khz);
+		/* Bridge negotiation tries RGB and RGB+DSC before this fallback. */
+		if ((u64)source_pclk_khz * 18 <= supported_rate_khz)
+			return MODE_BAD;
 
-	mode_rate_khz = source_pclk_khz * mode_bpp;
-	supported_rate_khz = link_info->num_lanes * link_info->rate * 8;
+		mode_bpp = 16;
+	} else {
+		if (format == DRM_FORMAT_RGB888 &&
+		    msm_dp_panel_dsc_needed(msm_dp_display->panel, mode, source_bpp,
+					    source_pclk_khz))
+			return MODE_OK;
 
+		mode_bpp = msm_dp_panel_get_mode_bpp(msm_dp_display->panel,
+						     source_bpp, source_pclk_khz);
+	}
+
+	mode_rate_khz = (u64)source_pclk_khz * mode_bpp;
 	if (mode_rate_khz > supported_rate_khz)
 		return MODE_BAD;
 
 	return MODE_OK;
+}
+
+enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+					      const struct drm_display_info *info,
+					      const struct drm_display_mode *mode)
+{
+	struct msm_dp *dp = to_dp_bridge(bridge)->msm_dp_display;
+	enum drm_mode_status status, yuv422_status;
+	u32 format;
+
+	format = msm_dp_is_yuv_420_enabled(dp, mode) ? DRM_FORMAT_YUV420 : DRM_FORMAT_RGB888;
+	status = msm_dp_mode_valid(dp, NULL, mode, format);
+	if (status == MODE_OK || format == DRM_FORMAT_YUV420)
+		return status;
+
+	/* Bridge-chain negotiation verifies 422 transport support at commit time. */
+	yuv422_status = msm_dp_mode_valid(dp, NULL, mode, DRM_FORMAT_YUYV);
+	if (yuv422_status == MODE_OK)
+		return MODE_OK;
+
+	drm_dbg_dp(dp->drm_dev, "Mode %dx%d@%d rejected: RGB status=%d, YCbCr422 status=%d\n",
+		   mode->hdisplay, mode->vdisplay, drm_mode_vrefresh(mode),
+		   status, yuv422_status);
+
+	return status;
 }
 
 int msm_dp_display_get_modes(struct msm_dp *dp)
