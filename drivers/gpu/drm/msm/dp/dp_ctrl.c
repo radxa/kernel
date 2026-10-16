@@ -467,7 +467,8 @@ static void msm_dp_ctrl_configure_source_params(struct msm_dp_ctrl_private *ctrl
 
 	misc_val = msm_dp_read_link(ctrl, REG_DP_MISC1_MISC0);
 
-	/* clear bpp bits */
+	/* Rebuild the MSA color fields, including stale VSC selection. */
+	misc_val &= ~(DP_MSA_MISC_COLOR_MASK | DP_MISC1_VSC_SDP);
 	misc_val &= ~(0x07 << DP_MISC0_TEST_BITS_DEPTH_SHIFT);
 	misc_val |= colorimetry_cfg << DP_MISC0_COLORIMETRY_CFG_SHIFT;
 	misc_val |= test_bits_depth << DP_MISC0_TEST_BITS_DEPTH_SHIFT;
