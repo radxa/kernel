@@ -1125,7 +1125,7 @@ static int msm_dp_panel_setup_vsc_sdp(struct msm_dp_panel *msm_dp_panel)
 	vsc_sdp_data.length = 0x13;
 
 	/* VSC SDP Payload for DB16 */
-	vsc_sdp_data.pixelformat = msm_dp_mode->out_fmt_is_yuv_420 ?
+	vsc_sdp_data.pixelformat = msm_dp_mode->out_format == DRM_FORMAT_YUV420 ?
 				   DP_PIXELFORMAT_YUV420 : DP_PIXELFORMAT_RGB;
 	msm_dp_panel_set_vsc_sdp_colorimetry(&vsc_sdp_data, panel->colorspace);
 
@@ -1315,7 +1315,7 @@ int msm_dp_panel_timing_cfg(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en)
 
 	msm_dp_write_p0(panel, MMSS_DP_INTF_CONFIG, reg);
 
-	if (msm_dp_panel->msm_dp_mode.out_fmt_is_yuv_420 ||
+	if (msm_dp_panel->msm_dp_mode.out_format == DRM_FORMAT_YUV420 ||
 	    msm_dp_panel_colorspace_needs_vsc_sdp(panel->colorspace))
 		msm_dp_panel_setup_vsc_sdp(msm_dp_panel);
 

@@ -406,7 +406,7 @@ static void msm_dp_ctrl_config_ctrl(struct msm_dp_ctrl_private *ctrl)
 	/* Default-> LSCLK DIV: 1/4 LCLK  */
 	config |= (2 << DP_CONFIGURATION_CTRL_LSCLK_DIV_SHIFT);
 
-	if (ctrl->panel->msm_dp_mode.out_fmt_is_yuv_420)
+	if (ctrl->panel->msm_dp_mode.out_format == DRM_FORMAT_YUV420)
 		config |= DP_CONFIGURATION_CTRL_RGB_YUV; /* YUV420 */
 
 	/* Scrambler reset enable */
@@ -1263,7 +1263,7 @@ static void msm_dp_ctrl_calc_tu_parameters(struct msm_dp_ctrl_private *ctrl,
 	in.hporch = drm_mode->htotal - drm_mode->hdisplay;
 	in.nlanes = ctrl->link->link_params.num_lanes;
 	in.bpp = ctrl->panel->msm_dp_mode.bpp;
-	in.pixel_enc = ctrl->panel->msm_dp_mode.out_fmt_is_yuv_420 ? 420 : 444;
+	in.pixel_enc = ctrl->panel->msm_dp_mode.out_format == DRM_FORMAT_YUV420 ? 420 : 444;
 	in.dsc_en = dsc ? 1 : 0;
 	in.async_en = 0;
 	in.fec_en = msm_dp_panel_fec_enabled(ctrl->panel);
@@ -2473,7 +2473,7 @@ int msm_dp_ctrl_on_link(struct msm_dp_ctrl *msm_dp_ctrl)
 		ctrl->link->link_params.rate = rate;
 		ctrl->link->link_params.num_lanes =
 			ctrl->panel->link_info.num_lanes;
-		if (ctrl->panel->msm_dp_mode.out_fmt_is_yuv_420)
+		if (ctrl->panel->msm_dp_mode.out_format == DRM_FORMAT_YUV420)
 			pixel_rate >>= 1;
 	}
 
@@ -2659,7 +2659,7 @@ int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, bool force_link_train
 	pixel_rate = pixel_rate_orig = ctrl->panel->msm_dp_mode.drm_mode.clock;
 
 	if (msm_dp_ctrl->wide_bus_en ||
-	    ctrl->panel->msm_dp_mode.out_fmt_is_yuv_420 ||
+	    ctrl->panel->msm_dp_mode.out_format == DRM_FORMAT_YUV420 ||
 	    msm_dp_panel_dsc_enabled(ctrl->panel))
 		pixel_rate >>= 1;
 
@@ -2713,7 +2713,7 @@ int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, bool force_link_train
 	msm_dp_ctrl_config_msa(ctrl,
 		ctrl->link->link_params.rate,
 		pixel_rate_orig,
-		ctrl->panel->msm_dp_mode.out_fmt_is_yuv_420);
+		ctrl->panel->msm_dp_mode.out_format == DRM_FORMAT_YUV420);
 
 	if (msm_dp_panel_dsc_enabled(ctrl->panel))
 		msm_dp_panel_config_dsc(ctrl->panel, true);

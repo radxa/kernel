@@ -709,7 +709,7 @@ static int msm_dp_display_set_mode(struct msm_dp *msm_dp_display,
 
 	drm_mode_copy(&dp->panel->msm_dp_mode.drm_mode, &mode->drm_mode);
 	dp->panel->msm_dp_mode.bpp = mode->bpp;
-	dp->panel->msm_dp_mode.out_fmt_is_yuv_420 = mode->out_fmt_is_yuv_420;
+	dp->panel->msm_dp_mode.out_format = mode->out_format;
 	msm_dp_panel_init_panel_info(dp->panel);
 	return 0;
 }
@@ -1546,7 +1546,7 @@ bool msm_dp_wide_bus_available(const struct msm_dp *msm_dp_display)
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 
-	if (dp->msm_dp_mode.out_fmt_is_yuv_420)
+	if (dp->msm_dp_mode.out_format == DRM_FORMAT_YUV420)
 		return false;
 
 	return dp->wide_bus_supported;
@@ -1768,19 +1768,20 @@ void msm_dp_bridge_mode_set(struct drm_bridge *drm_bridge,
 	msm_dp_display->msm_dp_mode.h_active_low =
 		!!(msm_dp_display->msm_dp_mode.drm_mode.flags & DRM_MODE_FLAG_NHSYNC);
 
-	msm_dp_display->msm_dp_mode.out_fmt_is_yuv_420 =
+	msm_dp_display->msm_dp_mode.out_format =
 		drm_mode_is_420_only(&dp->connector->display_info, adjusted_mode) &&
-		msm_dp_panel->vsc_sdp_supported;
+		msm_dp_panel->vsc_sdp_supported ? DRM_FORMAT_YUV420 : DRM_FORMAT_RGB888;
 
 	/* populate wide_bus_support to different layers */
 	msm_dp_display->ctrl->wide_bus_en =
-		msm_dp_display->msm_dp_mode.out_fmt_is_yuv_420 ? false : msm_dp_display->wide_bus_supported;
+		msm_dp_display->msm_dp_mode.out_format != DRM_FORMAT_YUV420 &&
+		msm_dp_display->wide_bus_supported;
 
 	mode_pclk_khz = adjusted_mode->clock;
-	if (msm_dp_display->msm_dp_mode.out_fmt_is_yuv_420)
+	if (msm_dp_display->msm_dp_mode.out_format == DRM_FORMAT_YUV420)
 		mode_pclk_khz /= 2;
 
-	if (msm_dp_display->msm_dp_mode.out_fmt_is_yuv_420) {
+	if (msm_dp_display->msm_dp_mode.out_format == DRM_FORMAT_YUV420) {
 		msm_dp_panel->dsc_en = false;
 		msm_dp_panel->fec_en = false;
 		memset(&msm_dp_panel->dsc, 0, sizeof(msm_dp_panel->dsc));
