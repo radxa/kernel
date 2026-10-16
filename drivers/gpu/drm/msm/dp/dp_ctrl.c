@@ -407,7 +407,9 @@ static void msm_dp_ctrl_config_ctrl(struct msm_dp_ctrl_private *ctrl)
 	config |= (2 << DP_CONFIGURATION_CTRL_LSCLK_DIV_SHIFT);
 
 	if (ctrl->panel->msm_dp_mode.out_format == DRM_FORMAT_YUV420)
-		config |= DP_CONFIGURATION_CTRL_RGB_YUV; /* YUV420 */
+		config |= DP_CONFIGURATION_CTRL_PIXEL_ENCODING_YUV420;
+	else if (ctrl->panel->msm_dp_mode.out_format == DRM_FORMAT_YUYV)
+		config |= DP_CONFIGURATION_CTRL_PIXEL_ENCODING_YUV422;
 
 	/* Scrambler reset enable */
 	if (drm_dp_alternate_scrambler_reset_cap(dpcd))
@@ -470,7 +472,10 @@ static void msm_dp_ctrl_configure_source_params(struct msm_dp_ctrl_private *ctrl
 	/* Rebuild the MSA color fields, including stale VSC selection. */
 	misc_val &= ~(DP_MSA_MISC_COLOR_MASK | DP_MISC1_VSC_SDP);
 	misc_val &= ~(0x07 << DP_MISC0_TEST_BITS_DEPTH_SHIFT);
-	misc_val |= colorimetry_cfg << DP_MISC0_COLORIMETRY_CFG_SHIFT;
+	if (ctrl->panel->msm_dp_mode.out_format == DRM_FORMAT_YUYV)
+		misc_val |= DP_MSA_MISC_COLOR_YCBCR_422_BT601;
+	else
+		misc_val |= colorimetry_cfg << DP_MISC0_COLORIMETRY_CFG_SHIFT;
 	misc_val |= test_bits_depth << DP_MISC0_TEST_BITS_DEPTH_SHIFT;
 	/* Configure clock to synchronous mode */
 	misc_val |= DP_MISC0_SYNCHRONOUS_CLK;
@@ -1264,7 +1269,17 @@ static void msm_dp_ctrl_calc_tu_parameters(struct msm_dp_ctrl_private *ctrl,
 	in.hporch = drm_mode->htotal - drm_mode->hdisplay;
 	in.nlanes = ctrl->link->link_params.num_lanes;
 	in.bpp = ctrl->panel->msm_dp_mode.bpp;
-	in.pixel_enc = ctrl->panel->msm_dp_mode.out_format == DRM_FORMAT_YUV420 ? 420 : 444;
+	switch (ctrl->panel->msm_dp_mode.out_format) {
+	case DRM_FORMAT_YUV420:
+		in.pixel_enc = 420;
+		break;
+	case DRM_FORMAT_YUYV:
+		in.pixel_enc = 422;
+		break;
+	default:
+		in.pixel_enc = 444;
+		break;
+	}
 	in.dsc_en = dsc ? 1 : 0;
 	in.async_en = 0;
 	in.fec_en = msm_dp_panel_fec_enabled(ctrl->panel);
