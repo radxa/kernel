@@ -936,6 +936,15 @@ int msm_vidc_close(struct msm_vidc_inst *inst)
 	/* print internal buffer memory usage stats */
 	msm_vidc_print_memory_stats(inst);
 	msm_vidc_print_residency_stats(core);
+	/*
+	 * MMAP buffers hold instance references. Drop the queues' buffer
+	 * references while the file still owns one, otherwise final instance
+	 * cleanup cannot run. Keep the queue structures until that cleanup.
+	 */
+	vb2_queue_release(inst->bufq[OUTPUT_PORT].vb2q);
+	vb2_queue_release(inst->bufq[INPUT_PORT].vb2q);
+	vb2_queue_release(inst->bufq[OUTPUT_META_PORT].vb2q);
+	vb2_queue_release(inst->bufq[INPUT_META_PORT].vb2q);
 	msm_vidc_session_close(inst);
 	msm_vidc_change_state(inst, MSM_VIDC_CLOSE, __func__);
 	inst->sub_state = MSM_VIDC_SUB_STATE_NONE;
