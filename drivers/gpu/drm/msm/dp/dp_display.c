@@ -4,6 +4,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/media-bus-format.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/debugfs.h>
@@ -14,6 +15,7 @@
 #include <linux/string_choices.h>
 #include <drm/display/drm_dp_aux_bus.h>
 #include <drm/display/drm_hdmi_audio_helper.h>
+#include <drm/drm_atomic.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_modeset_lock.h>
 #include <drm/drm_probe_helper.h>
@@ -1502,6 +1504,23 @@ void __exit msm_dp_unregister(void)
 	platform_driver_unregister(&msm_dp_display_driver);
 }
 
+u32 msm_dp_get_output_format(const struct msm_dp *dp,
+			     struct drm_atomic_state *state,
+			     const struct drm_display_mode *mode)
+{
+	struct drm_bridge_state *bridge_state;
+
+	bridge_state = state ? drm_atomic_get_new_bridge_state(state, dp->bridge) : NULL;
+	if (!bridge_state)
+		bridge_state = drm_priv_to_bridge_state(dp->bridge->base.state);
+
+	if (!dp->is_edp && bridge_state &&
+	    bridge_state->output_bus_cfg.format == MEDIA_BUS_FMT_YUYV8_1X16)
+		return DRM_FORMAT_YUYV;
+
+	return msm_dp_is_yuv_420_enabled(dp, mode) ? DRM_FORMAT_YUV420 : DRM_FORMAT_RGB888;
+}
+
 bool msm_dp_is_yuv_420_enabled(const struct msm_dp *msm_dp_display,
 			       const struct drm_display_mode *mode)
 {
@@ -1568,12 +1587,13 @@ bool msm_dp_dsc_needed(const struct msm_dp *msm_dp_display,
 	struct msm_dp_display_private *dp;
 	u32 source_bpp;
 	int mode_pclk_khz = mode->clock;
-	bool yuv420;
+	bool yuv;
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
-	yuv420 = msm_dp_is_yuv_420_enabled(msm_dp_display, mode);
+	yuv = msm_dp_get_output_format(msm_dp_display, conn_state ? conn_state->state : NULL,
+				       mode) != DRM_FORMAT_RGB888;
 
-	if (yuv420)
+	if (yuv)
 		return false;
 
 	source_bpp = msm_dp_display_get_source_bpp(msm_dp_display->connector,
@@ -1769,8 +1789,7 @@ void msm_dp_bridge_mode_set(struct drm_bridge *drm_bridge,
 		!!(msm_dp_display->msm_dp_mode.drm_mode.flags & DRM_MODE_FLAG_NHSYNC);
 
 	msm_dp_display->msm_dp_mode.out_format =
-		drm_mode_is_420_only(&dp->connector->display_info, adjusted_mode) &&
-		msm_dp_panel->vsc_sdp_supported ? DRM_FORMAT_YUV420 : DRM_FORMAT_RGB888;
+		msm_dp_get_output_format(dp, NULL, adjusted_mode);
 
 	/* populate wide_bus_support to different layers */
 	msm_dp_display->ctrl->wide_bus_en =
@@ -1781,7 +1800,7 @@ void msm_dp_bridge_mode_set(struct drm_bridge *drm_bridge,
 	if (msm_dp_display->msm_dp_mode.out_format == DRM_FORMAT_YUV420)
 		mode_pclk_khz /= 2;
 
-	if (msm_dp_display->msm_dp_mode.out_format == DRM_FORMAT_YUV420) {
+	if (msm_dp_display->msm_dp_mode.out_format != DRM_FORMAT_RGB888) {
 		msm_dp_panel->dsc_en = false;
 		msm_dp_panel->fec_en = false;
 		memset(&msm_dp_panel->dsc, 0, sizeof(msm_dp_panel->dsc));

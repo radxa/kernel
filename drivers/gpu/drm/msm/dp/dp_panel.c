@@ -1358,6 +1358,8 @@ int msm_dp_panel_init_panel_info(struct msm_dp_panel *msm_dp_panel)
 
 	if (msm_dp_panel->dsc_en)
 		msm_dp_panel->msm_dp_mode.bpp = msm_dp_panel->dsc.bits_per_component * 3;
+	else if (msm_dp_panel->msm_dp_mode.out_format == DRM_FORMAT_YUYV)
+		msm_dp_panel->msm_dp_mode.bpp = 24; /* CDM 4:2:2 output is 8 bpc */
 	else
 		msm_dp_panel->msm_dp_mode.bpp =
 			msm_dp_panel_get_mode_bpp(msm_dp_panel,
