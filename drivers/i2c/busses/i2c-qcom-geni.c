@@ -816,8 +816,7 @@ static int geni_i2c_gpi_xfer(struct geni_i2c_dev *gi2c, struct i2c_msg msgs[], i
 			peripheral.stretch = 1;
 
 		peripheral.addr = msgs[i].addr;
-		if (i > 0 && (!(msgs[i].flags & I2C_M_RD)))
-			peripheral.multi_msg = false;
+		peripheral.multi_msg = !!(msgs[i].flags & I2C_M_RD);
 
 		ret =  geni_i2c_gpi(gi2c, msgs, &config,
 				    &tx_addr, &tx_buf, I2C_WRITE, gi2c->tx_c);
