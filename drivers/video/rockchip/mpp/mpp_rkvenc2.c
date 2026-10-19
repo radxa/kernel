@@ -2400,12 +2400,14 @@ static int rkvenc2_wait_result(struct mpp_session *session,
 	u32 task_id;
 	int ret = 0;
 
+	mutex_lock(&session->lock_session);
 	mutex_lock(&session->pending_lock);
 	task = list_first_entry_or_null(&session->pending_list,
 					struct mpp_task,
 					pending_link);
 	mutex_unlock(&session->pending_lock);
 	if (!task) {
+		mutex_unlock(&session->lock_session);
 		mpp_err("session %p pending list is empty!\n", session);
 		return -EIO;
 	}
@@ -2422,7 +2424,9 @@ task_done_ret:
 		if (ret == -ERESTARTSYS)
 			mpp_err("wait task break by signal in normal mode\n");
 
-		return rkvenc2_task_default_process(mpp, task);
+		ret = rkvenc2_task_default_process(mpp, task);
+		mutex_unlock(&session->lock_session);
+		return ret;
 
 	}
 
@@ -2433,6 +2437,7 @@ task_done_ret:
 									     &slice_info, 1));
 			if (ret == -ERESTARTSYS) {
 				mpp_err("wait task break by signal in slice all mode\n");
+				mutex_unlock(&session->lock_session);
 				return 0;
 			}
 			mpp_dbg_slice("task %d rd %3d len %d %s\n",
@@ -2448,6 +2453,7 @@ task_done_ret:
 
 	if (copy_from_user(&cfg, req->data, sizeof(cfg))) {
 		mpp_err("copy_from_user failed\n");
+		mutex_unlock(&session->lock_session);
 		return -EINVAL;
 	}
 
@@ -2461,6 +2467,7 @@ task_done_ret:
 								     &slice_info, 1));
 		if (ret == -ERESTARTSYS) {
 			mpp_err("wait task break by signal in slice one mode\n");
+			mutex_unlock(&session->lock_session);
 			return 0;
 		}
 		mpp_dbg_slice("core %d task %d rd %3d len %d %s\n", task_id,
@@ -2486,15 +2493,20 @@ task_done_ret:
 			goto task_done_ret;
 		}
 
-		if (cfg.count_ret >= cfg.count_max)
+		if (cfg.count_ret >= cfg.count_max) {
+			mutex_unlock(&session->lock_session);
 			return 0;
+		}
 
-		if (ret < 0)
+		if (ret < 0) {
+			mutex_unlock(&session->lock_session);
 			return ret;
+		}
 	} while (!ret);
 
 	rkvenc2_task_timeout_process(session, task);
 
+	mutex_unlock(&session->lock_session);
 	return ret;
 }
 

@@ -347,7 +347,9 @@ void mpp_session_cleanup_detach(struct mpp_taskqueue *queue, struct kthread_work
 					session->device_type, session->index,
 					atomic_read(&queue->detach_count), task_count);
 
+			mutex_lock(&session->lock_session);
 			mpp_session_clear_pending(session);
+			mutex_unlock(&session->lock_session);
 		} else if (atomic_read(&session->release_request) > 0) {
 			mpp_dbg_session("queue detach %d\n",
 					atomic_read(&queue->detach_count));
@@ -1009,8 +1011,10 @@ static int mpp_wait_result_default(struct mpp_session *session,
 	struct mpp_task *task;
 	struct mpp_dev *mpp;
 
+	mutex_lock(&session->lock_session);
 	task = mpp_session_get_pending_task(session);
 	if (!task) {
+		mutex_unlock(&session->lock_session);
 		mpp_err("session %d:%d pending list is empty!\n",
 			session->pid, session->index);
 		return -EIO;
@@ -1028,6 +1032,7 @@ static int mpp_wait_result_default(struct mpp_session *session,
 		       task->task_index, task->state);
 
 	mpp_session_pop_pending(session, task);
+	mutex_unlock(&session->lock_session);
 
 	return ret;
 }
