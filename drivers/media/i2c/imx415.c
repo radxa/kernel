@@ -271,6 +271,7 @@ static __maybe_unused const struct regval imx415_global_12bit_3864x2192_regs[] =
 	{0x3031, 0x01},
 	{0x3032, 0x01},
 	{0x30D9, 0x06},
+	{0x30DA, 0x02},
 	{0x3116, 0x24},
 	{0x3118, 0xC0},
 	{0x311E, 0x24},
@@ -453,18 +454,41 @@ static __maybe_unused const struct regval imx415_hdr3_12bit_3864x2192_1782M_regs
 	{REG_NULL, 0x00},
 };
 
+/* Restore linear timing and full-resolution readout without a sensor reset. */
 static __maybe_unused const struct regval imx415_linear_10bit_3864x2192_1782M_regs[] = {
 	{0x3002, 0x00},
 	{0x3008, 0x7F},
 	{0x300A, 0x5B},
+	{0x301C, 0x00},
+	{0x3020, 0x00},
+	{0x3021, 0x00},
+	{0x3022, 0x00},
+	{0x3024, 0xCA},
+	{0x3025, 0x08},
+	{0x3026, 0x00},
+	{0x3028, 0x26},
+	{0x3029, 0x02},
+	{0x302C, 0x00},
+	{0x302D, 0x00},
 	{0x3031, 0x00},
 	{0x3032, 0x00},
+	{0x3033, 0x04},
 	{0x3050, 0x84},
 	{0x3051, 0x03},
+	{0x3052, 0x00},
+	{0x3054, 0x19},
+	{0x3058, 0x3E},
+	{0x3060, 0x25},
+	{0x3064, 0x4A},
 	{0x3090, 0x14},
 	{0x30C1, 0x00},
+	{0x30CF, 0x00},
+	{0x30D9, 0x06},
+	{0x30DA, 0x02},
 	{0x3116, 0x24},
+	{0x3118, 0xC0},
 	{0x311E, 0x24},
+	{0x3260, 0x01},
 	{0x32D4, 0x21},
 	{0x32EC, 0xA1},
 	{0x344C, 0x2B},
@@ -565,8 +589,21 @@ static __maybe_unused const struct regval imx415_linear_10bit_3864x2192_1782M_re
 	{0x3BC4, 0xA2},
 	{0x3BC8, 0xBD},
 	{0x3BCA, 0xBD},
+	{0x4001, 0x03},
 	{0x4004, 0x48},
 	{0x4005, 0x09},
+	{0x400C, 0x01},
+	{0x4018, 0xB7},
+	{0x401A, 0x67},
+	{0x401C, 0x6F},
+	{0x401E, 0xDF},
+	{0x401F, 0x01},
+	{0x4020, 0x6F},
+	{0x4022, 0xCF},
+	{0x4024, 0x6F},
+	{0x4026, 0xB7},
+	{0x4028, 0x5F},
+	{0x4074, 0x00},
 	{REG_NULL, 0x00},
 };
 
@@ -578,6 +615,7 @@ static __maybe_unused const struct regval imx415_global_10bit_3864x2192_regs[] =
 	{0x3032, 0x00},
 	{0x30C1, 0x00},
 	{0x30D9, 0x06},
+	{0x30DA, 0x02},
 	{0x3116, 0x24},
 	{0x311E, 0x24},
 	{0x32D4, 0x21},
@@ -696,8 +734,9 @@ static __maybe_unused const struct regval imx415_hdr3_10bit_3864x2192_1782M_regs
 	{0x3020, 0x00},
 	{0x3021, 0x00},
 	{0x3022, 0x00},
-	{0x3024, 0xEA},
+	{0x3024, 0xEC},
 	{0x3025, 0x07},
+	{0x3026, 0x00},
 	{0x3028, 0xCA},
 	{0x3029, 0x01},
 	{0x302C, 0x01},
@@ -705,10 +744,19 @@ static __maybe_unused const struct regval imx415_hdr3_10bit_3864x2192_1782M_regs
 	{0x3033, 0x04},
 	{0x3050, 0x3E},
 	{0x3051, 0x01},
+	{0x3052, 0x00},
 	{0x3054, 0x0D},
+	{0x3055, 0x00},
+	{0x3056, 0x00},
 	{0x3058, 0x9E},
+	{0x3059, 0x00},
+	{0x305A, 0x00},
 	{0x3060, 0x91},
+	{0x3061, 0x00},
+	{0x3062, 0x00},
 	{0x3064, 0xC2},
+	{0x3065, 0x00},
+	{0x3066, 0x00},
 	{0x30CF, 0x03},
 	{0x3118, 0xC0},
 	{0x3260, 0x00},
@@ -727,37 +775,47 @@ static __maybe_unused const struct regval imx415_hdr3_10bit_3864x2192_1782M_regs
 	{REG_NULL, 0x00},
 };
 
-static __maybe_unused const struct regval imx415_hdr2_10bit_3864x2192_1485M_regs[] = {
+static __maybe_unused const struct regval imx415_hdr2_10bit_3864x2192_1782M_regs[] = {
 	{0x3020, 0x00},
 	{0x3021, 0x00},
 	{0x3022, 0x00},
-	{0x3024, 0xFC},
+	{0x3024, 0xCA},
 	{0x3025, 0x08},
-	{0x3028, 0x1A},
+	{0x3026, 0x00},
+	{0x3028, 0x26},
 	{0x3029, 0x02},
 	{0x302C, 0x01},
 	{0x302D, 0x01},
-	{0x3033, 0x08},
-	{0x3050, 0xA8},
+	{0x3033, 0x04},
+	{0x3050, 0x90},
 	{0x3051, 0x0D},
+	{0x3052, 0x00},
 	{0x3054, 0x09},
+	{0x3055, 0x00},
+	{0x3056, 0x00},
 	{0x3058, 0x3E},
+	{0x3059, 0x00},
+	{0x305A, 0x00},
 	{0x3060, 0x4D},
-	{0x3064, 0x4a},
+	{0x3061, 0x00},
+	{0x3062, 0x00},
+	{0x3064, 0x4A},
+	{0x3065, 0x00},
+	{0x3066, 0x00},
 	{0x30CF, 0x01},
-	{0x3118, 0xA0},
+	{0x3118, 0xC0},
 	{0x3260, 0x00},
 	{0x400C, 0x01},
-	{0x4018, 0xA7},
-	{0x401A, 0x57},
-	{0x401C, 0x5F},
-	{0x401E, 0x97},
+	{0x4018, 0xB7},
+	{0x401A, 0x67},
+	{0x401C, 0x6F},
+	{0x401E, 0xDF},
 	{0x401F, 0x01},
-	{0x4020, 0x5F},
-	{0x4022, 0xAF},
-	{0x4024, 0x5F},
-	{0x4026, 0x9F},
-	{0x4028, 0x4F},
+	{0x4020, 0x6F},
+	{0x4022, 0xCF},
+	{0x4024, 0x6F},
+	{0x4026, 0xB7},
+	{0x4028, 0x5F},
 	{0x4074, 0x00},
 	{REG_NULL, 0x00},
 };
@@ -797,6 +855,7 @@ static __maybe_unused const struct regval imx415_linear_10bit_3864x2192_891M_reg
 	{REG_NULL, 0x00},
 };
 
+/* Restore linear readout after HDR modes without relying on a sensor reset. */
 static __maybe_unused const struct regval imx415_linear_10bit_1920x1080_891M_regs[] = {
 /*
 IMX415-AAQR Window cropping 1920x1080 CSI-2_4lane 37.125MHz AD:10bit Output:10bit 891Mbps Master Mode 60.012fps Integration Time 14.442ms
@@ -811,16 +870,20 @@ Tool ver : Ver9.0
 	{0x3025, 0x08},
 	{0x3028, 0x26},  // HMAX[15:0]
 	{0x3029, 0x02},
+	{0x302C, 0x00},
+	{0x302D, 0x00},
 	{0x3031, 0x00},  // ADBIT[1:0]
 	{0x3033, 0x04},  // SYS_MODE[3:0] .
 	{0x3050, 0x08},  // SHR0[19:0] .
 	{0x30C1, 0x00},  // XVS_DRV[1:0]
+	{0x30CF, 0x00},
 	{0x30D9, 0x02},  // DIG_CLP_VSTART[4:0]
 	{0x30DA, 0x01},  // DIG_CLP_VNUM[1:0]
 	{0x3116, 0x24},  // INCKSEL2[7:0]
 	{0x3118, 0xC0},  // INCKSEL3[10:0]
 	{0x311A, 0xE0},  // INCKSEL4[10:0]
 	{0x311E, 0x24},  // INCKSEL5[7:0]
+	{0x3260, 0x01},
 	{0x32D4, 0x21},  // -
 	{0x32EC, 0xA1},  // -
 	{0x344C, 0x2B},  // -
@@ -1347,7 +1410,8 @@ static const struct imx415_mode supported_modes[] = {
 			.denominator = 600000,
 		},
 		.exp_def = 0x08ca - 0x08,
-		.hts_def = 0x0226 * IMX415_4LANES * 4,
+		/* 712.8 Mpixel/s * (550 / 74.25 MHz) = 5280 pixels/line. */
+		.hts_def = 5280,
 		.vts_def = 0x08ca,
 		.global_reg_list = NULL,
 		.reg_list = imx415_linear_10bit_3864x2192_1782M_regs,
@@ -1403,22 +1467,44 @@ static const struct imx415_mode supported_modes[] = {
 			.numerator = 10000,
 			.denominator = 300000,
 		},
-		.exp_def = 0x08fc * 2 - 0x0da8,
-		.hts_def = 0x0226 * IMX415_4LANES * 2,
-		/*
-		 * IMX415 HDR mode T-line is half of Linear mode,
-		 * make vts double to workaround.
-		 */
-		.vts_def = 0x08fc * 2,
+		.exp_def = 0x08ca * 2 - 0x0d90,
+		/* 712.8 Mpixel/s * (550 / 74.25 MHz) = 5280 pixels/line. */
+		.hts_def = 5280,
+		/* DOL2 FSC = 2 * VMAX; align FSC to 4 lines. */
+		.vts_def = 0x08ca * 2,
 		.global_reg_list = imx415_global_10bit_3864x2192_regs,
-		.reg_list = imx415_hdr2_10bit_3864x2192_1485M_regs,
+		.reg_list = imx415_hdr2_10bit_3864x2192_1782M_regs,
 		.hdr_mode = HDR_X2,
-		.mipi_freq_idx = 2,
+		.mipi_freq_idx = 3,
 		.bpp = 10,
 		.vc[PAD0] = 1,
 		.vc[PAD1] = 0,//L->csi wr0
 		.vc[PAD2] = 1,
 		.vc[PAD3] = 1,//M->csi wr2
+		.xvclk = IMX415_XVCLK_FREQ_37M,
+	},
+	{
+		.bus_fmt = MEDIA_BUS_FMT_SGBRG10_1X10,
+		.width = 3864,
+		.height = 2192,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 200000,
+		},
+		.exp_def = 0x07ec * 4 - 0x013e,
+		/* Round 712.8 Mpixel/s * (458 / 74.25 MHz) to pixels/line. */
+		.hts_def = 4397,
+		/* DOL3 FSC = 4 * VMAX; align FSC to 12 lines. */
+		.vts_def = 0x07ec * 4,
+		.global_reg_list = imx415_global_10bit_3864x2192_regs,
+		.reg_list = imx415_hdr3_10bit_3864x2192_1782M_regs,
+		.hdr_mode = HDR_X3,
+		.mipi_freq_idx = 3,
+		.bpp = 10,
+		.vc[PAD0] = 2,
+		.vc[PAD1] = 1,//M->csi wr0
+		.vc[PAD2] = 0,//L->csi wr0
+		.vc[PAD3] = 2,//S->csi wr2
 		.xvclk = IMX415_XVCLK_FREQ_37M,
 	},
 	{
@@ -1440,32 +1526,6 @@ static const struct imx415_mode supported_modes[] = {
 		.reg_list = imx415_hdr3_10bit_3864x2192_1485M_regs,
 		.hdr_mode = HDR_X3,
 		.mipi_freq_idx = 2,
-		.bpp = 10,
-		.vc[PAD0] = 2,
-		.vc[PAD1] = 1,//M->csi wr0
-		.vc[PAD2] = 0,//L->csi wr0
-		.vc[PAD3] = 2,//S->csi wr2
-		.xvclk = IMX415_XVCLK_FREQ_37M,
-	},
-	{
-		.bus_fmt = MEDIA_BUS_FMT_SGBRG10_1X10,
-		.width = 3864,
-		.height = 2192,
-		.max_fps = {
-			.numerator = 10000,
-			.denominator = 200000,
-		},
-		.exp_def = 0x13e,
-		.hts_def = 0x01ca * IMX415_4LANES * 2,
-		/*
-		 * IMX415 HDR mode T-line is half of Linear mode,
-		 * make vts double to workaround.
-		 */
-		.vts_def = 0x07ea * 4,
-		.global_reg_list = imx415_global_10bit_3864x2192_regs,
-		.reg_list = imx415_hdr3_10bit_3864x2192_1782M_regs,
-		.hdr_mode = HDR_X3,
-		.mipi_freq_idx = 3,
 		.bpp = 10,
 		.vc[PAD0] = 2,
 		.vc[PAD1] = 1,//M->csi wr0
@@ -1677,10 +1737,10 @@ static int imx415_write_array(struct i2c_client *client,
 {
 	u32 i;
 	int ret = 0;
-	if (!regs) {
-		dev_err(&client->dev, "write reg array error\n");
-		return ret;
-	}
+
+	if (!regs)
+		return 0;
+
 	for (i = 0; ret == 0 && regs[i].addr != REG_NULL; i++) {
 		if (regs[i].addr == REG_DELAY) {
 			usleep_range(regs[i].val * 1000, regs[i].val * 1000 + 500);
