@@ -203,6 +203,13 @@ struct apm_display_port_module_intf_cfg {
 } __packed;
 #define APM_DP_INTF_CFG_PSIZE ALIGN(sizeof(struct apm_display_port_module_intf_cfg), 8)
 
+struct apm_vmarc_display_ctrl_cfg {
+	struct apm_module_param_data param_data;
+	struct param_id_vmarc_display_ctrl_cfg cfg;
+} __packed;
+
+#define APM_VMARC_DISPLAY_CTRL_CFG_PSIZE ALIGN(sizeof(struct apm_vmarc_display_ctrl_cfg), 8)
+
 static void *__audioreach_alloc_pkt(int payload_size, uint32_t opcode, uint32_t token,
 				    uint32_t src_port, uint32_t dest_port, bool has_cmd_hdr)
 {
@@ -611,10 +618,11 @@ static int audioreach_display_port_set_media_format(struct q6apm_graph *graph,
 						    struct audioreach_module_config *cfg)
 {
 	struct apm_display_port_module_intf_cfg *intf_cfg;
+	struct apm_vmarc_display_ctrl_cfg *ctrl_cfg;
 	struct apm_module_frame_size_factor_cfg *fs_cfg;
 	struct apm_module_param_data *param_data;
 	struct apm_module_hw_ep_mf_cfg *hw_cfg;
-	int ic_sz, ep_sz, fs_sz, dl_sz;
+	int ic_sz, ep_sz, fs_sz, ctrl_sz, dl_sz;
 	int rc, payload_size;
 	struct gpr_pkt *pkt;
 	void *p;
@@ -622,9 +630,10 @@ static int audioreach_display_port_set_media_format(struct q6apm_graph *graph,
 	ic_sz = APM_DP_INTF_CFG_PSIZE;
 	ep_sz = APM_HW_EP_CFG_PSIZE;
 	fs_sz = APM_FS_CFG_PSIZE;
+	ctrl_sz = cfg->has_display_ctrl_idx ? APM_VMARC_DISPLAY_CTRL_CFG_PSIZE : 0;
 	dl_sz = 0;
 
-	payload_size = ic_sz + ep_sz + fs_sz + dl_sz;
+	payload_size = ic_sz + ep_sz + fs_sz + ctrl_sz + dl_sz;
 
 	pkt = audioreach_alloc_apm_cmd_pkt(payload_size, APM_CMD_SET_CFG, 0);
 	if (IS_ERR(pkt))
@@ -653,6 +662,17 @@ static int audioreach_display_port_set_media_format(struct q6apm_graph *graph,
 	param_data->param_size = fs_sz - APM_MODULE_PARAM_DATA_SIZE;
 	fs_cfg->frame_size_factor = 1;
 	p += fs_sz;
+
+	if (cfg->has_display_ctrl_idx) {
+		ctrl_cfg = p;
+		param_data = &ctrl_cfg->param_data;
+		param_data->module_instance_id = module->instance_id;
+		param_data->error_code = 0;
+		param_data->param_id = PARAM_ID_VMARC_DISPLAY_CTRL_CFG;
+		param_data->param_size = ctrl_sz - APM_MODULE_PARAM_DATA_SIZE;
+		ctrl_cfg->cfg.display_ctrl_idx = cfg->display_ctrl_idx;
+		p += ctrl_sz;
+	}
 
 	intf_cfg = p;
 	param_data = &intf_cfg->param_data;

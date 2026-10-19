@@ -83,6 +83,27 @@
 		stdout-path = "serial0:115200n8";
 	};
 
+	sound {
+		compatible = "radxa,vmarc-q9075-sndcard";
+		model = "VMARC-Q9075-DP";
+
+		dp0-dai-link {
+			link-name = "DISPLAY_PORT-RX";
+
+			cpu {
+				sound-dai = <&q6apmbedai DISPLAY_PORT_RX_0>;
+			};
+
+			codec {
+				sound-dai = <&mdss0_dp0>;
+			};
+
+			platform {
+				sound-dai = <&q6apm>;
+			};
+		};
+	};
+
 	vcc_5v0_regulator: vcc-5v0-regulator {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc_5v0";
@@ -692,7 +713,13 @@
 };
 
 &mdss0_dp0 {
+	radxa,display-controller-index = <0>;
+	radxa,force-audio;
 	status = "okay";
+};
+
+&mdss1_dp0 {
+	radxa,display-controller-index = <1>;
 };
 
 &mdss0_dp0_out {
