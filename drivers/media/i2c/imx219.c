@@ -15,13 +15,17 @@
  */
 
 #include <linux/clk.h>
+#include <linux/compat.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/minmax.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
+#include <linux/property.h>
 #include <linux/regulator/consumer.h>
+#include <linux/rk-camera-module.h>
+#include <linux/uaccess.h>
 
 #include <media/v4l2-cci.h>
 #include <media/v4l2-ctrls.h>
@@ -251,6 +255,13 @@ static const int imx219_test_pattern_val[] = {
 	IMX219_TEST_PATTERN_PN9,
 };
 
+static const char * const imx219_rk_test_pattern_menu[] = {
+	"Disabled", "Solid Black", "Solid White", "Solid Red", "Solid Green",
+	"Solid Blue", "Color Bar", "Fade to Grey Color Bar", "PN9",
+	"16 Split Color Bar", "16 Split Inverted Color Bar", "Column Counter",
+	"Inverted Column Counter", "PN31",
+};
+
 /* regulator supplies */
 static const char * const imx219_supply_name[] = {
 	/* Supplies can be enabled in any order */
@@ -357,9 +368,17 @@ struct imx219 {
 	struct v4l2_ctrl *hflip;
 	struct v4l2_ctrl *vblank;
 	struct v4l2_ctrl *hblank;
+	struct v4l2_ctrl *gain_ctrls[2];
 
 	/* Two or Four lanes */
 	u8 lanes;
+	struct v4l2_mbus_config_mipi_csi2 bus;
+	bool streaming;
+	bool rockchip_module;
+	u32 module_index;
+	const char *module_facing;
+	const char *module_name;
+	const char *lens_name;
 };
 
 static inline struct imx219 *to_imx219(struct v4l2_subdev *_sd)
@@ -389,17 +408,63 @@ static u32 imx219_get_format_code(struct imx219 *imx219, u32 code)
  * Controls
  */
 
+static int imx219_set_test_pattern(struct imx219 *imx219, unsigned int value)
+{
+	u16 red = 0, green = 0, blue = 0;
+	unsigned int pattern;
+	int ret = 0;
+
+	if (!imx219->rockchip_module)
+		return cci_write(imx219->regmap, IMX219_REG_TEST_PATTERN,
+				 imx219_test_pattern_val[value], NULL);
+
+	pattern = value == 0 ? 0 : value <= 5 ? 1 : value - 4;
+	cci_write(imx219->regmap, IMX219_REG_TEST_PATTERN, pattern, &ret);
+	if (pattern != 1)
+		return ret;
+	if (value == 2 || value == 3)
+		red = IMX219_TESTP_COLOUR_MAX;
+	if (value == 2 || value == 4)
+		green = IMX219_TESTP_COLOUR_MAX;
+	if (value == 2 || value == 5)
+		blue = IMX219_TESTP_COLOUR_MAX;
+	cci_write(imx219->regmap, IMX219_REG_TESTP_RED, red, &ret);
+	cci_write(imx219->regmap, IMX219_REG_TESTP_GREENR, green, &ret);
+	cci_write(imx219->regmap, IMX219_REG_TESTP_GREENB, green, &ret);
+	cci_write(imx219->regmap, IMX219_REG_TESTP_BLUE, blue, &ret);
+	return ret;
+}
+
+static int imx219_try_ctrl(struct v4l2_ctrl *ctrl)
+{
+	struct imx219 *imx219 =
+		container_of(ctrl->handler, struct imx219, ctrl_handler);
+
+	if (ctrl->id == V4L2_CID_GAIN) {
+		struct v4l2_ctrl *again = imx219->gain_ctrls[1];
+
+		/* Normalize aliases before the core computes which cached values changed. */
+		if (again->is_new && !ctrl->is_new)
+			ctrl->val = again->val;
+		again->val = min_t(u32, ctrl->val, again->maximum);
+	}
+	return 0;
+}
+
 static int imx219_set_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct imx219 *imx219 =
 		container_of(ctrl->handler, struct imx219, ctrl_handler);
 	struct i2c_client *client = v4l2_get_subdevdata(&imx219->sd);
-	const struct v4l2_mbus_framefmt *format;
+	struct v4l2_mbus_framefmt *format;
 	struct v4l2_subdev_state *state;
 	int ret = 0;
 
 	state = v4l2_subdev_get_locked_active_state(&imx219->sd);
 	format = v4l2_subdev_state_get_format(state, 0);
+
+	if (ctrl->id == V4L2_CID_HFLIP || ctrl->id == V4L2_CID_VFLIP)
+		format->code = imx219_get_format_code(imx219, format->code);
 
 	if (ctrl->id == V4L2_CID_VBLANK) {
 		int exposure_max, exposure_def;
@@ -426,6 +491,16 @@ static int imx219_set_ctrl(struct v4l2_ctrl *ctrl)
 		cci_write(imx219->regmap, IMX219_REG_ANALOG_GAIN,
 			  ctrl->val, &ret);
 		break;
+	case V4L2_CID_GAIN: {
+		u32 again = min_t(u32, ctrl->val, 2728);
+
+		/* Rockchip's combined gain control is expressed in units of 1/256. */
+		cci_write(imx219->regmap, IMX219_REG_ANALOG_GAIN,
+			  256 - 65536 / again, &ret);
+		cci_write(imx219->regmap, IMX219_REG_DIGITAL_GAIN,
+			  min_t(u32, ctrl->val * 256 / again, 4095), &ret);
+		break;
+	}
 	case V4L2_CID_EXPOSURE:
 		cci_write(imx219->regmap, IMX219_REG_EXPOSURE,
 			  ctrl->val, &ret);
@@ -435,8 +510,7 @@ static int imx219_set_ctrl(struct v4l2_ctrl *ctrl)
 			  ctrl->val, &ret);
 		break;
 	case V4L2_CID_TEST_PATTERN:
-		cci_write(imx219->regmap, IMX219_REG_TEST_PATTERN,
-			  imx219_test_pattern_val[ctrl->val], &ret);
+		ret = imx219_set_test_pattern(imx219, ctrl->val);
 		break;
 	case V4L2_CID_HFLIP:
 	case V4L2_CID_VFLIP:
@@ -477,12 +551,24 @@ static int imx219_set_ctrl(struct v4l2_ctrl *ctrl)
 }
 
 static const struct v4l2_ctrl_ops imx219_ctrl_ops = {
+	.try_ctrl = imx219_try_ctrl,
 	.s_ctrl = imx219_set_ctrl,
 };
 
 static unsigned long imx219_get_pixel_rate(struct imx219 *imx219)
 {
 	return (imx219->lanes == 2) ? IMX219_PIXEL_RATE : IMX219_PIXEL_RATE_4LANE;
+}
+
+static unsigned int imx219_mode_vts(struct imx219 *imx219,
+				    const struct imx219_mode *mode)
+{
+	/* The Radxa two-lane full-resolution mode runs at approximately 21 fps. */
+	if (imx219->rockchip_module && imx219->lanes == 2 && mode->width == 3280)
+		return 2500;
+	if (imx219->rockchip_module && imx219->lanes == 2 && mode->width == 1920)
+		return 1766;
+	return mode->vts_def;
 }
 
 /* Initialize control handlers */
@@ -493,6 +579,7 @@ static int imx219_init_controls(struct imx219 *imx219)
 	struct v4l2_ctrl_handler *ctrl_hdlr;
 	struct v4l2_fwnode_device_properties props;
 	int exposure_max, exposure_def, hblank;
+	unsigned int vts = imx219_mode_vts(imx219, mode);
 	int i, ret;
 
 	ctrl_hdlr = &imx219->ctrl_handler;
@@ -520,14 +607,14 @@ static int imx219_init_controls(struct imx219 *imx219)
 	imx219->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx219_ctrl_ops,
 					   V4L2_CID_VBLANK, IMX219_VBLANK_MIN,
 					   IMX219_VTS_MAX - mode->height, 1,
-					   mode->vts_def - mode->height);
+					   vts - mode->height);
 	hblank = IMX219_PPL_DEFAULT - mode->width;
 	imx219->hblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx219_ctrl_ops,
 					   V4L2_CID_HBLANK, hblank, hblank,
 					   1, hblank);
 	if (imx219->hblank)
 		imx219->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-	exposure_max = mode->vts_def - 4;
+	exposure_max = vts - 4;
 	exposure_def = (exposure_max < IMX219_EXPOSURE_DEFAULT) ?
 		exposure_max : IMX219_EXPOSURE_DEFAULT;
 	imx219->exposure = v4l2_ctrl_new_std(ctrl_hdlr, &imx219_ctrl_ops,
@@ -536,13 +623,21 @@ static int imx219_init_controls(struct imx219 *imx219)
 					     IMX219_EXPOSURE_STEP,
 					     exposure_def);
 
-	v4l2_ctrl_new_std(ctrl_hdlr, &imx219_ctrl_ops, V4L2_CID_ANALOGUE_GAIN,
-			  IMX219_ANA_GAIN_MIN, IMX219_ANA_GAIN_MAX,
-			  IMX219_ANA_GAIN_STEP, IMX219_ANA_GAIN_DEFAULT);
-
-	v4l2_ctrl_new_std(ctrl_hdlr, &imx219_ctrl_ops, V4L2_CID_DIGITAL_GAIN,
-			  IMX219_DGTL_GAIN_MIN, IMX219_DGTL_GAIN_MAX,
-			  IMX219_DGTL_GAIN_STEP, IMX219_DGTL_GAIN_DEFAULT);
+	if (imx219->rockchip_module) {
+		imx219->gain_ctrls[0] = v4l2_ctrl_new_std(ctrl_hdlr, &imx219_ctrl_ops,
+						       V4L2_CID_GAIN, 256, 43663, 1, 256);
+		imx219->gain_ctrls[1] = v4l2_ctrl_new_std(ctrl_hdlr, &imx219_ctrl_ops,
+						       V4L2_CID_ANALOGUE_GAIN, 256, 2816, 1, 256);
+		if (!ctrl_hdlr->error)
+			v4l2_ctrl_cluster(ARRAY_SIZE(imx219->gain_ctrls), imx219->gain_ctrls);
+	} else {
+		v4l2_ctrl_new_std(ctrl_hdlr, &imx219_ctrl_ops, V4L2_CID_ANALOGUE_GAIN,
+				  IMX219_ANA_GAIN_MIN, IMX219_ANA_GAIN_MAX,
+				  IMX219_ANA_GAIN_STEP, IMX219_ANA_GAIN_DEFAULT);
+		v4l2_ctrl_new_std(ctrl_hdlr, &imx219_ctrl_ops, V4L2_CID_DIGITAL_GAIN,
+				  IMX219_DGTL_GAIN_MIN, IMX219_DGTL_GAIN_MAX,
+				  IMX219_DGTL_GAIN_STEP, IMX219_DGTL_GAIN_DEFAULT);
+	}
 
 	imx219->hflip = v4l2_ctrl_new_std(ctrl_hdlr, &imx219_ctrl_ops,
 					  V4L2_CID_HFLIP, 0, 1, 1, 0);
@@ -554,11 +649,17 @@ static int imx219_init_controls(struct imx219 *imx219)
 	if (imx219->vflip)
 		imx219->vflip->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
 
-	v4l2_ctrl_new_std_menu_items(ctrl_hdlr, &imx219_ctrl_ops,
-				     V4L2_CID_TEST_PATTERN,
-				     ARRAY_SIZE(imx219_test_pattern_menu) - 1,
-				     0, 0, imx219_test_pattern_menu);
-	for (i = 0; i < 4; i++) {
+	if (imx219->rockchip_module)
+		v4l2_ctrl_new_std_menu_items(ctrl_hdlr, &imx219_ctrl_ops,
+				V4L2_CID_TEST_PATTERN,
+				ARRAY_SIZE(imx219_rk_test_pattern_menu) - 1,
+				0, 0, imx219_rk_test_pattern_menu);
+	else
+		v4l2_ctrl_new_std_menu_items(ctrl_hdlr, &imx219_ctrl_ops,
+				V4L2_CID_TEST_PATTERN,
+				ARRAY_SIZE(imx219_test_pattern_menu) - 1,
+				0, 0, imx219_test_pattern_menu);
+	for (i = 0; !imx219->rockchip_module && i < 4; i++) {
 		/*
 		 * The assumption is that
 		 * V4L2_CID_TEST_PATTERN_GREENR == V4L2_CID_TEST_PATTERN_RED + 1
@@ -775,11 +876,17 @@ static int imx219_set_stream(struct v4l2_subdev *sd, int enable)
 
 	state = v4l2_subdev_lock_and_get_active_state(sd);
 
+	if (imx219->streaming == !!enable)
+		goto unlock;
+
 	if (enable)
 		ret = imx219_start_streaming(imx219, state);
 	else
 		imx219_stop_streaming(imx219);
 
+	if (!ret)
+		imx219->streaming = !!enable;
+unlock:
 	v4l2_subdev_unlock_state(state);
 	return ret;
 }
@@ -845,6 +952,9 @@ static int imx219_set_pad_format(struct v4l2_subdev *sd,
 	struct v4l2_rect *crop;
 	unsigned int bin_h, bin_v, binning;
 
+	if (fmt->which == V4L2_SUBDEV_FORMAT_ACTIVE && imx219->streaming)
+		return -EBUSY;
+
 	mode = v4l2_find_nearest_size(supported_modes,
 				      ARRAY_SIZE(supported_modes),
 				      width, height,
@@ -875,15 +985,16 @@ static int imx219_set_pad_format(struct v4l2_subdev *sd,
 		int exposure_max;
 		int exposure_def;
 		int hblank;
+		unsigned int vts = imx219_mode_vts(imx219, mode);
 
 		/* Update limits and set FPS to default */
 		__v4l2_ctrl_modify_range(imx219->vblank, IMX219_VBLANK_MIN,
 					 IMX219_VTS_MAX - mode->height, 1,
-					 mode->vts_def - mode->height);
+					 vts - mode->height);
 		__v4l2_ctrl_s_ctrl(imx219->vblank,
-				   mode->vts_def - mode->height);
+				   vts - mode->height);
 		/* Update max exposure while meeting expected vblanking */
-		exposure_max = mode->vts_def - 4;
+		exposure_max = vts - 4;
 		exposure_def = (exposure_max < IMX219_EXPOSURE_DEFAULT) ?
 			exposure_max : IMX219_EXPOSURE_DEFAULT;
 		__v4l2_ctrl_modify_range(imx219->exposure,
@@ -907,6 +1018,10 @@ static int imx219_get_selection(struct v4l2_subdev *sd,
 				struct v4l2_subdev_state *state,
 				struct v4l2_subdev_selection *sel)
 {
+	/* Rockchip receivers would apply the sensor-array crop a second time. */
+	if (to_imx219(sd)->rockchip_module)
+		return -EINVAL;
+
 	switch (sel->target) {
 	case V4L2_SEL_TGT_CROP: {
 		sel->r = *v4l2_subdev_state_get_crop(state, 0);
@@ -952,7 +1067,119 @@ static int imx219_init_state(struct v4l2_subdev *sd,
 	return 0;
 }
 
+static int imx219_get_mbus_config(struct v4l2_subdev *sd, unsigned int pad,
+				 struct v4l2_mbus_config *config)
+{
+	struct imx219 *imx219 = to_imx219(sd);
+
+	if (pad)
+		return -EINVAL;
+	config->type = V4L2_MBUS_CSI2_DPHY;
+	config->bus.mipi_csi2 = imx219->bus;
+	return 0;
+}
+
+static int imx219_get_frame_interval(struct v4l2_subdev *sd,
+				     struct v4l2_subdev_state *state,
+				     struct v4l2_subdev_frame_interval *fi)
+{
+	struct imx219 *imx219 = to_imx219(sd);
+	const struct v4l2_mbus_framefmt *format;
+
+	if (fi->pad || fi->stream || fi->which != V4L2_SUBDEV_FORMAT_ACTIVE)
+		return -EINVAL;
+
+	format = v4l2_subdev_state_get_format(state, 0);
+	fi->interval.numerator = IMX219_PPL_DEFAULT *
+		(format->height + imx219->vblank->val);
+	fi->interval.denominator = imx219_get_pixel_rate(imx219);
+	return 0;
+}
+
+static int imx219_enum_frame_interval(struct v4l2_subdev *sd,
+				      struct v4l2_subdev_state *state,
+				      struct v4l2_subdev_frame_interval_enum *fie)
+{
+	struct imx219 *imx219 = to_imx219(sd);
+	unsigned int i;
+
+	/* The core may supply active state for CIF's zero-sized mode query. */
+	if (imx219->rockchip_module && !fie->pad && !fie->stream && !fie->code &&
+	    !fie->width && !fie->height &&
+	    fie->which == V4L2_SUBDEV_FORMAT_ACTIVE) {
+		const struct imx219_mode *mode;
+
+		if (fie->index >= ARRAY_SIZE(supported_modes))
+			return -EINVAL;
+		mode = &supported_modes[fie->index];
+		if (!state)
+			mutex_lock(imx219->ctrl_handler.lock);
+		fie->code = imx219_get_format_code(imx219, MEDIA_BUS_FMT_SRGGB10_1X10);
+		if (!state)
+			mutex_unlock(imx219->ctrl_handler.lock);
+		fie->width = mode->width;
+		fie->height = mode->height;
+		fie->interval.numerator = IMX219_PPL_DEFAULT * imx219_mode_vts(imx219, mode);
+		fie->interval.denominator = imx219_get_pixel_rate(imx219);
+		return 0;
+	}
+
+	if (fie->pad || fie->stream || fie->index ||
+	    fie->code != imx219_get_format_code(imx219, fie->code))
+		return -EINVAL;
+
+	for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
+		const struct imx219_mode *mode = &supported_modes[i];
+
+		if (fie->width != mode->width || fie->height != mode->height)
+			continue;
+		fie->interval.numerator = IMX219_PPL_DEFAULT * imx219_mode_vts(imx219, mode);
+		fie->interval.denominator = imx219_get_pixel_rate(imx219);
+		return 0;
+	}
+	return -EINVAL;
+}
+
+static long imx219_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
+{
+	struct imx219 *imx219 = to_imx219(sd);
+	struct rkmodule_inf *info = arg;
+
+	if (cmd != RKMODULE_GET_MODULE_INFO)
+		return -ENOIOCTLCMD;
+
+	memset(info, 0, sizeof(*info));
+	strscpy(info->base.sensor, "imx219", sizeof(info->base.sensor));
+	strscpy(info->base.module, imx219->module_name, sizeof(info->base.module));
+	strscpy(info->base.lens, imx219->lens_name, sizeof(info->base.lens));
+	return 0;
+}
+
+#ifdef CONFIG_COMPAT
+static long imx219_compat_ioctl32(struct v4l2_subdev *sd, unsigned int cmd,
+				 unsigned long arg)
+{
+	struct rkmodule_inf *info;
+	long ret;
+
+	if (cmd != RKMODULE_GET_MODULE_INFO)
+		return -ENOIOCTLCMD;
+	info = kzalloc(sizeof(*info), GFP_KERNEL);
+	if (!info)
+		return -ENOMEM;
+	ret = imx219_ioctl(sd, cmd, info);
+	if (!ret && copy_to_user(compat_ptr(arg), info, sizeof(*info)))
+		ret = -EFAULT;
+	kfree(info);
+	return ret;
+}
+#endif
+
 static const struct v4l2_subdev_core_ops imx219_core_ops = {
+	.ioctl = imx219_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl32 = imx219_compat_ioctl32,
+#endif
 	.subscribe_event = v4l2_ctrl_subdev_subscribe_event,
 	.unsubscribe_event = v4l2_event_subdev_unsubscribe,
 };
@@ -962,6 +1189,9 @@ static const struct v4l2_subdev_video_ops imx219_video_ops = {
 };
 
 static const struct v4l2_subdev_pad_ops imx219_pad_ops = {
+	.get_mbus_config = imx219_get_mbus_config,
+	.get_frame_interval = imx219_get_frame_interval,
+	.enum_frame_interval = imx219_enum_frame_interval,
 	.enum_mbus_code = imx219_enum_mbus_code,
 	.get_fmt = v4l2_subdev_get_fmt,
 	.set_fmt = imx219_set_pad_format,
@@ -1092,6 +1322,13 @@ static int imx219_check_hwcfg(struct device *dev, struct imx219 *imx219)
 		goto error_out;
 	}
 	imx219->lanes = ep_cfg.bus.mipi_csi2.num_data_lanes;
+	imx219->bus = ep_cfg.bus.mipi_csi2;
+
+	/* Older Rockchip overlays rely on the driver's fixed link frequency. */
+	if (!ep_cfg.nr_of_link_frequencies && imx219->rockchip_module) {
+		ret = 0;
+		goto error_out;
+	}
 
 	/* Check the link frequency set in device tree */
 	switch (imx219->lanes) {
@@ -1123,9 +1360,7 @@ static int imx219_check_hwcfg(struct device *dev, struct imx219 *imx219)
 
 	if (ret || !(link_freq_bitmap & BIT(0))) {
 		ret = -EINVAL;
-		dev_err_probe(dev, -EINVAL,
-			      "Link frequency not supported: %lld\n",
-			      ep_cfg.link_frequencies[0]);
+		dev_err_probe(dev, ret, "Missing or unsupported link frequency\n");
 	}
 
 error_out:
@@ -1144,6 +1379,24 @@ static int imx219_probe(struct i2c_client *client)
 	imx219 = devm_kzalloc(&client->dev, sizeof(*imx219), GFP_KERNEL);
 	if (!imx219)
 		return -ENOMEM;
+
+	imx219->module_name = "imx219";
+	imx219->lens_name = "default";
+	imx219->rockchip_module = device_property_present(dev,
+						RKMODULE_CAMERA_MODULE_INDEX);
+	if (imx219->rockchip_module) {
+		ret = device_property_read_u32(dev, RKMODULE_CAMERA_MODULE_INDEX,
+					       &imx219->module_index);
+		ret |= device_property_read_string(dev, RKMODULE_CAMERA_MODULE_FACING,
+						  &imx219->module_facing);
+		ret |= device_property_read_string(dev, RKMODULE_CAMERA_MODULE_NAME,
+						  &imx219->module_name);
+		ret |= device_property_read_string(dev, RKMODULE_CAMERA_LENS_NAME,
+						  &imx219->lens_name);
+		if (ret)
+			return dev_err_probe(dev, -EINVAL,
+					     "Incomplete camera module information\n");
+	}
 
 	v4l2_i2c_subdev_init(&imx219->sd, client, &imx219_subdev_ops);
 	imx219->sd.internal_ops = &imx219_internal_ops;
@@ -1178,7 +1431,7 @@ static int imx219_probe(struct i2c_client *client)
 						     GPIOD_OUT_HIGH);
 	if (IS_ERR(imx219->reset_gpio))
 		return dev_err_probe(dev, PTR_ERR(imx219->reset_gpio),
-				     "failed to get reset gpio\n");
+				     "failed to get reset GPIO\n");
 
 	/*
 	 * The sensor must be powered for imx219_identify_module()
@@ -1239,6 +1492,11 @@ static int imx219_probe(struct i2c_client *client)
 
 	pm_runtime_set_active(dev);
 	pm_runtime_enable(dev);
+
+	if (imx219->rockchip_module)
+		snprintf(imx219->sd.name, sizeof(imx219->sd.name), "m%02u_%c_imx219 %s",
+			 imx219->module_index,
+			 !strcmp(imx219->module_facing, "back") ? 'b' : 'f', dev_name(dev));
 
 	ret = v4l2_async_register_subdev_sensor(&imx219->sd);
 	if (ret < 0) {
