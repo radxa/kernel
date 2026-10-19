@@ -715,17 +715,25 @@ end:
 	return ret;
 }
 
-static int msm_dp_link_parse_sink_status_field(struct msm_dp_link_private *link)
+static int msm_dp_link_parse_sink_status_field(struct msm_dp_link_private *link,
+						      struct drm_connector *connector,
+						      const u8 *dpcd,
+						      const struct drm_dp_desc *desc)
 {
 	int ret;
 
 	link->prev_sink_count = link->msm_dp_link.sink_count;
-	ret = drm_dp_read_sink_count(link->aux);
-	if (ret < 0) {
-		DRM_ERROR("DP parse sink count failed\n");
-		return ret;
+
+	if (drm_dp_read_sink_count_cap(connector, dpcd, desc)) {
+		ret = drm_dp_read_sink_count(link->aux);
+		if (ret < 0) {
+			DRM_ERROR("DP parse sink count failed\n");
+			return ret;
+		}
+		link->msm_dp_link.sink_count = ret;
+	} else {
+		link->msm_dp_link.sink_count = 1;
 	}
-	link->msm_dp_link.sink_count = ret;
 
 	ret = drm_dp_dpcd_read_link_status(link->aux,
 					   link->link_status);
@@ -1025,12 +1033,18 @@ static void msm_dp_link_reset_data(struct msm_dp_link_private *link)
 /**
  * msm_dp_link_process_request() - handle HPD IRQ transition to HIGH
  * @msm_dp_link: pointer to link module data
+ * @connector: connector the sink is attached to
+ * @dpcd: receiver capability DPCD of the sink
+ * @desc: DP descriptor of the sink
  *
  * This function will handle the HPD IRQ state transitions from LOW to HIGH
  * (including cases when there are back to back HPD IRQ HIGH) indicating
  * the start of a new link training request or sink status update.
  */
-int msm_dp_link_process_request(struct msm_dp_link *msm_dp_link)
+int msm_dp_link_process_request(struct msm_dp_link *msm_dp_link,
+				       struct drm_connector *connector,
+				       const u8 *dpcd,
+				       const struct drm_dp_desc *desc)
 {
 	int ret = 0;
 	struct msm_dp_link_private *link;
@@ -1044,7 +1058,7 @@ int msm_dp_link_process_request(struct msm_dp_link *msm_dp_link)
 
 	msm_dp_link_reset_data(link);
 
-	ret = msm_dp_link_parse_sink_status_field(link);
+	ret = msm_dp_link_parse_sink_status_field(link, connector, dpcd, desc);
 	if (ret)
 		return ret;
 

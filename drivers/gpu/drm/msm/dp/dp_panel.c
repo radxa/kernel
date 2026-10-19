@@ -393,6 +393,11 @@ int msm_dp_panel_read_link_caps(struct msm_dp_panel *msm_dp_panel,
 		return rc;
 	}
 
+	rc = drm_dp_read_desc(panel->aux, &msm_dp_panel->desc,
+				 drm_dp_is_branch(msm_dp_panel->dpcd));
+	if (rc)
+		memset(&msm_dp_panel->desc, 0, sizeof(msm_dp_panel->desc));
+
 	bw_code = drm_dp_link_rate_to_bw_code(msm_dp_panel->link_info.rate);
 	if (!is_link_rate_valid(bw_code) ||
 			!is_lane_count_valid(msm_dp_panel->link_info.num_lanes) ||

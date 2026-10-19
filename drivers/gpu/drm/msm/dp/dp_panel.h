@@ -40,6 +40,7 @@ struct msm_dp_panel {
 	/* dpcd raw data */
 	u8 dpcd[DP_RECEIVER_CAP_SIZE];
 	u8 downstream_ports[DP_MAX_DOWNSTREAM_PORTS];
+	struct drm_dp_desc desc;
 
 	struct msm_dp_link_info link_info;
 	struct drm_connector *connector;

@@ -113,7 +113,10 @@ static inline u32 msm_dp_link_bit_depth_to_bpp(u32 tbd)
 
 void msm_dp_link_reset_phy_params_vx_px(struct msm_dp_link *msm_dp_link);
 u32 msm_dp_link_get_test_bits_depth(struct msm_dp_link *msm_dp_link, u32 bpp);
-int msm_dp_link_process_request(struct msm_dp_link *msm_dp_link);
+int msm_dp_link_process_request(struct msm_dp_link *msm_dp_link,
+				       struct drm_connector *connector,
+				       const u8 *dpcd,
+				       const struct drm_dp_desc *desc);
 int msm_dp_link_get_colorimetry_config(struct msm_dp_link *msm_dp_link);
 int msm_dp_link_adjust_levels(struct msm_dp_link *msm_dp_link, u8 *link_status);
 bool msm_dp_link_send_test_response(struct msm_dp_link *msm_dp_link);

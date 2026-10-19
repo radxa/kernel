@@ -356,7 +356,8 @@ static int msm_dp_display_process_hpd_high(struct msm_dp_display_private *dp)
 			return -ETIMEDOUT;
 	}
 
-	msm_dp_link_process_request(dp->link);
+	msm_dp_link_process_request(dp->link, connector, dp->panel->dpcd,
+					 &dp->panel->desc);
 
 	if (!dp->msm_dp_display.is_edp)
 		drm_dp_set_subconnector_property(connector,
@@ -630,7 +631,8 @@ static int msm_dp_irq_hpd_handle(struct msm_dp_display_private *dp)
 			dp->link->sink_count);
 
 	/* check for any test request issued by sink */
-	rc = msm_dp_link_process_request(dp->link);
+	rc = msm_dp_link_process_request(dp->link, dp->msm_dp_display.connector,
+					 dp->panel->dpcd, &dp->panel->desc);
 	if (!rc) {
 		sink_request = dp->link->sink_request;
 		drm_dbg_dp(dp->drm_dev, "sink_request=%d\n", sink_request);
