@@ -1176,6 +1176,7 @@ static int fts_parse_dt(struct device *dev, struct fts_ts_platform_data *pdata)
 {
     int ret = 0;
     struct device_node *np = dev->of_node;
+    struct of_phandle_args irq_gpio;
     u32 temp_val;
 
     FTS_FUNC_ENTER();
@@ -1217,8 +1218,15 @@ static int fts_parse_dt(struct device *dev, struct fts_ts_platform_data *pdata)
     }
 
     /* reset, irq gpio info */
-    pdata->reset_gpio = of_get_named_gpio_flags(np, "focaltech,reset-gpio", 0, &pdata->reset_gpio_flags);
-    pdata->irq_gpio = of_get_named_gpio_flags(np, "focaltech,irq-gpio", 0, &pdata->irq_gpio_flags);
+    pdata->reset_gpio = of_get_named_gpio(np, "focaltech,reset-gpio", 0);
+    pdata->irq_gpio = of_get_named_gpio(np, "focaltech,irq-gpio", 0);
+    /* The legacy binding stores IRQ trigger flags in the GPIO specifier. */
+    ret = of_parse_phandle_with_args(np, "focaltech,irq-gpio", "#gpio-cells", 0, &irq_gpio);
+    if (ret)
+        return ret;
+    if (irq_gpio.args_count == 2)
+        pdata->irq_gpio_flags = irq_gpio.args[1];
+    of_node_put(irq_gpio.np);
 
     ret = of_property_read_u32(np, "focaltech,max-touch-number", &temp_val);
     if (0 == ret) {
@@ -1727,6 +1735,7 @@ static struct of_device_id fts_match_table[] = {
     { .compatible = "focaltech,fts", },
     { },
 };
+MODULE_DEVICE_TABLE(of, fts_match_table);
 
 static struct i2c_driver fts_ts_driver = {
     .probe = fts_ts_probe,
