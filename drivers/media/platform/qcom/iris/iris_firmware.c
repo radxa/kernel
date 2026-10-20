@@ -345,7 +345,7 @@ int iris_fw_unload(struct iris_core *core)
 int iris_set_hw_state(struct iris_core *core, bool resume)
 {
 	if (core->use_tz)
-		return qcom_pas_set_remote_state(resume, 0);
+		return qcom_pas_set_remote_state(resume, IRIS_PAS_ID);
 	else
 		return iris_set_hw_state_no_tz(core, resume);
 }
