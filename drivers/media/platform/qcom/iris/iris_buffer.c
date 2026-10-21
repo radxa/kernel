@@ -965,7 +965,8 @@ int iris_vb2_buffer_done(struct iris_inst *inst, struct iris_buffer *buf)
 	if (buf->flags & V4L2_BUF_FLAG_ERROR) {
 		state = VB2_BUF_STATE_ERROR;
 		vb2_set_plane_payload(vb2, 0, 0);
-		vb2->timestamp = 0;
+		/* Allow userspace to associate the error with the input frame. */
+		vb2->timestamp = buf->timestamp;
 		v4l2_m2m_buf_done(vbuf, state);
 		return 0;
 	}
