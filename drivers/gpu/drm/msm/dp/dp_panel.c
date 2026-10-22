@@ -7,6 +7,7 @@
 #include "dp_reg.h"
 #include "dp_utils.h"
 #include "msm_dsc_helper.h"
+#include "msm_kms.h"
 
 #include <drm/display/drm_dp_helper.h>
 #include <drm/display/drm_dsc_helper.h>
@@ -567,13 +568,20 @@ static int msm_dp_panel_populate_dsc_config(struct msm_dp_panel *msm_dp_panel,
 					    u32 mode_bpp,
 					    struct drm_dsc_config *dsc)
 {
+	struct msm_drm_private *priv;
+	struct msm_kms *kms;
 	u8 dsc_rev;
 	u8 line_buf_depth;
 	u8 slice_count;
 	u8 bpc;
 	int ret;
 
-	if (!msm_dp_panel_dsc_available(msm_dp_panel))
+	if (!msm_dp_panel_dsc_available(msm_dp_panel) || !msm_dp_panel->connector)
+		return -EINVAL;
+
+	priv = msm_dp_panel->connector->dev->dev_private;
+	kms = priv->kms;
+	if (!kms->funcs->dp_dsc_config_valid)
 		return -EINVAL;
 
 	bpc = msm_dp_panel_pick_dsc_bpc(msm_dp_panel, mode_bpp);
@@ -625,7 +633,14 @@ static int msm_dp_panel_populate_dsc_config(struct msm_dp_panel *msm_dp_panel,
 		line_buf_depth = bpc + 1;
 	dsc->line_buf_depth = min_t(u8, line_buf_depth, bpc + 1);
 
-	return drm_dsc_compute_rc_parameters(dsc);
+	ret = drm_dsc_compute_rc_parameters(dsc);
+	if (ret)
+		return ret;
+
+	if (!kms->funcs->dp_dsc_config_valid(kms, dsc))
+		return -EINVAL;
+
+	return 0;
 }
 
 bool msm_dp_panel_dsc_mode_valid(struct msm_dp_panel *msm_dp_panel,

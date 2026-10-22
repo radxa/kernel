@@ -14,6 +14,7 @@
 #include <linux/of_irq.h>
 #include <linux/pm_opp.h>
 
+#include <drm/display/drm_dsc.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_file.h>
 #include <drm/drm_framebuffer.h>
@@ -1068,6 +1069,33 @@ static void dpu_kms_mdp_snapshot(struct msm_disp_state *disp_state, struct msm_k
 	pm_runtime_put_sync(&dpu_kms->pdev->dev);
 }
 
+static bool dpu_kms_dp_dsc_config_valid(struct msm_kms *kms,
+					const struct drm_dsc_config *dsc)
+{
+	const struct dpu_mdss_cfg *catalog = to_dpu_kms(kms)->catalog;
+	u32 num_dsc, max_width;
+
+	/* DP uses one interface, with up to two DSC encoders and mixers. */
+	num_dsc = min_t(u32, catalog->dsc_count, 2);
+	if (!num_dsc || !dsc->pic_width || !dsc->slice_width ||
+	    !dsc->slice_count || dsc->slice_count % num_dsc ||
+	    dsc->slice_width * dsc->slice_count != dsc->pic_width)
+		return false;
+
+	if (catalog->mdss_ver->core_major_ver < 8)
+		max_width = DPU_1_x_MAX_DSC_ENCODER_WIDTH;
+	else
+		max_width = DPU_8_x_MAX_DSC_ENCODER_WIDTH;
+
+	/* Keep the current CRTC mixer limits as well as the DSC buffer limit. */
+	max_width = min(max_width, catalog->caps->max_mixer_width);
+	if (!catalog->caps->has_3d_merge &&
+	    dsc->pic_width > catalog->caps->max_mixer_width)
+		return false;
+
+	return dsc->pic_width / num_dsc <= max_width;
+}
+
 static const struct msm_kms_funcs kms_funcs = {
 	.hw_init         = dpu_kms_hw_init,
 	.irq_preinstall  = dpu_core_irq_preinstall,
@@ -1084,6 +1112,7 @@ static const struct msm_kms_funcs kms_funcs = {
 	.disable_vblank  = dpu_kms_disable_vblank,
 	.destroy         = dpu_kms_destroy,
 	.snapshot        = dpu_kms_mdp_snapshot,
+	.dp_dsc_config_valid = dpu_kms_dp_dsc_config_valid,
 #ifdef CONFIG_DEBUG_FS
 	.debugfs_init    = dpu_kms_debugfs_init,
 #endif
