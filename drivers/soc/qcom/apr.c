@@ -306,8 +306,8 @@ static int gpr_do_rx_callback(struct packet_router *gpr, struct apr_rx_buf *abuf
 		return -EINVAL;
 	}
 
-	if (svc->callback)
-		svc->callback(&resp, svc->priv, 0);
+	if (READ_ONCE(svc->callback))
+		READ_ONCE(svc->callback)(&resp, svc->priv, 0);
 
 	return 0;
 }
@@ -365,13 +365,26 @@ static int apr_device_probe(struct device *dev)
 {
 	struct apr_device *adev = to_apr_device(dev);
 	struct apr_driver *adrv = to_apr_driver(dev->driver);
+	struct packet_router *apr = dev_get_drvdata(dev->parent);
 	int ret;
 
-	ret = adrv->probe(adev);
-	if (!ret)
-		adev->svc.callback = adrv->gpr_callback;
+	if (apr->type == PR_TYPE_GPR)
+		WRITE_ONCE(adev->svc.callback, adrv->gpr_callback);
 
-	return ret;
+	ret = adrv->probe(adev);
+	if (ret) {
+		if (apr->type == PR_TYPE_GPR) {
+			WRITE_ONCE(adev->svc.callback, NULL);
+			flush_workqueue(apr->rxwq);
+		}
+
+		return ret;
+	}
+
+	if (apr->type != PR_TYPE_GPR)
+		WRITE_ONCE(adev->svc.callback, adrv->gpr_callback);
+
+	return 0;
 }
 
 static void apr_device_remove(struct device *dev)
