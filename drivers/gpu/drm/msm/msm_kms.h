@@ -17,6 +17,8 @@
 
 #define MAX_PLANE	4
 
+struct drm_dsc_config;
+
 /* As there are different display controller blocks depending on the
  * snapdragon version, the kms support is split out and the appropriate
  * implementation is loaded at runtime.  The kms module is responsible
@@ -100,6 +102,15 @@ struct msm_kms_funcs {
 	/*
 	 * Format handling:
 	 */
+
+	/**
+	 * @dp_dsc_config_valid:
+	 *
+	 * Check static source limits before DP selects a DSC configuration.
+	 * Resource reservation remains part of the atomic check.
+	 */
+	bool (*dp_dsc_config_valid)(struct msm_kms *kms,
+				    const struct drm_dsc_config *dsc);
 
 	/* misc: */
 	long (*round_pixclk)(struct msm_kms *kms, unsigned long rate,
