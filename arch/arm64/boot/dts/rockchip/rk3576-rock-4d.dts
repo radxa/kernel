@@ -17,6 +17,7 @@
 #include "rk3576.dtsi"
 #include "rk3576-linux.dtsi"
 #include "rk3576-rk806.dtsi"
+#include "rk3576-panfrost.dtsi"
 
 / {
 	model = "ROCK 4D";
