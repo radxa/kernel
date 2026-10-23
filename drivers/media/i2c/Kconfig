@@ -51,6 +51,18 @@ config VIDEO_ALVIUM_CSI2
 	  To compile this driver as a module, choose M here: the
 	  module will be called alvium-csi2.
 
+config VIDEO_AR0234
+	tristate "onsemi AR0234 sensor support"
+	depends on ACPI || OF || COMPILE_TEST
+	select V4L2_CCI_I2C
+	select VIDEO_CCS_PLL
+	help
+	  This is a Video4Linux2 sensor driver for the onsemi
+	  AR0234 camera.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called ar0234.
+
 config VIDEO_AR0521
 	tristate "ON Semiconductor AR0521 sensor support"
 	help
