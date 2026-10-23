@@ -287,10 +287,11 @@
 };
 
 &rockchip_suspend {
-	/* Route USB PHY wake interrupts through the GIC. */
+	/* Keep the USB detection clock enabled and route PHY wake IRQs via GIC. */
 	rockchip,wakeup-config = <
 		(0
 		| RKPM_ARM_GIC_WAKEUP_EN
+		| RKPM_USBDEV_WAKEUP_EN
 		| RKPM_GPIO0_WAKEUP_EN
 		)
 	>;
