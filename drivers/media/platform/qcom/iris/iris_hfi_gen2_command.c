@@ -1175,7 +1175,16 @@ static int iris_hfi_gen2_session_stop(struct iris_inst *inst, u32 plane)
 	if (ret)
 		return ret;
 
-	return iris_wait_for_session_response(inst, false);
+	/* The response wait drops inst->lock, allowing buffers to be returned. */
+	if (plane == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
+		inst_hfi_gen2->output_stopping = true;
+
+	ret = iris_wait_for_session_response(inst, false);
+
+	if (plane == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
+		inst_hfi_gen2->output_stopping = false;
+
+	return ret;
 }
 
 static int iris_hfi_gen2_session_pause(struct iris_inst *inst, u32 plane)

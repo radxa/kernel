@@ -101,9 +101,7 @@ static int iris_hfi_gen2_get_driver_buffer_flags(struct iris_inst *inst, u32 hfi
 		HFI_GEN2_PICTURE_CRA | HFI_GEN2_PICTURE_BLA;
 	u32 driver_flags = 0;
 
-	if (inst_hfi_gen2->hfi_frame_info.picture_type & HFI_GEN2_PICTURE_NOSHOW)
-		driver_flags |= V4L2_BUF_FLAG_ERROR;
-	else if (inst_hfi_gen2->hfi_frame_info.picture_type & keyframe)
+	if (inst_hfi_gen2->hfi_frame_info.picture_type & keyframe)
 		driver_flags |= V4L2_BUF_FLAG_KEYFRAME;
 	else if (inst_hfi_gen2->hfi_frame_info.picture_type & HFI_GEN2_PICTURE_P)
 		driver_flags |= V4L2_BUF_FLAG_PFRAME;
@@ -339,9 +337,40 @@ static int iris_hfi_gen2_handle_input_buffer(struct iris_inst *inst,
 	return 0;
 }
 
+static int iris_hfi_gen2_requeue_output_buffer(struct iris_inst *inst,
+					       struct iris_buffer *buf)
+{
+	struct iris_inst_hfi_gen2 *inst_hfi_gen2 = to_iris_inst_hfi_gen2(inst);
+	u64 timestamp = buf->timestamp;
+	int ret;
+
+	buf->data_size = 0;
+	buf->timestamp = 0;
+	buf->flags = 0;
+	buf->attr &= ~BUF_ATTR_DEQUEUED;
+	buf->attr |= BUF_ATTR_DEFERRED;
+
+	/* Leave stopped buffers for streamoff cleanup or the next streamon. */
+	if (inst_hfi_gen2->output_stopping ||
+	    (inst->state != IRIS_INST_STREAMING &&
+	     inst->state != IRIS_INST_OUTPUT_STREAMING))
+		return 0;
+
+	ret = iris_queue_buffer(inst, buf);
+	if (ret) {
+		buf->attr &= ~BUF_ATTR_DEFERRED;
+		buf->attr |= BUF_ATTR_DEQUEUED;
+		buf->flags = V4L2_BUF_FLAG_ERROR;
+		buf->timestamp = timestamp;
+	}
+
+	return ret;
+}
+
 static int iris_hfi_gen2_handle_output_buffer(struct iris_inst *inst,
 					      struct iris_hfi_buffer *hfi_buffer)
 {
+	struct iris_inst_hfi_gen2 *inst_hfi_gen2 = to_iris_inst_hfi_gen2(inst);
 	struct v4l2_m2m_ctx *m2m_ctx = inst->m2m_ctx;
 	struct v4l2_m2m_buffer *m2m_buffer, *n;
 	struct iris_buffer *buf;
@@ -384,8 +413,18 @@ static int iris_hfi_gen2_handle_output_buffer(struct iris_inst *inst,
 
 	buf->flags = iris_hfi_gen2_get_driver_buffer_flags(inst, hfi_buffer->flags);
 
+	if (inst->domain == DECODER &&
+	    inst_hfi_gen2->hfi_frame_info.picture_type & HFI_GEN2_PICTURE_NOSHOW) {
+		/* A hidden reference picture is neither a display frame nor an error. */
+		buf->data_size = 0;
+		if (inst->state == IRIS_INST_ERROR)
+			buf->flags |= V4L2_BUF_FLAG_ERROR;
+		if (!(buf->flags & (V4L2_BUF_FLAG_ERROR | V4L2_BUF_FLAG_LAST)))
+			return iris_hfi_gen2_requeue_output_buffer(inst, buf);
+	}
+
 	if (!buf->data_size && inst->state == IRIS_INST_STREAMING &&
-	    !(hfi_buffer->flags & HFI_BUF_FW_FLAG_LAST)) {
+	    !(buf->flags & V4L2_BUF_FLAG_LAST)) {
 		buf->flags |= V4L2_BUF_FLAG_ERROR;
 	}
 
