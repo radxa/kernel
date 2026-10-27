@@ -1,0 +1,54 @@
+Rockchip RK628 HDMI to MIPI CSI-2 bridge
+======================================
+
+The RK628 receives HDMI video and transmits it over MIPI CSI-2. Its
+registers are accessed over I2C.
+
+Required properties:
+- compatible: "rockchip,rk628-csi-v4l2"
+- reg: I2C address, normally 0x50
+- reset-gpios: reset pin, active low
+- port: CSI-2 output port containing an endpoint with data-lanes and
+  remote-endpoint. Data lanes are numbered consecutively from 1, and the
+  clock lane is 0.
+
+Optional properties:
+- clocks: external 24 MHz reference clock. Omit for a module with its own
+  oscillator and no reference clock connection to the host.
+- clock-names: "soc_24M", required when clocks is present
+- enable-gpios: module enable pin
+- power-gpios: module power control pin
+- plugin-det-gpios: HDMI 5 V detection pin
+- interrupts: HDMI receiver interrupt. Without this property the driver
+  polls receiver interrupt status.
+- continues-clk: use continuous CSI-2 clock mode (legacy property spelling)
+- hpd-output-inverted: invert the HDMI HPD output
+- cec-enable: enable the CEC adapter
+- i2s-enable-default: keep the audio I2S output enabled
+- hdcp-enable: enable HDCP 1.x using provisioned keys from NVMEM
+- nvmem-cells: phandle to an HDCP key cell when HDCP is enabled
+- nvmem-cell-names: "hdcp". The cell contains 308 bytes of HDCP key data
+  followed by 2 seed bytes, in the vendor driver's original format.
+- rockchip,camera-module-index: optional module index, defaults to 0
+- rockchip,camera-module-facing: optional label, defaults to "front"
+- rockchip,camera-module-name: optional label, defaults to "rk628"
+- rockchip,camera-module-lens-name: optional label, defaults to "none"
+
+For other endpoint properties see media/video-interfaces.yaml.
+
+Example for a module using its own reference clock and no interrupt pin:
+
+    hdmi-receiver@50 {
+        compatible = "rockchip,rk628-csi-v4l2";
+        reg = <0x50>;
+        reset-gpios = <&tlmm 15 GPIO_ACTIVE_LOW>;
+        continues-clk;
+
+        port {
+            rk628_out: endpoint {
+                clock-lanes = <0>;
+                data-lanes = <1 2 3 4>;
+                remote-endpoint = <&csiphy3_ep>;
+            };
+        };
+    };

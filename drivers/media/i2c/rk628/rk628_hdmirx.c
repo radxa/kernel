@@ -8,7 +8,7 @@
 #include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/soc/rockchip/rk_vendor_storage.h>
+#include <linux/nvmem-consumer.h>
 #include <linux/slab.h>
 #include <linux/rk_hdmirx_config.h>
 #include <sound/hdmi-codec.h>
@@ -128,32 +128,36 @@ static int rk628_hdmirx_write_nolock(struct rk628 *rk628, u32 reg, u32 val)
 
 static int hdcp_load_keys_cb(struct rk628 *rk628, struct rk628_hdcp *hdcp)
 {
-	int size;
-	u8 hdcp_vendor_data[320];
+	struct nvmem_cell *cell;
+	size_t size;
+	u8 *data;
 
-	hdcp->keys = kmalloc(HDCP_KEY_SIZE, GFP_KERNEL);
-	if (!hdcp->keys)
-		return -ENOMEM;
+	cell = nvmem_cell_get(rk628->dev, "hdcp");
+	if (IS_ERR(cell))
+		return PTR_ERR(cell);
 
-	hdcp->seeds = kmalloc(HDCP_KEY_SEED_SIZE, GFP_KERNEL);
-	if (!hdcp->seeds) {
-		kfree(hdcp->keys);
-		hdcp->keys = NULL;
-		return -ENOMEM;
-	}
-
-	size = rk_vendor_read(HDMIRX_HDCP1X_ID, hdcp_vendor_data, 314);
-	if (size < (HDCP_KEY_SIZE + HDCP_KEY_SEED_SIZE)) {
-		rk628_dbg(rk628, "HDCP: read size %d\n", size);
-		kfree(hdcp->keys);
-		hdcp->keys = NULL;
-		kfree(hdcp->seeds);
-		hdcp->seeds = NULL;
+	data = nvmem_cell_read(cell, &size);
+	nvmem_cell_put(cell);
+	if (IS_ERR(data))
+		return PTR_ERR(data);
+	if (size < HDCP_KEY_SIZE + HDCP_KEY_SEED_SIZE) {
+		kfree_sensitive(data);
 		return -EINVAL;
 	}
-	memcpy(hdcp->keys, hdcp_vendor_data, HDCP_KEY_SIZE);
-	memcpy(hdcp->seeds, hdcp_vendor_data + HDCP_KEY_SIZE,
-	       HDCP_KEY_SEED_SIZE);
+
+	hdcp->keys = devm_kmemdup(rk628->dev, data, HDCP_KEY_SIZE, GFP_KERNEL);
+	hdcp->seeds = devm_kmemdup(rk628->dev, data + HDCP_KEY_SIZE,
+				 HDCP_KEY_SEED_SIZE, GFP_KERNEL);
+	kfree_sensitive(data);
+	if (!hdcp->keys || !hdcp->seeds) {
+		if (hdcp->keys)
+			devm_kfree(rk628->dev, hdcp->keys);
+		if (hdcp->seeds)
+			devm_kfree(rk628->dev, hdcp->seeds);
+		hdcp->keys = NULL;
+		hdcp->seeds = NULL;
+		return -ENOMEM;
+	}
 
 	return 0;
 }
@@ -705,7 +709,7 @@ static void rk628_hdmirx_audio_shutdown(struct device *dev, void *data)
 }
 
 static int rk628_hdmirx_audio_get_dai_id(struct snd_soc_component *comment,
-				   struct device_node *endpoint)
+				   struct device_node *endpoint, void *data)
 {
 	dev_dbg(comment->dev, "%s\n", __func__);
 	return 0;
@@ -829,9 +833,9 @@ void rk628_hdmirx_audio_destroy(HAUDINFO info)
 	if (!aif)
 		return;
 	rk628 = aif->rk628;
-	rk628_hdmirx_audio_cancel_work_audio(aif, true);
 	if (rk628->version < RK628F_VERSION)
 		rk628_hdmirx_audio_cancel_work_rate_change(aif, true);
+	rk628_hdmirx_audio_cancel_work_audio(aif, true);
 	if (aif->pdev)
 		platform_device_unregister(aif->pdev);
 	aif->confctl_mutex = NULL;
