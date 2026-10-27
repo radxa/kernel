@@ -2,6 +2,9 @@
 config VIDEO_RK628
 	tristate
 	select CEC_CORE
+	select CEC_NOTIFIER
+	select REGMAP_I2C
+	select MEDIA_CONTROLLER
 	help
 	  Support for the Rockchip RK628 HDMI to MIPI CSI-2/BT1120 bridge.
 
@@ -10,12 +13,12 @@ config VIDEO_RK628
 
 config VIDEO_RK628_CSI
 	tristate "Rockchip RK628_CSI decoder"
-	depends on VIDEO_DEV && I2C
+	depends on VIDEO_DEV && I2C && OF && COMMON_CLK && GPIOLIB
+	depends on EXTCON
 	select HDMI
 	select V4L2_FWNODE
 	select VIDEO_V4L2_SUBDEV_API
 	select VIDEO_RK628
-	select VIDEO_ROCKCHIP_HDMIRX_CLASS
 	help
 	  Support for the Rockchip RK628 HDMI to MIPI CSI-2 bridge.
 
@@ -24,7 +27,7 @@ config VIDEO_RK628_CSI
 
 config VIDEO_RK628_BT1120
 	tristate "Rockchip RK628_BT1120 decoder"
-	depends on VIDEO_DEV && I2C
+	depends on VIDEO_DEV && I2C && OF && COMMON_CLK && GPIOLIB
 	select HDMI
 	select V4L2_FWNODE
 	select VIDEO_V4L2_SUBDEV_API

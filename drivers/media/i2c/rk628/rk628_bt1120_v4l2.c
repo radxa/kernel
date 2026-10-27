@@ -1155,7 +1155,7 @@ static irqreturn_t rk628_bt1120_irq_handler(int irq, void *dev_id)
 
 static void rk628_bt1120_irq_poll_timer(struct timer_list *t)
 {
-	struct rk628_bt1120 *bt1120 = from_timer(bt1120, t, timer);
+	struct rk628_bt1120 *bt1120 = timer_container_of(bt1120, t, timer);
 
 	schedule_work(&bt1120->work_i2c_poll);
 	mod_timer(&bt1120->timer, jiffies + msecs_to_jiffies(POLL_INTERVAL_MS));
@@ -1888,12 +1888,10 @@ static int rk628_bt1120_probe_of(struct rk628_bt1120 *bt1120)
 	bool hdcp1x_enable = false, i2s_enable_default = false;
 	bool scaler_en = false;
 
-	bt1120->soc_24M = devm_clk_get(dev, "soc_24M");
-	if (bt1120->soc_24M == ERR_PTR(-ENOENT))
-		bt1120->soc_24M = NULL;
+	bt1120->soc_24M = devm_clk_get_optional(dev, "soc_24M");
 	if (IS_ERR(bt1120->soc_24M)) {
 		ret = PTR_ERR(bt1120->soc_24M);
-		dev_err(dev, "Unable to get soc_24M: %d\n", ret);
+		return dev_err_probe(dev, ret, "Unable to get soc_24M\n");
 	}
 
 	bt1120->enable_gpio = devm_gpiod_get_optional(dev, "enable",
@@ -2013,18 +2011,17 @@ static int rk628_bt1120_probe(struct i2c_client *client)
 
 	bt1120->hpd_output_inverted = of_property_read_bool(node,
 			"hpd-output-inverted");
-	err = of_property_read_u32(node, RKMODULE_CAMERA_MODULE_INDEX,
+	bt1120->module_facing = "front";
+	bt1120->module_name = "rk628";
+	bt1120->len_name = "none";
+	of_property_read_u32(node, RKMODULE_CAMERA_MODULE_INDEX,
 				   &bt1120->module_index);
-	err |= of_property_read_string(node, RKMODULE_CAMERA_MODULE_FACING,
+	of_property_read_string(node, RKMODULE_CAMERA_MODULE_FACING,
 				       &bt1120->module_facing);
-	err |= of_property_read_string(node, RKMODULE_CAMERA_MODULE_NAME,
+	of_property_read_string(node, RKMODULE_CAMERA_MODULE_NAME,
 				       &bt1120->module_name);
-	err |= of_property_read_string(node, RKMODULE_CAMERA_LENS_NAME,
+	of_property_read_string(node, RKMODULE_CAMERA_LENS_NAME,
 				       &bt1120->len_name);
-	if (err) {
-		dev_err(dev, "could not get module information!\n");
-		return -EINVAL;
-	}
 
 	err = rk628_bt1120_probe_of(bt1120);
 	if (err) {
@@ -2206,7 +2203,7 @@ static void rk628_bt1120_remove(struct i2c_client *client)
 		disable_irq(bt1120->plugin_irq);
 
 	if (!bt1120->hdmirx_irq) {
-		del_timer_sync(&bt1120->timer);
+		timer_delete_sync(&bt1120->timer);
 		flush_work(&bt1120->work_i2c_poll);
 	}
 

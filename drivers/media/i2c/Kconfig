@@ -1344,6 +1344,8 @@ config VIDEO_SAA711X
 	  To compile this driver as a module, choose M here: the
 	  module will be called saa7115.
 
+source "drivers/media/i2c/rk628/Kconfig"
+
 config VIDEO_TC358743
 	tristate "Toshiba TC358743 decoder"
 	depends on VIDEO_DEV && I2C
