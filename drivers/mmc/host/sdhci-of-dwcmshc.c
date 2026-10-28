@@ -274,7 +274,7 @@ static const struct rk_timing_priv rk3576_timing = {
 	.hs200_tx_tap = 16,
 	.hs400_tx_tap = 7,
 	.hs400_cmd_tap = 7,
-	.hs400_strbin_tap = 5,
+	.hs400_strbin_tap = 7,
 	.ddr50_strbin_delay_num = 10,
 };
 
