@@ -2811,6 +2811,27 @@
 		status = "disabled";
 	};
 
+	/* Alternative binding for the vendor driver; enable only one GPU node. */
+	gpu_mali: gpu-mali@27800000 {
+		compatible = "arm,mali-bifrost";
+		reg = <0x0 0x27800000 0x0 0x20000>;
+		interrupts = <GIC_SPI 349 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 348 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 347 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "GPU", "MMU", "JOB";
+		upthreshold = <40>;
+		downdifferential = <10>;
+		clocks = <&scmi_clk CLK_GPU>, <&cru CLK_GPU>;
+		clock-names = "clk_mali", "clk_gpu";
+		assigned-clocks = <&cru CLK_GPU>;
+		assigned-clock-rates = <198000000>;
+		power-domains = <&power RK3576_PD_GPU>;
+		operating-points-v2 = <&gpu_opp_table>;
+		#cooling-cells = <2>;
+		dynamic-power-coefficient = <1625>;
+		status = "disabled";
+	};
+
 	gpu_opp_table: gpu-opp-table {
 		compatible = "operating-points-v2";
 
