@@ -1358,9 +1358,9 @@ int iris_set_ltr_count_gen2(struct iris_inst *inst, enum platform_inst_fw_cap_ty
 	if (!ltr_count)
 		return -EINVAL;
 
-	if (inst->hfi_rc_type == HFI_RC_CBR_VFR ||
-	    inst->hfi_rc_type == HFI_RC_CBR_CFR ||
-	    inst->hfi_rc_type == HFI_RC_OFF) {
+	if (inst->hfi_rc_type != HFI_RC_CBR_VFR &&
+	    inst->hfi_rc_type != HFI_RC_CBR_CFR &&
+	    inst->hfi_rc_type != HFI_RC_OFF) {
 		inst->fw_caps[LTR_COUNT].value = 0;
 		return -EINVAL;
 	}
