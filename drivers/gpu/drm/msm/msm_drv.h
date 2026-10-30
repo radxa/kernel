@@ -33,6 +33,7 @@
 #include <drm/display/drm_dsc.h>
 #include <drm/msm_drm.h>
 #include <drm/drm_gem.h>
+#include <drm/drm_fourcc.h>
 
 extern struct fault_attr fail_gem_alloc;
 extern struct fault_attr fail_gem_iova;
@@ -348,8 +349,11 @@ struct msm_dp;
 int __init msm_dp_register(void);
 void __exit msm_dp_unregister(void);
 int msm_dp_modeset_init(struct msm_dp *dp_display, struct drm_device *dev,
-			 struct drm_encoder *encoder, bool yuv_supported);
+			 struct drm_encoder *encoder);
 void msm_dp_snapshot(struct msm_disp_state *disp_state, struct msm_dp *dp_display);
+u32 msm_dp_get_output_format(const struct msm_dp *dp_display,
+			     struct drm_atomic_state *state,
+			     const struct drm_display_mode *mode);
 bool msm_dp_is_yuv_420_enabled(const struct msm_dp *dp_display,
 			       const struct drm_display_mode *mode);
 bool msm_dp_needs_periph_flush(const struct msm_dp *dp_display,
@@ -370,14 +374,20 @@ static inline void __exit msm_dp_unregister(void)
 }
 static inline int msm_dp_modeset_init(struct msm_dp *dp_display,
 				       struct drm_device *dev,
-				       struct drm_encoder *encoder,
-				       bool yuv_supported)
+				       struct drm_encoder *encoder)
 {
 	return -EINVAL;
 }
 
 static inline void msm_dp_snapshot(struct msm_disp_state *disp_state, struct msm_dp *dp_display)
 {
+}
+
+static inline u32 msm_dp_get_output_format(const struct msm_dp *dp_display,
+					   struct drm_atomic_state *state,
+					   const struct drm_display_mode *mode)
+{
+	return DRM_FORMAT_RGB888;
 }
 
 static inline bool msm_dp_is_yuv_420_enabled(const struct msm_dp *dp_display,
