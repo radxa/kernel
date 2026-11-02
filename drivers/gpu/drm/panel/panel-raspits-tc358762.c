@@ -300,7 +300,7 @@ static int raspits_tc358762_prepare(struct drm_panel *panel)
 	return 0;
 }
 
-extern void rockpi_mcu_screen_power_up(void);
+extern int rockpi_mcu_screen_power_up(void);
 static int raspits_tc358762_enable(struct drm_panel *panel)
 {
 	struct raspits_tc358762 *p = to_raspits_tc358762(panel);
