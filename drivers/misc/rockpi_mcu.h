@@ -11,4 +11,8 @@ struct rockpi_mcu_data {
 	struct i2c_client *client;
 };
 
+int rockpi_mcu_screen_power_up(void);
+int rockpi_mcu_set_bright(int bright);
+int rockpi_mcu_is_connected(void);
+
 #endif
