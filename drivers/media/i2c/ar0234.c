@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * AR0234 sensor driver for Rockchip RK3588 platform
+ * AR0234 sensor driver for Rockchip
  *
  * Based on:
  *   https://github.com/Kurokesu/ar0234-rpi-driver/blob/main/ar0234.c
