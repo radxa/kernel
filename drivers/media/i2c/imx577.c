@@ -4,6 +4,9 @@
  *
  * Copyright (C) 2022 Rockchip Electronics Co., Ltd.
  *
+ * Modified by Radxa Computer (Shenzhen) Co., Ltd.
+ * Copyright (C) 2026 Radxa Computer (Shenzhen) Co., Ltd.
+ *
  * V0.0X01.0X00 first version.
  * V0.0X01.0X01 add full size 30fps.
  * V0.0X01.0X02 fix gain and exposure setting.
@@ -12,6 +15,7 @@
  *  2.4056*3040 @ 25fps
  * V0.0X01.0X04 add dgain ctrl
  * V0.0X01.0X05 fix 4056*3040 HDRx2 30fps
+ * V0.0X01.0X06 add two-lane RAW10 modes
  *
  */
 
@@ -39,20 +43,36 @@
 #include <linux/pinctrl/consumer.h>
 #include <linux/rk-preisp.h>
 
-#define DRIVER_VERSION			KERNEL_VERSION(0, 0x01, 0x05)
+#define DRIVER_VERSION			KERNEL_VERSION(0, 0x01, 0x06)
 
 #ifndef V4L2_CID_DIGITAL_GAIN
 #define V4L2_CID_DIGITAL_GAIN		V4L2_CID_GAIN
 #endif
 
-#define IMX577_LINK_FREQ_1050MHZ	1050000000U
-#define IMX577_LINK_FREQ_498MHZ		498000000U
-/* pixel rate = link frequency * 2 * lanes / BITS_PER_SAMPLE */
-#define IMX577_PIXEL_RATE_1050M_10BIT		(IMX577_LINK_FREQ_1050MHZ * 2LL * 4LL / 10LL)
-#define IMX577_PIXEL_RATE_1050M_12BIT		(IMX577_LINK_FREQ_1050MHZ * 2LL * 4LL / 12LL)
+#define IMX577_XVCLK_FREQ			24000000
+#define IMX577_PIXEL_RATE_MAX		840000000LL
 
-#define IMX577_XVCLK_FREQ		24000000
+/* Four-lane CSI pixel rates and timing limits. */
+#define IMX577_4LANE_LINK_FREQ_1050MHZ	1050000000U
+#define IMX577_4LANE_LINK_FREQ_498MHZ	498000000U
+#define IMX577_4LANE_PIXEL_RATE_1050M_10BIT \
+	(IMX577_4LANE_LINK_FREQ_1050MHZ * 2LL * 4LL / 10LL)
+#define IMX577_4LANE_PIXEL_RATE_1050M_12BIT \
+	(IMX577_4LANE_LINK_FREQ_1050MHZ * 2LL * 4LL / 12LL)
+#define IMX577_4LANE_VTS_MAX		0xffff
+#define IMX577_4LANE_BRL_FULL		3077
+#define IMX577_4LANE_TEST_PATTERN_ENABLE	0x02
+#define IMX577_4LANE_TEST_PATTERN_DISABLE	0x0
 
+/* Two-lane VT timing is independent of the CSI payload pixel rate. */
+#define IMX577_2LANE_LINK_FREQ		450000000U
+#define IMX577_2LANE_VT_PIXEL_RATE	840000000U
+#define IMX577_2LANE_VTS_MAX		0xffdc
+#define IMX577_2LANE_HTS(width)		\
+	((width) * 10ULL * IMX577_2LANE_VT_PIXEL_RATE / \
+	 (IMX577_2LANE_LINK_FREQ * 4ULL) + 500)
+
+/* Shared register definitions and control limits. */
 #define CHIP_ID				0x0577
 #define IMX577_REG_CHIP_ID		0x0016
 
@@ -64,7 +84,6 @@
 #define IMX577_REG_EXPOSURE_L		0x0203
 #define	IMX577_EXPOSURE_MIN		8
 #define	IMX577_EXPOSURE_STEP		1
-#define IMX577_VTS_MAX			0xffff
 
 #define IMX577_REG_GAIN_H		0x0204
 #define IMX577_REG_GAIN_L		0x0205
@@ -84,6 +103,7 @@
 #define IMX577_REG_DGAINGB_H		0x0214
 #define IMX577_REG_DGAINGB_L		0x0215
 
+/* Four-lane HDR exposure and gain registers. */
 #define IMX577_LF_GAIN_REG_H		0x00f0
 #define IMX577_LF_GAIN_REG_L		0x00f1
 #define IMX577_SEF1_GAIN_REG_H		0x00f2
@@ -111,10 +131,15 @@
 #define IMX577_RHS2_REG_L		0x00e9
 
 #define IMX577_REG_TEST_PATTERN		0x0600
-#define	IMX577_TEST_PATTERN_ENABLE	0x02
-#define	IMX577_TEST_PATTERN_DISABLE	0x0
 
 #define IMX577_REG_VTS			0x0340
+#define IMX577_REG_HTS			0x0342
+#define IMX577_REG_IOP_PLL_MPY		0x030e
+#define IMX577_REG_LINK_BIT_RATE		0x0820
+#define IMX577_REG_CSI_FORMAT		0x0112
+#define IMX577_REG_IOP_PIX_DIV		0x0309
+#define IMX577_REG_ADBIT_MODE		0x3f0d
+#define IMX577_REG_LONG_EXP_SHIFT		0x3100
 
 #define IMX577_FETCH_EXP_H(VAL)		(((VAL) >> 8) & 0xFF)
 #define IMX577_FETCH_EXP_L(VAL)		((VAL) & 0xFF)
@@ -136,13 +161,12 @@
 #define IMX577_REG_VALUE_08BIT		1
 #define IMX577_REG_VALUE_16BIT		2
 #define IMX577_REG_VALUE_24BIT		3
+#define IMX577_REG_VALUE_32BIT		4
 
 #define IMX577_GROUP_HOLD_REG		0x0104
 #define IMX577_GROUP_HOLD_START		0x01
 #define IMX577_GROUP_HOLD_END		0x00
 
-/* Basic Readout Lines. Number of necessary readout lines in sensor */
-#define BRL_FULL			3077
 #define CIT_MARGIN			22
 
 #define OF_CAMERA_PINCTRL_STATE_DEFAULT	"rockchip,camera_default"
@@ -205,6 +229,10 @@ struct imx577 {
 	struct mutex		mutex;
 	bool			streaming;
 	bool			power_on;
+	const struct imx577_mode *supported_modes;
+	unsigned int		cfg_num;
+	const s64		*link_freq_menu;
+	unsigned int		link_freq_menu_count;
 	const struct imx577_mode *cur_mode;
 	bool			has_init_exp;
 	struct preisp_hdrae_exp_s init_hdrae_exp;
@@ -222,7 +250,13 @@ struct imx577 {
 
 #define to_imx577(sd) container_of(sd, struct imx577, subdev)
 
-static __maybe_unused const struct regval imx577_global_regs[] = {
+static bool imx577_is_2lane(struct imx577 *imx577)
+{
+	return imx577->bus_cfg.bus.mipi_csi2.num_data_lanes == 2;
+}
+
+/* Four-lane register tables and modes from the Rockchip driver. */
+static __maybe_unused const struct regval imx577_4lane_common_regs[] = {
 	{0x0136, 0x18},
 	{0x0137, 0x00},
 	{0x3C7E, 0x01},
@@ -337,7 +371,7 @@ static __maybe_unused const struct regval imx577_global_regs[] = {
 	{REG_NULL, 0x00},
 };
 
-static __maybe_unused const struct regval imx577_linear_10bit_4056x3040_60fps_regs[] = {
+static __maybe_unused const struct regval imx577_4lane_linear_10bit_4056x3040_60fps_regs[] = {
 	{0x0112, 0x0A},
 	{0x0113, 0x0A},
 	{0x0114, 0x03},
@@ -459,7 +493,7 @@ static __maybe_unused const struct regval imx577_linear_10bit_4056x3040_60fps_re
 	{REG_NULL, 0x00},
 };
 
-static __maybe_unused const struct regval imx577_linear_10bit_4056x3040_30fps_regs[] = {
+static __maybe_unused const struct regval imx577_4lane_linear_10bit_4056x3040_30fps_regs[] = {
 	{0x0112, 0x0A},
 	{0x0113, 0x0A},
 	{0x0114, 0x03},
@@ -580,7 +614,7 @@ static __maybe_unused const struct regval imx577_linear_10bit_4056x3040_30fps_re
 	{REG_NULL, 0x00},
 };
 
-static __maybe_unused const struct regval imx577_hdr2_10bit_4056x3040_15fps_regs[] = {
+static __maybe_unused const struct regval imx577_4lane_hdr2_10bit_4056x3040_15fps_regs[] = {
 	{0x0112, 0x0A},
 	{0x0113, 0x0A},
 	{0x0114, 0x03},
@@ -702,7 +736,7 @@ static __maybe_unused const struct regval imx577_hdr2_10bit_4056x3040_15fps_regs
 	{REG_NULL, 0x00},
 };
 
-static __maybe_unused const struct regval imx577_hdr2_10bit_4056x3040_30fps_regs[] = {
+static __maybe_unused const struct regval imx577_4lane_hdr2_10bit_4056x3040_30fps_regs[] = {
 	{0x0112, 0x0A},
 	{0x0113, 0x0A},
 	{0x0114, 0x03},
@@ -824,7 +858,7 @@ static __maybe_unused const struct regval imx577_hdr2_10bit_4056x3040_30fps_regs
 	{REG_NULL, 0x00},
 };
 
-static __maybe_unused const struct regval imx577_linear_12bit_4056x3040_40fps_regs[] = {
+static __maybe_unused const struct regval imx577_4lane_linear_12bit_4056x3040_40fps_regs[] = {
 	{0x0112, 0x0C},
 	{0x0113, 0x0C},
 	{0x0114, 0x03},
@@ -946,7 +980,7 @@ static __maybe_unused const struct regval imx577_linear_12bit_4056x3040_40fps_re
 	{REG_NULL, 0x00},
 };
 
-static const struct imx577_mode supported_modes[] = {
+static const struct imx577_mode imx577_4lane_modes[] = {
 	{
 		.width = 4056,
 		.height = 3040,
@@ -959,7 +993,7 @@ static const struct imx577_mode supported_modes[] = {
 		.vts_def = 0x0c2c,
 		.bpp = 10,
 		.bus_fmt = MEDIA_BUS_FMT_SRGGB10_1X10,
-		.reg_list = imx577_linear_10bit_4056x3040_30fps_regs,
+		.reg_list = imx577_4lane_linear_10bit_4056x3040_30fps_regs,
 		.hdr_mode = NO_HDR,
 		.link_freq_idx = 1,
 		.vc[PAD0] = 0,
@@ -976,7 +1010,7 @@ static const struct imx577_mode supported_modes[] = {
 		.vts_def = 0x0c1e,
 		.bpp = 10,
 		.bus_fmt = MEDIA_BUS_FMT_SRGGB10_1X10,
-		.reg_list = imx577_hdr2_10bit_4056x3040_30fps_regs,
+		.reg_list = imx577_4lane_hdr2_10bit_4056x3040_30fps_regs,
 		.link_freq_idx = 0,
 		.hdr_mode = HDR_X2,
 		.vc[PAD0] = 1,
@@ -996,7 +1030,7 @@ static const struct imx577_mode supported_modes[] = {
 		.vts_def = 0x0c1e,
 		.bpp = 10,
 		.bus_fmt = MEDIA_BUS_FMT_SRGGB10_1X10,
-		.reg_list = imx577_linear_10bit_4056x3040_60fps_regs,
+		.reg_list = imx577_4lane_linear_10bit_4056x3040_60fps_regs,
 		.hdr_mode = NO_HDR,
 		.link_freq_idx = 0,
 		.vc[PAD0] = 0,
@@ -1013,25 +1047,817 @@ static const struct imx577_mode supported_modes[] = {
 		.vts_def = 0x0d2e,
 		.bpp = 12,
 		.bus_fmt = MEDIA_BUS_FMT_SRGGB12_1X12,
-		.reg_list = imx577_linear_12bit_4056x3040_40fps_regs,
+		.reg_list = imx577_4lane_linear_12bit_4056x3040_40fps_regs,
 		.hdr_mode = NO_HDR,
 		.link_freq_idx = 0,
 		.vc[PAD0] = 0,
 	},
 };
 
-static const s64 link_freq_items[] = {
-	IMX577_LINK_FREQ_1050MHZ,
-	IMX577_LINK_FREQ_498MHZ,
+static const s64 imx577_4lane_link_freq_items[] = {
+	IMX577_4LANE_LINK_FREQ_1050MHZ,
+	IMX577_4LANE_LINK_FREQ_498MHZ,
 };
 
-static const char * const imx577_test_pattern_menu[] = {
+static const char * const imx577_4lane_test_pattern_menu[] = {
 	"Disabled",
 	"Vertical Color Bar Type 1",
 	"Vertical Color Bar Type 2",
 	"Vertical Color Bar Type 3"
 };
 
+/*
+ * Two-lane tables from raspberrypi/linux, drivers/media/i2c/imx477.c
+ * (commit 258d8575739954c0fd7c2289e845da25b3e288b5, GPL-2.0).
+ * Copyright (C) 2020 Raspberry Pi (Trading) Ltd
+ *
+ * Matches INNO-MAKER/CAM-IMX577 tables at f080af7540e2.
+ */
+static const struct regval imx577_2lane_common_regs[] = {
+	{0x0136, 0x18},
+	{0x0137, 0x00},
+	{0x0138, 0x01},
+	{0xe000, 0x00},
+	{0xe07a, 0x01},
+	{0x0808, 0x02},
+	{0x4ae9, 0x18},
+	{0x4aea, 0x08},
+	{0xf61c, 0x04},
+	{0xf61e, 0x04},
+	{0x4ae9, 0x21},
+	{0x4aea, 0x80},
+	{0x38a8, 0x1f},
+	{0x38a9, 0xff},
+	{0x38aa, 0x1f},
+	{0x38ab, 0xff},
+	{0x55d4, 0x00},
+	{0x55d5, 0x00},
+	{0x55d6, 0x07},
+	{0x55d7, 0xff},
+	{0x55e8, 0x07},
+	{0x55e9, 0xff},
+	{0x55ea, 0x00},
+	{0x55eb, 0x00},
+	{0x574c, 0x07},
+	{0x574d, 0xff},
+	{0x574e, 0x00},
+	{0x574f, 0x00},
+	{0x5754, 0x00},
+	{0x5755, 0x00},
+	{0x5756, 0x07},
+	{0x5757, 0xff},
+	{0x5973, 0x04},
+	{0x5974, 0x01},
+	{0x5d13, 0xc3},
+	{0x5d14, 0x58},
+	{0x5d15, 0xa3},
+	{0x5d16, 0x1d},
+	{0x5d17, 0x65},
+	{0x5d18, 0x8c},
+	{0x5d1a, 0x06},
+	{0x5d1b, 0xa9},
+	{0x5d1c, 0x45},
+	{0x5d1d, 0x3a},
+	{0x5d1e, 0xab},
+	{0x5d1f, 0x15},
+	{0x5d21, 0x0e},
+	{0x5d22, 0x52},
+	{0x5d23, 0xaa},
+	{0x5d24, 0x7d},
+	{0x5d25, 0x57},
+	{0x5d26, 0xa8},
+	{0x5d37, 0x5a},
+	{0x5d38, 0x5a},
+	{0x5d77, 0x7f},
+	{0x7b75, 0x0e},
+	{0x7b76, 0x0b},
+	{0x7b77, 0x08},
+	{0x7b78, 0x0a},
+	{0x7b79, 0x47},
+	{0x7b7c, 0x00},
+	{0x7b7d, 0x00},
+	{0x8d1f, 0x00},
+	{0x8d27, 0x00},
+	{0x9004, 0x03},
+	{0x9200, 0x50},
+	{0x9201, 0x6c},
+	{0x9202, 0x71},
+	{0x9203, 0x00},
+	{0x9204, 0x71},
+	{0x9205, 0x01},
+	{0x9371, 0x6a},
+	{0x9373, 0x6a},
+	{0x9375, 0x64},
+	{0x991a, 0x00},
+	{0x996b, 0x8c},
+	{0x996c, 0x64},
+	{0x996d, 0x50},
+	{0x9a4c, 0x0d},
+	{0x9a4d, 0x0d},
+	{0xa001, 0x0a},
+	{0xa003, 0x0a},
+	{0xa005, 0x0a},
+	{0xa006, 0x01},
+	{0xa007, 0xc0},
+	{0xa009, 0xc0},
+	{0x3d8a, 0x01},
+	{0x4421, 0x04},
+	{0x7b3b, 0x01},
+	{0x7b4c, 0x00},
+	{0x9905, 0x00},
+	{0x9907, 0x00},
+	{0x9909, 0x00},
+	{0x990b, 0x00},
+	{0x9944, 0x3c},
+	{0x9947, 0x3c},
+	{0x994a, 0x8c},
+	{0x994b, 0x50},
+	{0x994c, 0x1b},
+	{0x994d, 0x8c},
+	{0x994e, 0x50},
+	{0x994f, 0x1b},
+	{0x9950, 0x8c},
+	{0x9951, 0x1b},
+	{0x9952, 0x0a},
+	{0x9953, 0x8c},
+	{0x9954, 0x1b},
+	{0x9955, 0x0a},
+	{0x9a13, 0x04},
+	{0x9a14, 0x04},
+	{0x9a19, 0x00},
+	{0x9a1c, 0x04},
+	{0x9a1d, 0x04},
+	{0x9a26, 0x05},
+	{0x9a27, 0x05},
+	{0x9a2c, 0x01},
+	{0x9a2d, 0x03},
+	{0x9a2f, 0x05},
+	{0x9a30, 0x05},
+	{0x9a41, 0x00},
+	{0x9a46, 0x00},
+	{0x9a47, 0x00},
+	{0x9c17, 0x35},
+	{0x9c1d, 0x31},
+	{0x9c29, 0x50},
+	{0x9c3b, 0x2f},
+	{0x9c41, 0x6b},
+	{0x9c47, 0x2d},
+	{0x9c4d, 0x40},
+	{0x9c6b, 0x00},
+	{0x9c71, 0xc8},
+	{0x9c73, 0x32},
+	{0x9c75, 0x04},
+	{0x9c7d, 0x2d},
+	{0x9c83, 0x40},
+	{0x9c94, 0x3f},
+	{0x9c95, 0x3f},
+	{0x9c96, 0x3f},
+	{0x9c97, 0x00},
+	{0x9c98, 0x00},
+	{0x9c99, 0x00},
+	{0x9c9a, 0x3f},
+	{0x9c9b, 0x3f},
+	{0x9c9c, 0x3f},
+	{0x9ca0, 0x0f},
+	{0x9ca1, 0x0f},
+	{0x9ca2, 0x0f},
+	{0x9ca3, 0x00},
+	{0x9ca4, 0x00},
+	{0x9ca5, 0x00},
+	{0x9ca6, 0x1e},
+	{0x9ca7, 0x1e},
+	{0x9ca8, 0x1e},
+	{0x9ca9, 0x00},
+	{0x9caa, 0x00},
+	{0x9cab, 0x00},
+	{0x9cac, 0x09},
+	{0x9cad, 0x09},
+	{0x9cae, 0x09},
+	{0x9cbd, 0x50},
+	{0x9cbf, 0x50},
+	{0x9cc1, 0x50},
+	{0x9cc3, 0x40},
+	{0x9cc5, 0x40},
+	{0x9cc7, 0x40},
+	{0x9cc9, 0x0a},
+	{0x9ccb, 0x0a},
+	{0x9ccd, 0x0a},
+	{0x9d17, 0x35},
+	{0x9d1d, 0x31},
+	{0x9d29, 0x50},
+	{0x9d3b, 0x2f},
+	{0x9d41, 0x6b},
+	{0x9d47, 0x42},
+	{0x9d4d, 0x5a},
+	{0x9d6b, 0x00},
+	{0x9d71, 0xc8},
+	{0x9d73, 0x32},
+	{0x9d75, 0x04},
+	{0x9d7d, 0x42},
+	{0x9d83, 0x5a},
+	{0x9d94, 0x3f},
+	{0x9d95, 0x3f},
+	{0x9d96, 0x3f},
+	{0x9d97, 0x00},
+	{0x9d98, 0x00},
+	{0x9d99, 0x00},
+	{0x9d9a, 0x3f},
+	{0x9d9b, 0x3f},
+	{0x9d9c, 0x3f},
+	{0x9d9d, 0x1f},
+	{0x9d9e, 0x1f},
+	{0x9d9f, 0x1f},
+	{0x9da0, 0x0f},
+	{0x9da1, 0x0f},
+	{0x9da2, 0x0f},
+	{0x9da3, 0x00},
+	{0x9da4, 0x00},
+	{0x9da5, 0x00},
+	{0x9da6, 0x1e},
+	{0x9da7, 0x1e},
+	{0x9da8, 0x1e},
+	{0x9da9, 0x00},
+	{0x9daa, 0x00},
+	{0x9dab, 0x00},
+	{0x9dac, 0x09},
+	{0x9dad, 0x09},
+	{0x9dae, 0x09},
+	{0x9dc9, 0x0a},
+	{0x9dcb, 0x0a},
+	{0x9dcd, 0x0a},
+	{0x9e17, 0x35},
+	{0x9e1d, 0x31},
+	{0x9e29, 0x50},
+	{0x9e3b, 0x2f},
+	{0x9e41, 0x6b},
+	{0x9e47, 0x2d},
+	{0x9e4d, 0x40},
+	{0x9e6b, 0x00},
+	{0x9e71, 0xc8},
+	{0x9e73, 0x32},
+	{0x9e75, 0x04},
+	{0x9e94, 0x0f},
+	{0x9e95, 0x0f},
+	{0x9e96, 0x0f},
+	{0x9e97, 0x00},
+	{0x9e98, 0x00},
+	{0x9e99, 0x00},
+	{0x9ea0, 0x0f},
+	{0x9ea1, 0x0f},
+	{0x9ea2, 0x0f},
+	{0x9ea3, 0x00},
+	{0x9ea4, 0x00},
+	{0x9ea5, 0x00},
+	{0x9ea6, 0x3f},
+	{0x9ea7, 0x3f},
+	{0x9ea8, 0x3f},
+	{0x9ea9, 0x00},
+	{0x9eaa, 0x00},
+	{0x9eab, 0x00},
+	{0x9eac, 0x09},
+	{0x9ead, 0x09},
+	{0x9eae, 0x09},
+	{0x9ec9, 0x0a},
+	{0x9ecb, 0x0a},
+	{0x9ecd, 0x0a},
+	{0x9f17, 0x35},
+	{0x9f1d, 0x31},
+	{0x9f29, 0x50},
+	{0x9f3b, 0x2f},
+	{0x9f41, 0x6b},
+	{0x9f47, 0x42},
+	{0x9f4d, 0x5a},
+	{0x9f6b, 0x00},
+	{0x9f71, 0xc8},
+	{0x9f73, 0x32},
+	{0x9f75, 0x04},
+	{0x9f94, 0x0f},
+	{0x9f95, 0x0f},
+	{0x9f96, 0x0f},
+	{0x9f97, 0x00},
+	{0x9f98, 0x00},
+	{0x9f99, 0x00},
+	{0x9f9a, 0x2f},
+	{0x9f9b, 0x2f},
+	{0x9f9c, 0x2f},
+	{0x9f9d, 0x00},
+	{0x9f9e, 0x00},
+	{0x9f9f, 0x00},
+	{0x9fa0, 0x0f},
+	{0x9fa1, 0x0f},
+	{0x9fa2, 0x0f},
+	{0x9fa3, 0x00},
+	{0x9fa4, 0x00},
+	{0x9fa5, 0x00},
+	{0x9fa6, 0x1e},
+	{0x9fa7, 0x1e},
+	{0x9fa8, 0x1e},
+	{0x9fa9, 0x00},
+	{0x9faa, 0x00},
+	{0x9fab, 0x00},
+	{0x9fac, 0x09},
+	{0x9fad, 0x09},
+	{0x9fae, 0x09},
+	{0x9fc9, 0x0a},
+	{0x9fcb, 0x0a},
+	{0x9fcd, 0x0a},
+	{0xa14b, 0xff},
+	{0xa151, 0x0c},
+	{0xa153, 0x50},
+	{0xa155, 0x02},
+	{0xa157, 0x00},
+	{0xa1ad, 0xff},
+	{0xa1b3, 0x0c},
+	{0xa1b5, 0x50},
+	{0xa1b9, 0x00},
+	{0xa24b, 0xff},
+	{0xa257, 0x00},
+	{0xa2ad, 0xff},
+	{0xa2b9, 0x00},
+	{0xb21f, 0x04},
+	{0xb35c, 0x00},
+	{0xb35e, 0x08},
+	{0x0114, 0x01},
+	{0x0350, 0x00},
+	{0xbcf1, 0x02},
+	{0x3ff9, 0x01},
+	{0x0220, 0x00},
+	{0x0221, 0x11},
+	{0x0381, 0x01},
+	{0x0383, 0x01},
+	{0x0385, 0x01},
+	{0x0387, 0x01},
+	{0x0902, 0x02},
+	{0x3140, 0x02},
+	{0x3c00, 0x00},
+	{0x9e9a, 0x2f},
+	{0x9e9b, 0x2f},
+	{0x9e9c, 0x2f},
+	{0x9e9d, 0x00},
+	{0x9e9e, 0x00},
+	{0x9e9f, 0x00},
+	{0x0301, 0x05},
+	{0x0303, 0x02},
+	{0x030b, 0x02},
+	{0x030d, 0x02},
+	{0x0310, 0x01},
+	{0x080a, 0x00},
+	{0x080b, 0x7f},
+	{0x080c, 0x00},
+	{0x080d, 0x4f},
+	{0x080e, 0x00},
+	{0x080f, 0x77},
+	{0x0810, 0x00},
+	{0x0811, 0x5f},
+	{0x0812, 0x00},
+	{0x0813, 0x57},
+	{0x0814, 0x00},
+	{0x0815, 0x4f},
+	{0x0816, 0x01},
+	{0x0817, 0x27},
+	{0x0818, 0x00},
+	{0x0819, 0x3f},
+	{0x3e20, 0x01},
+	{0x3e37, 0x00},
+	{0x3f50, 0x00},
+	{REG_NULL, 0x00},
+};
+
+static const struct regval imx577_2lane_4056x3040_regs[] = {
+	{0x0344, 0x00},
+	{0x0345, 0x00},
+	{0x0346, 0x00},
+	{0x0347, 0x00},
+	{0x0348, 0x0f},
+	{0x0349, 0xd7},
+	{0x034a, 0x0b},
+	{0x034b, 0xdf},
+	{0x00e3, 0x00},
+	{0x00e4, 0x00},
+	{0x00fc, 0x0a},
+	{0x00fd, 0x0a},
+	{0x00fe, 0x0a},
+	{0x00ff, 0x0a},
+	{0x0900, 0x00},
+	{0x0901, 0x11},
+	{0x3c01, 0x03},
+	{0x3c02, 0xa2},
+	{0x5748, 0x07},
+	{0x5749, 0xff},
+	{0x574a, 0x00},
+	{0x574b, 0x00},
+	{0x7b75, 0x0a},
+	{0x7b76, 0x0c},
+	{0x7b77, 0x07},
+	{0x7b78, 0x06},
+	{0x7b79, 0x3c},
+	{0x7b53, 0x01},
+	{0x9369, 0x5a},
+	{0x936b, 0x55},
+	{0x936d, 0x28},
+	{0x9304, 0x00},
+	{0x9305, 0x00},
+	{0xa2a9, 0x60},
+	{0xa2b7, 0x00},
+	{0x0401, 0x00},
+	{0x0404, 0x00},
+	{0x0405, 0x10},
+	{0x0408, 0x00},
+	{0x0409, 0x00},
+	{0x040a, 0x00},
+	{0x040b, 0x00},
+	{0x040c, 0x0f},
+	{0x040d, 0xd8},
+	{0x040e, 0x0b},
+	{0x040f, 0xe0},
+	{0x034c, 0x0f},
+	{0x034d, 0xd8},
+	{0x034e, 0x0b},
+	{0x034f, 0xe0},
+	{0x0305, 0x04},
+	{0x0306, 0x01},
+	{0x0307, 0x5e},
+	{0xe04c, 0x00},
+	{0xe04d, 0x7f},
+	{0xe04e, 0x00},
+	{0xe04f, 0x1f},
+	{0x3f56, 0x02},
+	{0x3f57, 0xae},
+	{REG_NULL, 0x00},
+};
+
+static const struct regval imx577_2lane_4056x2160_regs[] = {
+	{0x0344, 0x00},
+	{0x0345, 0x00},
+	{0x0346, 0x01},
+	{0x0347, 0xb8},
+	{0x0348, 0x0f},
+	{0x0349, 0xd7},
+	{0x034a, 0x0a},
+	{0x034b, 0x27},
+	{0x00e3, 0x00},
+	{0x00e4, 0x00},
+	{0x00fc, 0x0a},
+	{0x00fd, 0x0a},
+	{0x00fe, 0x0a},
+	{0x00ff, 0x0a},
+	{0x0900, 0x00},
+	{0x0901, 0x11},
+	{0x3c01, 0x03},
+	{0x3c02, 0xa2},
+	{0x5748, 0x07},
+	{0x5749, 0xff},
+	{0x574a, 0x00},
+	{0x574b, 0x00},
+	{0x7b75, 0x0a},
+	{0x7b76, 0x0c},
+	{0x7b77, 0x07},
+	{0x7b78, 0x06},
+	{0x7b79, 0x3c},
+	{0x7b53, 0x01},
+	{0x9369, 0x5a},
+	{0x936b, 0x55},
+	{0x936d, 0x28},
+	{0x9304, 0x00},
+	{0x9305, 0x00},
+	{0xa2a9, 0x60},
+	{0xa2b7, 0x00},
+	{0x0401, 0x00},
+	{0x0404, 0x00},
+	{0x0405, 0x10},
+	{0x0408, 0x00},
+	{0x0409, 0x00},
+	{0x040a, 0x00},
+	{0x040b, 0x00},
+	{0x040c, 0x0f},
+	{0x040d, 0xd8},
+	{0x040e, 0x08},
+	{0x040f, 0x70},
+	{0x034c, 0x0f},
+	{0x034d, 0xd8},
+	{0x034e, 0x08},
+	{0x034f, 0x70},
+	{0x0305, 0x04},
+	{0x0306, 0x01},
+	{0x0307, 0x5e},
+	{0xe04c, 0x00},
+	{0xe04d, 0x7f},
+	{0xe04e, 0x00},
+	{0xe04f, 0x1f},
+	{0x3f56, 0x02},
+	{0x3f57, 0xae},
+	{REG_NULL, 0x00},
+};
+
+static const struct regval imx577_2lane_2028x1520_regs[] = {
+	{0x0344, 0x00},
+	{0x0345, 0x00},
+	{0x0346, 0x00},
+	{0x0347, 0x00},
+	{0x0348, 0x0f},
+	{0x0349, 0xd7},
+	{0x034a, 0x0b},
+	{0x034b, 0xdf},
+	{0x0900, 0x01},
+	{0x0901, 0x22},
+	{0x3c01, 0x03},
+	{0x3c02, 0xa2},
+	{0x5748, 0x07},
+	{0x5749, 0xff},
+	{0x574a, 0x00},
+	{0x574b, 0x00},
+	{0x7b53, 0x01},
+	{0x9369, 0x73},
+	{0x936b, 0x64},
+	{0x936d, 0x5f},
+	{0x9304, 0x00},
+	{0x9305, 0x00},
+	{0xa2a9, 0x60},
+	{0xa2b7, 0x00},
+	{0x0401, 0x00},
+	{0x0404, 0x00},
+	{0x0405, 0x20},
+	{0x0408, 0x00},
+	{0x0409, 0x00},
+	{0x040a, 0x00},
+	{0x040b, 0x00},
+	{0x040c, 0x0f},
+	{0x040d, 0xd8},
+	{0x040e, 0x0b},
+	{0x040f, 0xe0},
+	{0x034c, 0x07},
+	{0x034d, 0xec},
+	{0x034e, 0x05},
+	{0x034f, 0xf0},
+	{0x0305, 0x04},
+	{0x0306, 0x01},
+	{0x0307, 0x5e},
+	{0xe04c, 0x00},
+	{0xe04d, 0x7f},
+	{0xe04e, 0x00},
+	{0xe04f, 0x1f},
+	{0x3f56, 0x01},
+	{0x3f57, 0x6c},
+	{REG_NULL, 0x00},
+};
+
+static const struct regval imx577_2lane_2028x1080_regs[] = {
+	{0x0344, 0x00},
+	{0x0345, 0x00},
+	{0x0346, 0x01},
+	{0x0347, 0xb8},
+	{0x0348, 0x0f},
+	{0x0349, 0xd7},
+	{0x034a, 0x0a},
+	{0x034b, 0x27},
+	{0x0900, 0x01},
+	{0x0901, 0x22},
+	{0x3c01, 0x03},
+	{0x3c02, 0xa2},
+	{0x5748, 0x07},
+	{0x5749, 0xff},
+	{0x574a, 0x00},
+	{0x574b, 0x00},
+	{0x7b53, 0x01},
+	{0x9369, 0x73},
+	{0x936b, 0x64},
+	{0x936d, 0x5f},
+	{0x9304, 0x00},
+	{0x9305, 0x00},
+	{0xa2a9, 0x60},
+	{0xa2b7, 0x00},
+	{0x0401, 0x00},
+	{0x0404, 0x00},
+	{0x0405, 0x20},
+	{0x0408, 0x00},
+	{0x0409, 0x00},
+	{0x040a, 0x00},
+	{0x040b, 0x00},
+	{0x040c, 0x0f},
+	{0x040d, 0xd8},
+	{0x040e, 0x04},
+	{0x040f, 0x38},
+	{0x034c, 0x07},
+	{0x034d, 0xec},
+	{0x034e, 0x04},
+	{0x034f, 0x38},
+	{0x0305, 0x04},
+	{0x0306, 0x01},
+	{0x0307, 0x5e},
+	{0xe04c, 0x00},
+	{0xe04d, 0x7f},
+	{0xe04e, 0x00},
+	{0xe04f, 0x1f},
+	{0x3f56, 0x01},
+	{0x3f57, 0x6c},
+	{REG_NULL, 0x00},
+};
+
+static const struct regval imx577_2lane_1332x990_regs[] = {
+	{0x420b, 0x01},
+	{0x990c, 0x00},
+	{0x990d, 0x08},
+	{0x9956, 0x8c},
+	{0x9957, 0x64},
+	{0x9958, 0x50},
+	{0x9a48, 0x06},
+	{0x9a49, 0x06},
+	{0x9a4a, 0x06},
+	{0x9a4b, 0x06},
+	{0x9a4c, 0x06},
+	{0x9a4d, 0x06},
+	{0x0114, 0x01},
+	{0x0340, 0x04},
+	{0x0341, 0x1a},
+	{0x0344, 0x00},
+	{0x0345, 0x00},
+	{0x0346, 0x02},
+	{0x0347, 0x10},
+	{0x0348, 0x0f},
+	{0x0349, 0xd7},
+	{0x034a, 0x09},
+	{0x034b, 0xcf},
+	{0x00e3, 0x00},
+	{0x00e4, 0x00},
+	{0x00fc, 0x0a},
+	{0x00fd, 0x0a},
+	{0x00fe, 0x0a},
+	{0x00ff, 0x0a},
+	{0xe013, 0x00},
+	{0x0220, 0x00},
+	{0x0221, 0x11},
+	{0x0381, 0x01},
+	{0x0383, 0x01},
+	{0x0385, 0x01},
+	{0x0387, 0x01},
+	{0x0900, 0x01},
+	{0x0901, 0x22},
+	{0x0902, 0x02},
+	{0x3140, 0x02},
+	{0x3c00, 0x00},
+	{0x3c01, 0x01},
+	{0x3c02, 0x9c},
+	{0x5748, 0x00},
+	{0x5749, 0x00},
+	{0x574a, 0x00},
+	{0x574b, 0xa4},
+	{0x7b75, 0x0e},
+	{0x7b76, 0x09},
+	{0x7b77, 0x08},
+	{0x7b78, 0x06},
+	{0x7b79, 0x34},
+	{0x7b53, 0x00},
+	{0x9369, 0x73},
+	{0x936b, 0x64},
+	{0x936d, 0x5f},
+	{0x9304, 0x03},
+	{0x9305, 0x80},
+	{0xa2a9, 0x27},
+	{0xa2b7, 0x03},
+	{0x0401, 0x00},
+	{0x0404, 0x00},
+	{0x0405, 0x10},
+	{0x0408, 0x01},
+	{0x0409, 0x5c},
+	{0x040a, 0x00},
+	{0x040b, 0x00},
+	{0x040c, 0x05},
+	{0x040d, 0x34},
+	{0x040e, 0x03},
+	{0x040f, 0xde},
+	{0x034c, 0x05},
+	{0x034d, 0x34},
+	{0x034e, 0x03},
+	{0x034f, 0xde},
+	{0x0305, 0x02},
+	{0x0306, 0x00},
+	{0x0307, 0xaf},
+	{0xe04c, 0x00},
+	{0xe04d, 0x5f},
+	{0xe04e, 0x00},
+	{0xe04f, 0x1f},
+	{0x3f56, 0x00},
+	{0x3f57, 0xbf},
+	{REG_NULL, 0x00},
+};
+
+/* Rockchip RAW10 overrides, applied after the selected two-lane mode table. */
+static const struct regval imx577_2lane_raw10_regs[] = {
+	{IMX577_REG_CSI_FORMAT, 0x0a},
+	{IMX577_REG_CSI_FORMAT + 1, 0x0a},
+	{IMX577_REG_IOP_PIX_DIV, 0x0a},
+	{IMX577_REG_ADBIT_MODE, 0x00},
+	{IMX577_REG_LONG_EXP_SHIFT, 0x00},
+	{0x0b05, 0x01},
+	{0x0b06, 0x01},
+	{REG_NULL, 0x00},
+};
+
+/*
+ * Two-lane mode timing uses the VT clock, not CSI payload throughput.
+ * The 4056x2160 frame length includes 64 blanking lines for the RK receiver.
+ */
+static const struct imx577_mode imx577_2lane_modes[] = {
+	{
+		.bus_fmt = MEDIA_BUS_FMT_SRGGB10_1X10,
+		.width = 2028,
+		.height = 1520,
+		.max_fps = {
+			.numerator = IMX577_2LANE_HTS(2028) * 2197,
+			.denominator = IMX577_2LANE_VT_PIXEL_RATE,
+		},
+		.hts_def = IMX577_2LANE_HTS(2028),
+		.vts_def = 2197,
+		.exp_def = 0x640,
+		.bpp = 10,
+		.reg_list = imx577_2lane_2028x1520_regs,
+		.hdr_mode = NO_HDR,
+		.link_freq_idx = 0,
+		.vc[PAD0] = 0,
+	},
+	{
+		.bus_fmt = MEDIA_BUS_FMT_SRGGB10_1X10,
+		.width = 4056,
+		.height = 3040,
+		.max_fps = {
+			.numerator = IMX577_2LANE_HTS(4056) * 3500,
+			.denominator = IMX577_2LANE_VT_PIXEL_RATE,
+		},
+		.hts_def = IMX577_2LANE_HTS(4056),
+		.vts_def = 3500,
+		.exp_def = 0x640,
+		.bpp = 10,
+		.reg_list = imx577_2lane_4056x3040_regs,
+		.hdr_mode = NO_HDR,
+		.link_freq_idx = 0,
+		.vc[PAD0] = 0,
+	},
+	{
+		.bus_fmt = MEDIA_BUS_FMT_SRGGB10_1X10,
+		.width = 4056,
+		.height = 2160,
+		.max_fps = {
+			.numerator = IMX577_2LANE_HTS(4056) * 2224,
+			.denominator = IMX577_2LANE_VT_PIXEL_RATE,
+		},
+		.hts_def = IMX577_2LANE_HTS(4056),
+		.vts_def = 2224,
+		.exp_def = 0x640,
+		.bpp = 10,
+		.reg_list = imx577_2lane_4056x2160_regs,
+		.hdr_mode = NO_HDR,
+		.link_freq_idx = 0,
+		.vc[PAD0] = 0,
+	},
+	{
+		.bus_fmt = MEDIA_BUS_FMT_SRGGB10_1X10,
+		.width = 2028,
+		.height = 1080,
+		.max_fps = {
+			.numerator = IMX577_2LANE_HTS(2028) * 2197,
+			.denominator = IMX577_2LANE_VT_PIXEL_RATE,
+		},
+		.hts_def = IMX577_2LANE_HTS(2028),
+		.vts_def = 2197,
+		.exp_def = 0x640,
+		.bpp = 10,
+		.reg_list = imx577_2lane_2028x1080_regs,
+		.hdr_mode = NO_HDR,
+		.link_freq_idx = 0,
+		.vc[PAD0] = 0,
+	},
+	{
+		.bus_fmt = MEDIA_BUS_FMT_SRGGB10_1X10,
+		.width = 1332,
+		.height = 990,
+		.max_fps = {
+			.numerator = IMX577_2LANE_HTS(1332) * 1050,
+			.denominator = IMX577_2LANE_VT_PIXEL_RATE,
+		},
+		.hts_def = IMX577_2LANE_HTS(1332),
+		.vts_def = 1050,
+		.exp_def = 0x400,
+		.bpp = 10,
+		.reg_list = imx577_2lane_1332x990_regs,
+		.hdr_mode = NO_HDR,
+		.link_freq_idx = 0,
+		.vc[PAD0] = 0,
+	},
+};
+
+static const s64 imx577_2lane_link_freq_items[] = {
+	IMX577_2LANE_LINK_FREQ,
+};
+
+static const char * const imx577_2lane_test_pattern_menu[] = {
+	"Disabled",
+	"Solid Color",
+	"Color Bars",
+	"Grey Color",
+	"PN9",
+};
+
+/* Shared register I/O and V4L2 operations. */
 /* Write registers up to 4 at a time */
 static int imx577_write_reg(struct i2c_client *client, u16 reg,
 			     u32 len, u32 val)
@@ -1120,7 +1946,7 @@ static int imx577_get_reso_dist(const struct imx577_mode *mode,
 }
 
 static const struct imx577_mode *
-imx577_find_best_fit(struct v4l2_subdev_format *fmt)
+imx577_find_best_fit(struct imx577 *imx577, struct v4l2_subdev_format *fmt)
 {
 	struct v4l2_mbus_framefmt *framefmt = &fmt->format;
 	int dist;
@@ -1128,15 +1954,45 @@ imx577_find_best_fit(struct v4l2_subdev_format *fmt)
 	int cur_best_fit_dist = -1;
 	unsigned int i;
 
-	for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
-		dist = imx577_get_reso_dist(&supported_modes[i], framefmt);
+	for (i = 0; i < imx577->cfg_num; i++) {
+		dist = imx577_get_reso_dist(&imx577->supported_modes[i], framefmt);
 		if (cur_best_fit_dist == -1 || dist < cur_best_fit_dist) {
 			cur_best_fit_dist = dist;
 			cur_best_fit = i;
 		}
 	}
 
-	return &supported_modes[cur_best_fit];
+	return &imx577->supported_modes[cur_best_fit];
+}
+
+static int imx577_2lane_update_controls(struct imx577 *imx577)
+{
+	const struct imx577_mode *mode = imx577->cur_mode;
+	u32 hblank = mode->hts_def - mode->width;
+	u32 vblank = mode->vts_def - mode->height;
+	int ret;
+
+	ret = __v4l2_ctrl_modify_range(imx577->hblank, hblank, hblank, 1, hblank);
+	if (ret)
+		return ret;
+	ret = __v4l2_ctrl_modify_range(imx577->vblank, vblank,
+				       IMX577_2LANE_VTS_MAX - mode->height, 1, vblank);
+	if (ret)
+		return ret;
+	ret = __v4l2_ctrl_modify_range(imx577->exposure, IMX577_EXPOSURE_MIN,
+				       mode->vts_def - CIT_MARGIN,
+				       IMX577_EXPOSURE_STEP, mode->exp_def);
+	if (ret)
+		return ret;
+
+	imx577->cur_vts = mode->vts_def;
+	ret = __v4l2_ctrl_s_ctrl(imx577->vblank, vblank);
+	if (ret)
+		return ret;
+	ret = __v4l2_ctrl_s_ctrl(imx577->link_freq, mode->link_freq_idx);
+	if (ret)
+		return ret;
+	return __v4l2_ctrl_s_ctrl_int64(imx577->pixel_rate, IMX577_2LANE_VT_PIXEL_RATE);
 }
 
 static int imx577_set_fmt(struct v4l2_subdev *sd,
@@ -1148,10 +2004,20 @@ static int imx577_set_fmt(struct v4l2_subdev *sd,
 	s64 h_blank, vblank_def;
 	u64 pixel_rate = 0;
 	u32 lane_num = imx577->bus_cfg.bus.mipi_csi2.num_data_lanes;
+	int ret = 0;
+
+	if (imx577_is_2lane(imx577) && fmt->pad)
+		return -EINVAL;
 
 	mutex_lock(&imx577->mutex);
 
-	mode = imx577_find_best_fit(fmt);
+	if (imx577_is_2lane(imx577) && imx577->streaming &&
+	    fmt->which == V4L2_SUBDEV_FORMAT_ACTIVE) {
+		ret = -EBUSY;
+		goto unlock;
+	}
+
+	mode = imx577_find_best_fit(imx577, fmt);
 	fmt->format.code = mode->bus_fmt;
 	fmt->format.width = mode->width;
 	fmt->format.height = mode->height;
@@ -1165,15 +2031,20 @@ static int imx577_set_fmt(struct v4l2_subdev *sd,
 #endif
 	} else {
 		imx577->cur_mode = mode;
+		if (imx577_is_2lane(imx577)) {
+			ret = imx577_2lane_update_controls(imx577);
+			goto unlock;
+		}
 		imx577->cur_vts = imx577->cur_mode->vts_def;
 		h_blank = mode->hts_def - mode->width;
 		__v4l2_ctrl_modify_range(imx577->hblank, h_blank,
 					 h_blank, 1, h_blank);
 		vblank_def = mode->vts_def - mode->height;
 		__v4l2_ctrl_modify_range(imx577->vblank, vblank_def,
-					 IMX577_VTS_MAX - mode->height,
+					 IMX577_4LANE_VTS_MAX - mode->height,
 					 1, vblank_def);
-		pixel_rate = (u32)link_freq_items[mode->link_freq_idx] / mode->bpp * 2 * lane_num;
+		pixel_rate = (u32)imx577->link_freq_menu[mode->link_freq_idx] /
+			     mode->bpp * 2 * lane_num;
 
 		__v4l2_ctrl_s_ctrl_int64(imx577->pixel_rate,
 					 pixel_rate);
@@ -1181,9 +2052,10 @@ static int imx577_set_fmt(struct v4l2_subdev *sd,
 				   mode->link_freq_idx);
 	}
 
+unlock:
 	mutex_unlock(&imx577->mutex);
 
-	return 0;
+	return ret;
 }
 
 static int imx577_get_fmt(struct v4l2_subdev *sd,
@@ -1191,9 +2063,13 @@ static int imx577_get_fmt(struct v4l2_subdev *sd,
 			   struct v4l2_subdev_format *fmt)
 {
 	struct imx577 *imx577 = to_imx577(sd);
-	const struct imx577_mode *mode = imx577->cur_mode;
+	const struct imx577_mode *mode;
+
+	if (imx577_is_2lane(imx577) && fmt->pad)
+		return -EINVAL;
 
 	mutex_lock(&imx577->mutex);
+	mode = imx577->cur_mode;
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
 #ifdef CONFIG_VIDEO_V4L2_SUBDEV_API
 		fmt->format = *v4l2_subdev_get_try_format(sd, sd_state, fmt->pad);
@@ -1222,7 +2098,7 @@ static int imx577_enum_mbus_code(struct v4l2_subdev *sd,
 {
 	struct imx577 *imx577 = to_imx577(sd);
 
-	if (code->index != 0)
+	if (code->index != 0 || (imx577_is_2lane(imx577) && code->pad))
 		return -EINVAL;
 	code->code = imx577->cur_mode->bus_fmt;
 
@@ -1233,16 +2109,21 @@ static int imx577_enum_frame_sizes(struct v4l2_subdev *sd,
 				    struct v4l2_subdev_state *sd_state,
 				   struct v4l2_subdev_frame_size_enum *fse)
 {
-	if (fse->index >= ARRAY_SIZE(supported_modes))
+	struct imx577 *imx577 = to_imx577(sd);
+	const struct imx577_mode *mode;
+
+	if (fse->index >= imx577->cfg_num ||
+	    (imx577_is_2lane(imx577) && fse->pad))
 		return -EINVAL;
 
-	if (fse->code != supported_modes[fse->index].bus_fmt)
+	mode = &imx577->supported_modes[fse->index];
+	if (fse->code != mode->bus_fmt)
 		return -EINVAL;
 
-	fse->min_width  = supported_modes[fse->index].width;
-	fse->max_width  = supported_modes[fse->index].width;
-	fse->max_height = supported_modes[fse->index].height;
-	fse->min_height = supported_modes[fse->index].height;
+	fse->min_width  = mode->width;
+	fse->max_width  = mode->width;
+	fse->max_height = mode->height;
+	fse->min_height = mode->height;
 
 	return 0;
 }
@@ -1251,10 +2132,14 @@ static int imx577_enable_test_pattern(struct imx577 *imx577, u32 pattern)
 {
 	u32 val;
 
+	if (imx577_is_2lane(imx577))
+		return imx577_write_reg(imx577->client, IMX577_REG_TEST_PATTERN,
+					IMX577_REG_VALUE_16BIT, pattern);
+
 	if (pattern)
-		val = (pattern - 1) | IMX577_TEST_PATTERN_ENABLE;
+		val = (pattern - 1) | IMX577_4LANE_TEST_PATTERN_ENABLE;
 	else
-		val = IMX577_TEST_PATTERN_DISABLE;
+		val = IMX577_4LANE_TEST_PATTERN_DISABLE;
 
 	return imx577_write_reg(imx577->client,
 				 IMX577_REG_TEST_PATTERN,
@@ -1266,9 +2151,19 @@ static int imx577_g_frame_interval(struct v4l2_subdev *sd,
 				    struct v4l2_subdev_frame_interval *fi)
 {
 	struct imx577 *imx577 = to_imx577(sd);
-	const struct imx577_mode *mode = imx577->cur_mode;
 
-	fi->interval = mode->max_fps;
+	if (imx577_is_2lane(imx577) && fi->pad)
+		return -EINVAL;
+
+	mutex_lock(&imx577->mutex);
+	if (imx577_is_2lane(imx577)) {
+		fi->interval.numerator = imx577->cur_mode->hts_def *
+			(imx577->cur_mode->height + imx577->vblank->val);
+		fi->interval.denominator = IMX577_2LANE_VT_PIXEL_RATE;
+	} else {
+		fi->interval = imx577->cur_mode->max_fps;
+	}
+	mutex_unlock(&imx577->mutex);
 
 	return 0;
 }
@@ -1299,8 +2194,8 @@ static void imx577_set_lsc_cfg(struct imx577 *imx577,
 	mutex_unlock(&imx577->mutex);
 }
 
-static int imx577_set_hdrae(struct imx577 *imx577,
-			    struct preisp_hdrae_exp_s *ae)
+static int imx577_4lane_set_hdrae(struct imx577 *imx577,
+				  struct preisp_hdrae_exp_s *ae)
 {
 	struct i2c_client *client = imx577->client;
 	u32 l_exp_time, m_exp_time, s_exp_time;
@@ -1382,15 +2277,15 @@ static int imx577_set_hdrae(struct imx577 *imx577,
 
 	if (dol_cit2 < 2)
 		dol_cit2 = 2;
-	else if (dol_cit2 > fll - BRL_FULL - CIT_MARGIN)
-		dol_cit2 = fll - BRL_FULL - CIT_MARGIN;
+	else if (dol_cit2 > fll - IMX577_4LANE_BRL_FULL - CIT_MARGIN)
+		dol_cit2 = fll - IMX577_4LANE_BRL_FULL - CIT_MARGIN;
 	dol_cit2 &= (~0x1);
 
 	dol_off2 = (dol_cit2 + CIT_MARGIN) & (~0x1);
 	if (dol_off2 < dol_cit2 + CIT_MARGIN)
 		dol_off2 = (dol_cit2 + CIT_MARGIN) & (~0x1);
-	else if (dol_off2 > fll - BRL_FULL)
-		dol_off2 = (fll - BRL_FULL) & (~0x1);
+	else if (dol_off2 > fll - IMX577_4LANE_BRL_FULL)
+		dol_off2 = (fll - IMX577_4LANE_BRL_FULL) & (~0x1);
 
 	dev_dbg(&client->dev,
 		"l_exp_time=%d,s_exp_time=%d,fll=%d,rhs1=%d,l_a_gain=%d,s_a_gain=%d\n",
@@ -1455,7 +2350,7 @@ static long imx577_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 	switch (cmd) {
 	case PREISP_CMD_SET_HDRAE_EXP:
 		if (imx577->cur_mode->hdr_mode == HDR_X2)
-			ret = imx577_set_hdrae(imx577, arg);
+			ret = imx577_4lane_set_hdrae(imx577, arg);
 		break;
 	case RKMODULE_GET_MODULE_INFO:
 		imx577_get_module_inf(imx577, (struct rkmodule_inf *)arg);
@@ -1467,17 +2362,22 @@ static long imx577_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 		break;
 	case RKMODULE_SET_HDR_CFG:
 		hdr = (struct rkmodule_hdr_cfg *)arg;
+		if (imx577_is_2lane(imx577)) {
+			if (hdr->hdr_mode != NO_HDR)
+				ret = -EINVAL;
+			break;
+		}
 		w = imx577->cur_mode->width;
 		h = imx577->cur_mode->height;
-		for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
-			if (w == supported_modes[i].width &&
-			    h == supported_modes[i].height &&
-			    supported_modes[i].hdr_mode == hdr->hdr_mode) {
-				imx577->cur_mode = &supported_modes[i];
+		for (i = 0; i < imx577->cfg_num; i++) {
+			if (w == imx577->supported_modes[i].width &&
+			    h == imx577->supported_modes[i].height &&
+			    imx577->supported_modes[i].hdr_mode == hdr->hdr_mode) {
+				imx577->cur_mode = &imx577->supported_modes[i];
 				break;
 			}
 		}
-		if (i == ARRAY_SIZE(supported_modes)) {
+		if (i == imx577->cfg_num) {
 			dev_err(&imx577->client->dev,
 				"not find hdr mode:%d %dx%d config\n",
 				hdr->hdr_mode, w, h);
@@ -1490,10 +2390,10 @@ static long imx577_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 			mutex_lock(&imx577->mutex);
 			__v4l2_ctrl_modify_range(imx577->hblank, w, w, 1, w);
 			__v4l2_ctrl_modify_range(imx577->vblank, h,
-				IMX577_VTS_MAX - mode->height,
+				IMX577_4LANE_VTS_MAX - mode->height,
 				1, h);
 			__v4l2_ctrl_s_ctrl(imx577->link_freq, mode->link_freq_idx);
-			dst_pixel_rate = (u32)link_freq_items[mode->link_freq_idx] /
+			dst_pixel_rate = (u32)imx577->link_freq_menu[mode->link_freq_idx] /
 					mode->bpp * 2 * lane_num;
 			__v4l2_ctrl_s_ctrl_int64(imx577->pixel_rate,
 						 dst_pixel_rate);
@@ -1666,11 +2566,43 @@ static long imx577_compat_ioctl32(struct v4l2_subdev *sd,
 }
 #endif
 
+static int imx577_2lane_configure(struct imx577 *imx577)
+{
+	struct i2c_client *client = imx577->client;
+	int ret;
+
+	/* Restore the complete two-lane state after runtime power loss. */
+	ret = imx577_write_array(client, imx577_2lane_common_regs);
+	if (ret)
+		return ret;
+	/* 24 MHz / 2 * 150 / 2 = 900 Mbit/s per lane. */
+	ret = imx577_write_reg(client, IMX577_REG_IOP_PLL_MPY,
+			       IMX577_REG_VALUE_16BIT, 150);
+	if (ret)
+		return ret;
+	ret = imx577_write_reg(client, IMX577_REG_LINK_BIT_RATE,
+			       IMX577_REG_VALUE_32BIT,
+			       (IMX577_2LANE_LINK_FREQ / 1000000 * 4) << 16);
+	if (ret)
+		return ret;
+	ret = imx577_write_array(client, imx577->cur_mode->reg_list);
+	if (ret)
+		return ret;
+	ret = imx577_write_array(client, imx577_2lane_raw10_regs);
+	if (ret)
+		return ret;
+	return imx577_write_reg(client, IMX577_REG_HTS,
+				IMX577_REG_VALUE_16BIT, imx577->cur_mode->hts_def);
+}
+
 static int __imx577_start_stream(struct imx577 *imx577)
 {
 	int ret;
 
-	ret = imx577_write_array(imx577->client, imx577->cur_mode->reg_list);
+	if (imx577_is_2lane(imx577))
+		ret = imx577_2lane_configure(imx577);
+	else
+		ret = imx577_write_array(imx577->client, imx577->cur_mode->reg_list);
 	if (ret)
 		return ret;
 
@@ -1766,7 +2698,9 @@ static int imx577_s_power(struct v4l2_subdev *sd, int on)
 			goto unlock_and_return;
 		}
 
-		ret = imx577_write_array(imx577->client, imx577_global_regs);
+		ret = imx577_write_array(imx577->client,
+					 imx577_is_2lane(imx577) ? imx577_2lane_common_regs :
+					 imx577_4lane_common_regs);
 		if (ret) {
 			v4l2_err(sd, "could not set init registers\n");
 			pm_runtime_put_noidle(&client->dev);
@@ -1808,15 +2742,30 @@ static int __imx577_power_on(struct imx577 *imx577)
 		if (ret < 0)
 			dev_err(dev, "could not set pins\n");
 	}
-	ret = clk_set_rate(imx577->xvclk, IMX577_XVCLK_FREQ);
-	if (ret < 0)
-		dev_warn(dev, "Failed to set xvclk rate (24MHz)\n");
-	if (clk_get_rate(imx577->xvclk) != IMX577_XVCLK_FREQ)
-		dev_warn(dev, "xvclk mismatched, modes are based on 24MHz\n");
-	ret = clk_prepare_enable(imx577->xvclk);
-	if (ret < 0) {
-		dev_err(dev, "Failed to enable xvclk\n");
-		return ret;
+	if (imx577->xvclk) {
+		ret = clk_set_rate(imx577->xvclk, IMX577_XVCLK_FREQ);
+		if (imx577_is_2lane(imx577) &&
+		    (ret < 0 || clk_get_rate(imx577->xvclk) != IMX577_XVCLK_FREQ)) {
+			dev_err(dev,
+				"xvclk setup failed: expected %lu Hz, got %lu Hz (ret=%d)\n",
+				(unsigned long)IMX577_XVCLK_FREQ,
+				clk_get_rate(imx577->xvclk), ret);
+			if (!ret)
+				ret = -EINVAL;
+			goto disable_power;
+		}
+		if (ret < 0)
+			dev_warn(dev, "Failed to set xvclk rate to %lu Hz: %d\n",
+				 (unsigned long)IMX577_XVCLK_FREQ, ret);
+		if (clk_get_rate(imx577->xvclk) != IMX577_XVCLK_FREQ)
+			dev_warn(dev, "xvclk mismatch: expected %lu Hz, got %lu Hz\n",
+				 (unsigned long)IMX577_XVCLK_FREQ,
+				 clk_get_rate(imx577->xvclk));
+		ret = clk_prepare_enable(imx577->xvclk);
+		if (ret < 0) {
+			dev_err(dev, "Failed to enable xvclk\n");
+			goto disable_power;
+		}
 	}
 	if (!IS_ERR(imx577->reset_gpio))
 		gpiod_set_value_cansleep(imx577->reset_gpio, 0);
@@ -1841,7 +2790,11 @@ static int __imx577_power_on(struct imx577 *imx577)
 	return 0;
 
 disable_clk:
-	clk_disable_unprepare(imx577->xvclk);
+	if (imx577->xvclk)
+		clk_disable_unprepare(imx577->xvclk);
+disable_power:
+	if (!IS_ERR(imx577->power_gpio))
+		gpiod_set_value_cansleep(imx577->power_gpio, 0);
 
 	return ret;
 }
@@ -1853,7 +2806,8 @@ static void __imx577_power_off(struct imx577 *imx577)
 
 	if (!IS_ERR(imx577->pwdn_gpio))
 		gpiod_set_value_cansleep(imx577->pwdn_gpio, 0);
-	clk_disable_unprepare(imx577->xvclk);
+	if (imx577->xvclk)
+		clk_disable_unprepare(imx577->xvclk);
 	if (!IS_ERR(imx577->reset_gpio))
 		gpiod_set_value_cansleep(imx577->reset_gpio, 0);
 
@@ -1895,7 +2849,7 @@ static int imx577_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	struct imx577 *imx577 = to_imx577(sd);
 	struct v4l2_mbus_framefmt *try_fmt =
 				v4l2_subdev_get_try_format(sd, fh->state, 0);
-	const struct imx577_mode *def_mode = &supported_modes[0];
+	const struct imx577_mode *def_mode = &imx577->supported_modes[0];
 
 	mutex_lock(&imx577->mutex);
 	/* Initialize try_fmt */
@@ -1915,14 +2869,32 @@ static int imx577_enum_frame_interval(struct v4l2_subdev *sd,
 				       struct v4l2_subdev_state *sd_state,
 				       struct v4l2_subdev_frame_interval_enum *fie)
 {
-	if (fie->index >= ARRAY_SIZE(supported_modes))
-		return -EINVAL;
+	struct imx577 *imx577 = to_imx577(sd);
+	const struct imx577_mode *mode;
+	unsigned int i;
 
-	fie->code = supported_modes[fie->index].bus_fmt;
-	fie->width = supported_modes[fie->index].width;
-	fie->height = supported_modes[fie->index].height;
-	fie->interval = supported_modes[fie->index].max_fps;
-	fie->reserved[0] = supported_modes[fie->index].hdr_mode;
+	if (imx577_is_2lane(imx577) && (fie->code || fie->width || fie->height)) {
+		if (fie->pad || fie->index || fie->code != MEDIA_BUS_FMT_SRGGB10_1X10)
+			return -EINVAL;
+		for (i = 0; i < imx577->cfg_num; i++) {
+			mode = &imx577->supported_modes[i];
+			if (mode->width == fie->width && mode->height == fie->height)
+				break;
+		}
+		if (i == imx577->cfg_num)
+			return -EINVAL;
+	} else {
+		if (fie->index >= imx577->cfg_num ||
+		    (imx577_is_2lane(imx577) && fie->pad))
+			return -EINVAL;
+		mode = &imx577->supported_modes[fie->index];
+	}
+
+	fie->code = mode->bus_fmt;
+	fie->width = mode->width;
+	fie->height = mode->height;
+	fie->interval = mode->max_fps;
+	fie->reserved[0] = mode->hdr_mode;
 
 	return 0;
 }
@@ -1931,6 +2903,9 @@ static int imx577_g_mbus_config(struct v4l2_subdev *sd, unsigned int pad,
 				struct v4l2_mbus_config *config)
 {
 	struct imx577 *imx577 = to_imx577(sd);
+
+	if (imx577_is_2lane(imx577) && pad)
+		return -EINVAL;
 
 	config->type = V4L2_MBUS_CSI2_DPHY;
 	config->bus.mipi_csi2 = imx577->bus_cfg.bus.mipi_csi2;
@@ -1948,6 +2923,17 @@ static int imx577_get_selection(struct v4l2_subdev *sd,
 	struct imx577 *imx577 = to_imx577(sd);
 
 	if (sel->target == V4L2_SEL_TGT_CROP_BOUNDS) {
+		if (imx577_is_2lane(imx577)) {
+			if (sel->pad)
+				return -EINVAL;
+			mutex_lock(&imx577->mutex);
+			sel->r.left = 0;
+			sel->r.top = 0;
+			sel->r.width = imx577->cur_mode->width;
+			sel->r.height = imx577->cur_mode->height;
+			mutex_unlock(&imx577->mutex);
+			return 0;
+		}
 		if (imx577->cur_mode->width == 4056) {
 			sel->r.left = CROP_START(imx577->cur_mode->width, DST_WIDTH_4048);
 			sel->r.width = DST_WIDTH_4048;
@@ -2023,10 +3009,22 @@ static int imx577_set_ctrl(struct v4l2_ctrl *ctrl)
 		if (imx577->cur_mode->hdr_mode == NO_HDR) {
 			/* Update max exposure while meeting expected vblanking */
 			max = imx577->cur_mode->height + ctrl->val - 22;
-			__v4l2_ctrl_modify_range(imx577->exposure,
-					 imx577->exposure->minimum, max,
-					 imx577->exposure->step,
-					 imx577->exposure->default_value);
+			if (imx577_is_2lane(imx577)) {
+				ret = __v4l2_ctrl_modify_range(imx577->exposure,
+							       IMX577_EXPOSURE_MIN, max,
+							       IMX577_EXPOSURE_STEP,
+							       min_t(s64,
+								     imx577->cur_mode->exp_def,
+								     max));
+				if (ret)
+					return ret;
+				imx577->cur_vts = imx577->cur_mode->height + ctrl->val;
+			} else {
+				__v4l2_ctrl_modify_range(imx577->exposure,
+							 imx577->exposure->minimum, max,
+							 imx577->exposure->step,
+							 imx577->exposure->default_value);
+			}
 		}
 		break;
 	}
@@ -2036,6 +3034,11 @@ static int imx577_set_ctrl(struct v4l2_ctrl *ctrl)
 
 	switch (ctrl->id) {
 	case V4L2_CID_EXPOSURE:
+		if (imx577_is_2lane(imx577)) {
+			ret = imx577_write_reg(client, IMX577_REG_EXPOSURE_H,
+					       IMX577_REG_VALUE_16BIT, ctrl->val);
+			break;
+		}
 		/* 4 least significant bits of expsoure are fractional part */
 		if (imx577->cur_mode->hdr_mode != NO_HDR)
 			goto ctrl_end;
@@ -2142,6 +3145,8 @@ static int imx577_initialize_controls(struct imx577 *imx577)
 {
 	const struct imx577_mode *mode;
 	struct v4l2_ctrl_handler *handler;
+	const char * const *test_pattern_menu;
+	unsigned int test_pattern_count;
 	s64 exposure_max, vblank_def;
 	u32 h_blank;
 	int ret;
@@ -2155,20 +3160,25 @@ static int imx577_initialize_controls(struct imx577 *imx577)
 
 	imx577->link_freq = v4l2_ctrl_new_int_menu(handler, NULL,
 				V4L2_CID_LINK_FREQ,
-				ARRAY_SIZE(link_freq_items) - 1, 0,
-				link_freq_items);
+				imx577->link_freq_menu_count - 1, 0,
+				imx577->link_freq_menu);
+	if (imx577->link_freq && imx577_is_2lane(imx577))
+		imx577->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
-	if (imx577->cur_mode->bus_fmt == MEDIA_BUS_FMT_SRGGB10_1X10) {
+	if (imx577_is_2lane(imx577)) {
 		imx577->cur_link_freq = 0;
-		imx577->cur_pixel_rate = IMX577_PIXEL_RATE_1050M_10BIT;
+		imx577->cur_pixel_rate = IMX577_2LANE_VT_PIXEL_RATE;
+	} else if (imx577->cur_mode->bus_fmt == MEDIA_BUS_FMT_SRGGB10_1X10) {
+		imx577->cur_link_freq = 0;
+		imx577->cur_pixel_rate = IMX577_4LANE_PIXEL_RATE_1050M_10BIT;
 	} else if (imx577->cur_mode->bus_fmt == MEDIA_BUS_FMT_SRGGB12_1X12) {
 		imx577->cur_link_freq = 0;
-		imx577->cur_pixel_rate = IMX577_PIXEL_RATE_1050M_12BIT;
+		imx577->cur_pixel_rate = IMX577_4LANE_PIXEL_RATE_1050M_12BIT;
 	}
 
 	imx577->pixel_rate = v4l2_ctrl_new_std(handler, NULL,
 					       V4L2_CID_PIXEL_RATE,
-					       0, IMX577_PIXEL_RATE_1050M_10BIT,
+					       0, IMX577_PIXEL_RATE_MAX,
 					       1, imx577->cur_pixel_rate);
 
 	__v4l2_ctrl_s_ctrl(imx577->link_freq,
@@ -2183,7 +3193,8 @@ static int imx577_initialize_controls(struct imx577 *imx577)
 	vblank_def = mode->vts_def - mode->height;
 	imx577->vblank = v4l2_ctrl_new_std(handler, &imx577_ctrl_ops,
 				V4L2_CID_VBLANK, vblank_def,
-				IMX577_VTS_MAX - mode->height,
+				(imx577_is_2lane(imx577) ? IMX577_2LANE_VTS_MAX :
+				 IMX577_4LANE_VTS_MAX) - mode->height,
 				1, vblank_def);
 	imx577->cur_vts = mode->vts_def;
 	exposure_max = mode->vts_def - 22;
@@ -2197,10 +3208,16 @@ static int imx577_initialize_controls(struct imx577 *imx577)
 				IMX577_GAIN_MAX, IMX577_GAIN_STEP,
 				IMX577_GAIN_DEFAULT);
 
+	if (imx577_is_2lane(imx577)) {
+		test_pattern_menu = imx577_2lane_test_pattern_menu;
+		test_pattern_count = ARRAY_SIZE(imx577_2lane_test_pattern_menu);
+	} else {
+		test_pattern_menu = imx577_4lane_test_pattern_menu;
+		test_pattern_count = ARRAY_SIZE(imx577_4lane_test_pattern_menu);
+	}
 	imx577->test_pattern = v4l2_ctrl_new_std_menu_items(handler,
 				&imx577_ctrl_ops, V4L2_CID_TEST_PATTERN,
-				ARRAY_SIZE(imx577_test_pattern_menu) - 1,
-				0, 0, imx577_test_pattern_menu);
+				test_pattern_count - 1, 0, 0, test_pattern_menu);
 
 	if (handler->error) {
 		ret = handler->error;
@@ -2251,6 +3268,60 @@ static int imx577_configure_regulators(struct imx577 *imx577)
 				       imx577->supplies);
 }
 
+static int imx577_parse_endpoint(struct imx577 *imx577)
+{
+	struct device *dev = &imx577->client->dev;
+	struct device_node *endpoint;
+	unsigned int i;
+	int ret;
+
+	endpoint = of_graph_get_next_endpoint(dev->of_node, NULL);
+	if (!endpoint)
+		return dev_err_probe(dev, -EINVAL, "missing sensor endpoint\n");
+
+	imx577->bus_cfg.bus_type = V4L2_MBUS_CSI2_DPHY;
+	ret = v4l2_fwnode_endpoint_alloc_parse(of_fwnode_handle(endpoint),
+					       &imx577->bus_cfg);
+	of_node_put(endpoint);
+	if (ret)
+		goto out;
+
+	switch (imx577->bus_cfg.bus.mipi_csi2.num_data_lanes) {
+	case 2:
+		if (imx577->bus_cfg.nr_of_link_frequencies) {
+			for (i = 0; i < imx577->bus_cfg.nr_of_link_frequencies; i++)
+				if (imx577->bus_cfg.link_frequencies[i] ==
+				    IMX577_2LANE_LINK_FREQ)
+					break;
+			if (i == imx577->bus_cfg.nr_of_link_frequencies) {
+				ret = dev_err_probe(dev, -EINVAL,
+						    "two-lane modes require a 450 MHz link\n");
+				goto out;
+			}
+		}
+		imx577->bus_cfg.bus.mipi_csi2.flags |=
+			V4L2_MBUS_CSI2_NONCONTINUOUS_CLOCK;
+		imx577->supported_modes = imx577_2lane_modes;
+		imx577->cfg_num = ARRAY_SIZE(imx577_2lane_modes);
+		imx577->link_freq_menu = imx577_2lane_link_freq_items;
+		imx577->link_freq_menu_count = ARRAY_SIZE(imx577_2lane_link_freq_items);
+		break;
+	case 4:
+		imx577->supported_modes = imx577_4lane_modes;
+		imx577->cfg_num = ARRAY_SIZE(imx577_4lane_modes);
+		imx577->link_freq_menu = imx577_4lane_link_freq_items;
+		imx577->link_freq_menu_count = ARRAY_SIZE(imx577_4lane_link_freq_items);
+		break;
+	default:
+		ret = dev_err_probe(dev, -EINVAL, "only 2 or 4 data lanes are supported\n");
+		break;
+	}
+
+out:
+	v4l2_fwnode_endpoint_free(&imx577->bus_cfg);
+	return ret;
+}
+
 static int imx577_probe(struct i2c_client *client,
 			 const struct i2c_device_id *id)
 {
@@ -2258,7 +3329,6 @@ static int imx577_probe(struct i2c_client *client,
 	struct device_node *node = dev->of_node;
 	struct imx577 *imx577;
 	struct v4l2_subdev *sd;
-	struct device_node *endpoint;
 	char facing[2];
 	int ret;
 	u32 i, hdr_mode = 0;
@@ -2292,30 +3362,30 @@ static int imx577_probe(struct i2c_client *client,
 	}
 
 	imx577->client = client;
-	for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
-		if (hdr_mode == supported_modes[i].hdr_mode) {
-			imx577->cur_mode = &supported_modes[i];
+	ret = imx577_parse_endpoint(imx577);
+	if (ret)
+		return ret;
+
+	for (i = 0; i < imx577->cfg_num; i++) {
+		if (hdr_mode == imx577->supported_modes[i].hdr_mode) {
+			imx577->cur_mode = &imx577->supported_modes[i];
 			break;
 		}
 	}
+	if (i == imx577->cfg_num)
+		return dev_err_probe(dev, -EINVAL,
+			"HDR mode %u is not supported with %u lanes\n",
+			hdr_mode, imx577->bus_cfg.bus.mipi_csi2.num_data_lanes);
+	dev_info(dev, "%u data lanes, default %ux%u, link %lld Hz\n",
+		 imx577->bus_cfg.bus.mipi_csi2.num_data_lanes,
+		 imx577->cur_mode->width, imx577->cur_mode->height,
+		 imx577->link_freq_menu[imx577->cur_mode->link_freq_idx]);
 
-	endpoint = of_graph_get_next_endpoint(dev->of_node, NULL);
-	if (!endpoint) {
-		dev_err(dev, "Failed to get endpoint\n");
-		return -EINVAL;
-	}
-	ret = v4l2_fwnode_endpoint_parse(of_fwnode_handle(endpoint),
-		&imx577->bus_cfg);
-	if (ret) {
-		dev_err(dev, "Failed to get bus cfg\n");
-		return ret;
-	}
-
-	imx577->xvclk = devm_clk_get(dev, "xvclk");
-	if (IS_ERR(imx577->xvclk)) {
-		dev_err(dev, "Failed to get xvclk\n");
-		return -EINVAL;
-	}
+	/* xvclk is optional for modules with an always-on 24 MHz crystal. */
+	imx577->xvclk = devm_clk_get_optional(dev, "xvclk");
+	if (IS_ERR(imx577->xvclk))
+		return dev_err_probe(dev, PTR_ERR(imx577->xvclk),
+				     "Failed to get xvclk\n");
 
 	imx577->power_gpio = devm_gpiod_get(dev, "power", GPIOD_OUT_LOW);
 	if (IS_ERR(imx577->power_gpio))
