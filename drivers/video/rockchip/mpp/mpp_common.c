@@ -1986,7 +1986,11 @@ int mpp_translate_reg_address(struct mpp_session *session,
 		if (off_inf)
 			offset += mpp_query_reg_offset_info(off_inf, tbl[i]);
 
-		if (offset >= mem_region->len) {
+		/* allow the offset to point at the very end of the buffer:
+		 * bottom-top layouts like the bitstream address use the
+		 * buffer end as their base
+		 */
+		if (offset > mem_region->len) {
 			mpp_err("reg[%3d]: fd %d offset %llu over buffer len %lx\n",
 				tbl[i], usr_fd, offset, mem_region->len);
 			return -EINVAL;

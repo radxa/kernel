@@ -287,7 +287,7 @@ static int iep2_process_reg_fd(struct mpp_session *session,
 
 		if (session->msg_flags & MPP_FLAGS_REG_NO_OFFSET)
 			offset = mpp_query_reg_offset_info(&task->off_inf, mem_region->reg_idx);
-		if (offset >= mem_region->len) {
+		if (offset > mem_region->len) {
 			mpp_err("reg[%3d]: fd %d offset %u over buffer len %lx\n",
 				mem_region->reg_idx, usr_fd, offset, mem_region->len);
 			return -EINVAL;

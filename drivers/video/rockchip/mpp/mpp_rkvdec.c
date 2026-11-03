@@ -650,7 +650,7 @@ static int rkvdec_process_reg_fd(struct mpp_session *session,
 			return -EINVAL;
 		}
 
-		if (offset >= mem_region->len) {
+		if (offset > mem_region->len) {
 			mpp_err("reg[%03d]: fd %d offset %llu over buffer len %lx\n",
 				idx, fd, offset, mem_region->len);
 			return -EINVAL;

@@ -1152,7 +1152,7 @@ static void *rkvenc_alloc_task(struct mpp_session *session,
 					goto fail;
 				}
 				total = (u64)(reg[tbl[j]] - mem_region->iova) + off;
-				if (total >= mem_region->len) {
+				if (total > mem_region->len) {
 					mpp_err("reg[%d]: offset %llu over buffer len %lx\n",
 						tbl[j], total, mem_region->len);
 					goto fail;

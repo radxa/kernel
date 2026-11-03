@@ -232,7 +232,7 @@ static int vdpu_process_reg_fd(struct mpp_session *session,
 				idx, task->reg[idx], fd);
 			return -EINVAL;
 		}
-		if (offset >= mem_region->len) {
+		if (offset > mem_region->len) {
 			mpp_err("reg[%3d]: fd %d offset %llu over buffer len %lx\n",
 				idx, fd, offset, mem_region->len);
 			return -EINVAL;
