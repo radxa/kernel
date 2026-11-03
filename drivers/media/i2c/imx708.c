@@ -13,7 +13,9 @@
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
+#include <linux/property.h>
 #include <linux/regulator/consumer.h>
+#include <linux/rk-camera-module.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-event.h>
@@ -871,6 +873,11 @@ struct imx708 {
 	unsigned int link_freq_idx;
 
 	unsigned int csi_flags;
+	bool rockchip_module;
+	u32 module_index;
+	const char *module_facing;
+	const char *module_name;
+	const char *lens_name;
 };
 
 static inline struct imx708 *to_imx708(struct v4l2_subdev *_sd)
@@ -1013,8 +1020,6 @@ static int imx708_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	struct imx708 *imx708 = to_imx708(sd);
 	struct v4l2_mbus_framefmt *try_fmt_img =
 		v4l2_subdev_state_get_format(fh->state, IMAGE_PAD);
-	struct v4l2_mbus_framefmt *try_fmt_meta =
-		v4l2_subdev_state_get_format(fh->state, METADATA_PAD);
 	struct v4l2_rect *try_crop;
 
 	mutex_lock(&imx708->mutex);
@@ -1029,12 +1034,6 @@ static int imx708_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	}
 	try_fmt_img->code = imx708_get_format_code(imx708);
 	try_fmt_img->field = V4L2_FIELD_NONE;
-
-	/* Initialize try_fmt for the embedded metadata pad */
-	try_fmt_meta->width = IMX708_EMBEDDED_LINE_WIDTH;
-	try_fmt_meta->height = IMX708_NUM_EMBEDDED_LINES;
-	try_fmt_meta->code = MEDIA_BUS_FMT_SENSOR_DATA;
-	try_fmt_meta->field = V4L2_FIELD_NONE;
 
 	/* Initialize try_crop */
 	try_crop = v4l2_subdev_state_get_crop(fh->state, IMAGE_PAD);
@@ -1257,7 +1256,7 @@ static int imx708_enum_mbus_code(struct v4l2_subdev *sd,
 {
 	struct imx708 *imx708 = to_imx708(sd);
 
-	if (code->pad >= NUM_PADS)
+	if (code->pad >= sd->entity.num_pads)
 		return -EINVAL;
 
 	if (code->pad == IMAGE_PAD) {
@@ -1271,7 +1270,7 @@ static int imx708_enum_mbus_code(struct v4l2_subdev *sd,
 		if (code->index > 0)
 			return -EINVAL;
 
-		code->code = MEDIA_BUS_FMT_SENSOR_DATA;
+		code->code = MEDIA_BUS_FMT_META_8;
 	}
 
 	return 0;
@@ -1284,7 +1283,7 @@ static int imx708_enum_frame_size(struct v4l2_subdev *sd,
 	struct imx708 *imx708 = to_imx708(sd);
 	u32 code;
 
-	if (fse->pad >= NUM_PADS)
+	if (fse->pad >= sd->entity.num_pads)
 		return -EINVAL;
 
 	if (fse->pad == IMAGE_PAD) {
@@ -1309,7 +1308,7 @@ static int imx708_enum_frame_size(struct v4l2_subdev *sd,
 		fse->min_height = mode_list[fse->index].height;
 		fse->max_height = fse->min_height;
 	} else {
-		if (fse->code != MEDIA_BUS_FMT_SENSOR_DATA || fse->index > 0)
+		if (fse->code != MEDIA_BUS_FMT_META_8 || fse->index > 0)
 			return -EINVAL;
 
 		fse->min_width = IMX708_EMBEDDED_LINE_WIDTH;
@@ -1345,7 +1344,7 @@ static void imx708_update_metadata_pad_format(struct v4l2_subdev_format *fmt)
 {
 	fmt->format.width = IMX708_EMBEDDED_LINE_WIDTH;
 	fmt->format.height = IMX708_NUM_EMBEDDED_LINES;
-	fmt->format.code = MEDIA_BUS_FMT_SENSOR_DATA;
+	fmt->format.code = MEDIA_BUS_FMT_META_8;
 	fmt->format.field = V4L2_FIELD_NONE;
 }
 
@@ -1355,19 +1354,18 @@ static int imx708_get_pad_format(struct v4l2_subdev *sd,
 {
 	struct imx708 *imx708 = to_imx708(sd);
 
-	if (fmt->pad >= NUM_PADS)
+	if (fmt->pad >= sd->entity.num_pads)
 		return -EINVAL;
 
 	mutex_lock(&imx708->mutex);
 
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
 		struct v4l2_mbus_framefmt *try_fmt =
-			v4l2_subdev_state_get_format(sd_state,
-						   fmt->pad);
+			v4l2_subdev_state_get_format(sd_state, fmt->pad);
 		/* update the code which could change due to vflip or hflip */
 		try_fmt->code = fmt->pad == IMAGE_PAD ?
 				imx708_get_format_code(imx708) :
-				MEDIA_BUS_FMT_SENSOR_DATA;
+				MEDIA_BUS_FMT_META_8;
 		fmt->format = *try_fmt;
 	} else {
 		if (fmt->pad == IMAGE_PAD) {
@@ -1391,7 +1389,7 @@ static int imx708_set_pad_format(struct v4l2_subdev *sd,
 	const struct imx708_mode *mode;
 	struct imx708 *imx708 = to_imx708(sd);
 
-	if (fmt->pad >= NUM_PADS)
+	if (fmt->pad >= sd->entity.num_pads)
 		return -EINVAL;
 
 	mutex_lock(&imx708->mutex);
@@ -1413,8 +1411,7 @@ static int imx708_set_pad_format(struct v4l2_subdev *sd,
 					      fmt->format.height);
 		imx708_update_image_pad_format(imx708, mode, fmt);
 		if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
-			framefmt = v4l2_subdev_state_get_format(sd_state,
-							      fmt->pad);
+			framefmt = v4l2_subdev_state_get_format(sd_state, fmt->pad);
 			*framefmt = fmt->format;
 		} else {
 			imx708->mode = mode;
@@ -1422,8 +1419,7 @@ static int imx708_set_pad_format(struct v4l2_subdev *sd,
 		}
 	} else {
 		if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
-			framefmt = v4l2_subdev_state_get_format(sd_state,
-							      fmt->pad);
+			framefmt = v4l2_subdev_state_get_format(sd_state, fmt->pad);
 			*framefmt = fmt->format;
 		} else {
 			/* Only one embedded data mode is supported */
@@ -1454,17 +1450,23 @@ static int imx708_get_selection(struct v4l2_subdev *sd,
 				struct v4l2_subdev_state *sd_state,
 				struct v4l2_subdev_selection *sel)
 {
-	switch (sel->target) {
-	case V4L2_SEL_TGT_CROP: {
-		struct imx708 *imx708 = to_imx708(sd);
+	struct imx708 *imx708 = to_imx708(sd);
 
+	switch (sel->target) {
+	case V4L2_SEL_TGT_CROP:
 		mutex_lock(&imx708->mutex);
-		sel->r = *__imx708_get_pad_crop(imx708, sd_state, sel->pad,
-						sel->which);
+		if (sel->which == V4L2_SUBDEV_FORMAT_TRY) {
+			sel->r = *__imx708_get_pad_crop(imx708, sd_state,
+							sel->pad, sel->which);
+		} else {
+			sel->r.left = 0;
+			sel->r.top = 0;
+			sel->r.width = imx708->mode->width;
+			sel->r.height = imx708->mode->height;
+		}
 		mutex_unlock(&imx708->mutex);
 
 		return 0;
-	}
 
 	case V4L2_SEL_TGT_NATIVE_SIZE:
 		sel->r.left = 0;
@@ -1476,10 +1478,12 @@ static int imx708_get_selection(struct v4l2_subdev *sd,
 
 	case V4L2_SEL_TGT_CROP_DEFAULT:
 	case V4L2_SEL_TGT_CROP_BOUNDS:
-		sel->r.left = IMX708_PIXEL_ARRAY_LEFT;
-		sel->r.top = IMX708_PIXEL_ARRAY_TOP;
-		sel->r.width = IMX708_PIXEL_ARRAY_WIDTH;
-		sel->r.height = IMX708_PIXEL_ARRAY_HEIGHT;
+		mutex_lock(&imx708->mutex);
+		sel->r.left = 0;
+		sel->r.top = 0;
+		sel->r.width = imx708->mode->width;
+		sel->r.height = imx708->mode->height;
+		mutex_unlock(&imx708->mutex);
 
 		return 0;
 	}
@@ -1774,10 +1778,120 @@ static int imx708_identify_module(struct imx708 *imx708)
 	return 0;
 }
 
+static long imx708_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
+{
+	struct imx708 *imx708 = to_imx708(sd);
+	struct rkmodule_inf *info = arg;
+	struct rkmodule_hdr_cfg *hdr = arg;
+
+	if (!imx708->rockchip_module)
+		return -ENOIOCTLCMD;
+
+	switch (cmd) {
+	case RKMODULE_GET_MODULE_INFO:
+		memset(info, 0, sizeof(*info));
+		strscpy(info->base.sensor, "imx708", sizeof(info->base.sensor));
+		strscpy(info->base.module, imx708->module_name,
+			sizeof(info->base.module));
+		strscpy(info->base.lens, imx708->lens_name,
+			sizeof(info->base.lens));
+		return 0;
+	case RKMODULE_GET_HDR_CFG:
+		if (imx708->hdr_mode->val)
+			return -EOPNOTSUPP;
+		memset(hdr, 0, sizeof(*hdr));
+		hdr->hdr_mode = NO_HDR;
+		hdr->esp.mode = HDR_NORMAL_VC;
+		return 0;
+	case RKMODULE_SET_HDR_CFG:
+		if (hdr->hdr_mode != NO_HDR)
+			return -EOPNOTSUPP;
+		return v4l2_ctrl_s_ctrl(imx708->hdr_mode, 0);
+	default:
+		return -ENOIOCTLCMD;
+	}
+}
+
+static int imx708_enum_frame_interval(struct v4l2_subdev *sd,
+				     struct v4l2_subdev_state *state,
+				     struct v4l2_subdev_frame_interval_enum *fie)
+{
+	struct imx708 *imx708 = to_imx708(sd);
+	const struct imx708_mode *modes, *mode = NULL;
+	unsigned int count, i;
+	u32 code;
+	int ret = -EINVAL;
+
+	if (fie->pad != IMAGE_PAD || fie->stream)
+		return -EINVAL;
+	mutex_lock(&imx708->mutex);
+	code = imx708_get_format_code(imx708);
+	get_mode_table(code, &modes, &count, imx708->hdr_mode->val);
+	if (imx708->rockchip_module && !fie->code && !fie->width &&
+	    !fie->height && fie->which == V4L2_SUBDEV_FORMAT_ACTIVE) {
+		if (fie->index >= count)
+			goto out;
+		mode = &modes[fie->index];
+		fie->code = code;
+		fie->width = mode->width;
+		fie->height = mode->height;
+	} else {
+		if (fie->index || fie->code != code)
+			goto out;
+		for (i = 0; i < count; i++) {
+			if (fie->width == modes[i].width && fie->height == modes[i].height) {
+				mode = &modes[i];
+				break;
+			}
+		}
+		if (!mode)
+			goto out;
+	}
+	fie->interval.numerator = mode->line_length_pix *
+		(mode->height + mode->vblank_default);
+	fie->interval.denominator = mode->pixel_rate;
+	ret = 0;
+out:
+	mutex_unlock(&imx708->mutex);
+	return ret;
+}
+
 static const struct v4l2_subdev_core_ops imx708_core_ops = {
+	.ioctl = imx708_ioctl,
 	.subscribe_event = v4l2_ctrl_subdev_subscribe_event,
 	.unsubscribe_event = v4l2_event_subdev_unsubscribe,
 };
+
+static int imx708_get_frame_interval(struct v4l2_subdev *sd,
+				     struct v4l2_subdev_state *sd_state,
+				     struct v4l2_subdev_frame_interval *fi)
+{
+	struct imx708 *imx708 = to_imx708(sd);
+	u32 frame_length;
+
+	mutex_lock(&imx708->mutex);
+	frame_length = imx708->mode->height + imx708->vblank->val;
+	fi->interval.numerator = imx708->mode->line_length_pix * frame_length;
+	fi->interval.denominator = imx708->mode->pixel_rate;
+	mutex_unlock(&imx708->mutex);
+
+	return 0;
+}
+
+static int imx708_get_mbus_config(struct v4l2_subdev *sd, unsigned int pad,
+				  struct v4l2_mbus_config *config)
+{
+	struct imx708 *imx708 = to_imx708(sd);
+
+	if (pad >= sd->entity.num_pads)
+		return -EINVAL;
+
+	config->type = V4L2_MBUS_CSI2_DPHY;
+	config->bus.mipi_csi2.num_data_lanes = 2;
+	config->bus.mipi_csi2.flags = imx708->csi_flags;
+
+	return 0;
+}
 
 static const struct v4l2_subdev_video_ops imx708_video_ops = {
 	.s_stream = imx708_set_stream,
@@ -1789,6 +1903,9 @@ static const struct v4l2_subdev_pad_ops imx708_pad_ops = {
 	.set_fmt = imx708_set_pad_format,
 	.get_selection = imx708_get_selection,
 	.enum_frame_size = imx708_enum_frame_size,
+	.enum_frame_interval = imx708_enum_frame_interval,
+	.get_mbus_config = imx708_get_mbus_config,
+	.get_frame_interval = imx708_get_frame_interval,
 };
 
 static const struct v4l2_subdev_ops imx708_subdev_ops = {
@@ -1832,13 +1949,13 @@ static int imx708_init_controls(struct imx708 *imx708)
 	ctrl_hdlr->lock = &imx708->mutex;
 
 	/* By default, PIXEL_RATE is read only */
-	imx708->pixel_rate = v4l2_ctrl_new_std(ctrl_hdlr, &imx708_ctrl_ops,
+	imx708->pixel_rate = v4l2_ctrl_new_std(ctrl_hdlr, NULL,
 					       V4L2_CID_PIXEL_RATE,
 					       IMX708_INITIAL_PIXEL_RATE,
 					       IMX708_INITIAL_PIXEL_RATE, 1,
 					       IMX708_INITIAL_PIXEL_RATE);
 
-	ctrl = v4l2_ctrl_new_int_menu(ctrl_hdlr, &imx708_ctrl_ops,
+	ctrl = v4l2_ctrl_new_int_menu(ctrl_hdlr, NULL,
 				      V4L2_CID_LINK_FREQ, 0, 0,
 				      &link_freqs[imx708->link_freq_idx]);
 	if (ctrl)
@@ -1850,7 +1967,7 @@ static int imx708_init_controls(struct imx708 *imx708)
 	 */
 	imx708->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx708_ctrl_ops,
 					   V4L2_CID_VBLANK, 0, 0xffff, 1, 0);
-	imx708->hblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx708_ctrl_ops,
+	imx708->hblank = v4l2_ctrl_new_std(ctrl_hdlr, NULL,
 					   V4L2_CID_HBLANK, 0, 0xffff, 1, 0);
 
 	imx708->exposure = v4l2_ctrl_new_std(ctrl_hdlr, &imx708_ctrl_ops,
@@ -2009,6 +2126,19 @@ static int imx708_probe(struct i2c_client *client)
 		return -ENOMEM;
 
 	v4l2_i2c_subdev_init(&imx708->sd, client, &imx708_subdev_ops);
+	imx708->rockchip_module =
+		!device_property_read_u32(dev, RKMODULE_CAMERA_MODULE_INDEX,
+					  &imx708->module_index);
+	if (imx708->rockchip_module) {
+		ret = device_property_read_string(dev, RKMODULE_CAMERA_MODULE_FACING,
+						 &imx708->module_facing);
+		ret |= device_property_read_string(dev, RKMODULE_CAMERA_MODULE_NAME,
+						  &imx708->module_name);
+		ret |= device_property_read_string(dev, RKMODULE_CAMERA_LENS_NAME,
+						  &imx708->lens_name);
+		if (ret)
+			return dev_err_probe(dev, -EINVAL, "missing camera module information\n");
+	}
 
 	/* Check the hardware configuration in device tree */
 	if (imx708_check_hwcfg(dev, imx708))
@@ -2033,6 +2163,9 @@ static int imx708_probe(struct i2c_client *client)
 	/* Request optional enable pin */
 	imx708->reset_gpio = devm_gpiod_get_optional(dev, "reset",
 						     GPIOD_OUT_HIGH);
+	if (IS_ERR(imx708->reset_gpio))
+		return dev_err_probe(dev, PTR_ERR(imx708->reset_gpio),
+				     "failed to get reset GPIO\n");
 
 	/*
 	 * The sensor must be powered for imx708_identify_module()
@@ -2047,6 +2180,11 @@ static int imx708_probe(struct i2c_client *client)
 		goto error_power_off;
 
 	/* Initialize default format */
+	if (imx708->rockchip_module)
+		snprintf(imx708->sd.name, sizeof(imx708->sd.name),
+			 "m%02u_%c_imx708 %s", imx708->module_index,
+			 !strcmp(imx708->module_facing, "back") ? 'b' : 'f',
+			 dev_name(dev));
 	imx708_set_default_format(imx708);
 
 	/*
@@ -2073,9 +2211,8 @@ static int imx708_probe(struct i2c_client *client)
 
 	/* Initialize source pads */
 	imx708->pad[IMAGE_PAD].flags = MEDIA_PAD_FL_SOURCE;
-	imx708->pad[METADATA_PAD].flags = MEDIA_PAD_FL_SOURCE;
 
-	ret = media_entity_pads_init(&imx708->sd.entity, NUM_PADS, imx708->pad);
+	ret = media_entity_pads_init(&imx708->sd.entity, 1, imx708->pad);
 	if (ret) {
 		dev_err(dev, "failed to init entity pads: %d\n", ret);
 		goto error_handler_free;
