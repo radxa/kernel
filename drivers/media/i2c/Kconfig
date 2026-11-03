@@ -917,6 +917,7 @@ config VIDEO_IMX678
 config VIDEO_IMX708
 	tristate "Sony IMX708 sensor support"
 	depends on I2C && VIDEO_DEV
+	depends on MEDIA_CAMERA_SUPPORT
 	select MEDIA_CONTROLLER
 	select VIDEO_V4L2_SUBDEV_API
 	select V4L2_FWNODE
