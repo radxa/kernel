@@ -3211,7 +3211,7 @@ static struct i2c_driver goodix_ts_driver = {
     .remove     = goodix_ts_remove,
     .id_table   = goodix_ts_id,
     .driver = {
-        .name     = GTP_I2C_NAME,
+        .name     = "Goodix-TS-GT9XX",
 	 .of_match_table = of_match_ptr(goodix_ts_dt_ids),
     },
 };
