@@ -486,7 +486,7 @@ static void *av1dec_alloc_task(struct mpp_session *session,
 						goto fail;
 					}
 					total = (u64)(reg[tbl[j]] - mem_region->iova) + offset;
-					if (total >= mem_region->len) {
+					if (total > mem_region->len) {
 						mpp_err("reg[%d]: offset %llu over buffer len %lx\n",
 							tbl[j], total, mem_region->len);
 						goto fail;
