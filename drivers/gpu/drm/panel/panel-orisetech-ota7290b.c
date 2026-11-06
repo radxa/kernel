@@ -204,9 +204,10 @@ static int ota7290b_panel_probe(struct mipi_dsi_device *dsi)
 	struct ota7290b_panel *ctx;
 	int i, ret = 0;
 
-	ctx = devm_kzalloc(dev, sizeof(*ctx), GFP_KERNEL);
-	if (!ctx)
-		return -ENOMEM;
+	ctx = devm_drm_panel_alloc(dev, struct ota7290b_panel, panel,
+				   &ota7290b_drm_funcs, DRM_MODE_CONNECTOR_DSI);
+	if (IS_ERR(ctx))
+		return PTR_ERR(ctx);
 
 	ctx->desc = of_device_get_match_data(dev);
 	if (!ctx->desc) {
@@ -233,8 +234,6 @@ static int ota7290b_panel_probe(struct mipi_dsi_device *dsi)
 	dsi->lanes = ctx->desc->lanes;
 	dsi->format = ctx->desc->format;
 	dsi->mode_flags = ctx->desc->mode_flags;
-
-	drm_panel_init(&ctx->panel, dev, &ota7290b_drm_funcs, DRM_MODE_CONNECTOR_DSI);
 
 	ret = drm_panel_of_backlight(&ctx->panel);
 	if (ret)
