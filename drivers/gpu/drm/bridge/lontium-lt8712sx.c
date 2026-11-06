@@ -1057,7 +1057,8 @@ static int lt8712sx_attach(struct drm_bridge *bridge,
 
 static void
 lt8712sx_hpd(struct drm_bridge *bridge, struct drm_connector *connector,
-	     enum drm_connector_status status)
+	     enum drm_connector_status status,
+	     enum drm_connector_dp_event event)
 {
 	struct lt8712sx *lt8712sx = bridge_to_lt8712sx(bridge);
 
