@@ -289,6 +289,7 @@ static void msm_dp_display_unbind(struct device *dev, struct device *master,
 	cancel_work_sync(&dp->link_status_work);
 	of_dp_aux_depopulate_bus(dp->aux);
 
+	drm_dp_cec_unregister_connector(dp->aux);
 	msm_dp_aux_unregister(dp->aux);
 	dp->drm_dev = NULL;
 	dp->aux->drm_dev = NULL;
@@ -344,8 +345,12 @@ static int msm_dp_display_process_hpd_high(struct msm_dp_display_private *dp)
 	drm_edid = drm_edid_read_ddc(connector, &dp->aux->ddc);
 	drm_edid_connector_update(connector, drm_edid);
 
-	if (!drm_edid) {
+	if (drm_edid) {
+		drm_dp_cec_attach(dp->aux,
+				  connector->display_info.source_physical_address);
+	} else {
 		DRM_ERROR("panel edid read failed\n");
+		drm_dp_cec_unset_edid(dp->aux);
 		/* check edid read fail is due to unplug */
 		if (!msm_dp_aux_is_link_connected(dp->aux))
 			return -ETIMEDOUT;
@@ -546,6 +551,7 @@ static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 
 	dp->panel->video_test = false;
 
+	drm_dp_cec_unset_edid(dp->aux);
 	msm_dp_aux_enable_xfers(dp->aux, false);
 
 	drm_dbg_dp(dp->drm_dev, "Before, type=%d sink_count=%d\n",
@@ -619,6 +625,7 @@ static int msm_dp_irq_hpd_handle(struct msm_dp_display_private *dp)
 			rc = msm_dp_display_handle_irq_hpd(dp);
 		}
 	}
+	drm_dp_cec_irq(dp->aux);
 
 	drm_dbg_dp(dp->drm_dev, "After, type=%d, sink_count=%d\n",
 			dp->msm_dp_display.connector_type,
@@ -1761,6 +1768,7 @@ int msm_dp_modeset_init(struct msm_dp *msm_dp_display, struct drm_device *dev,
 	}
 
 	msm_dp_priv->panel->connector = msm_dp_display->connector;
+	drm_dp_cec_register_connector(msm_dp_priv->aux, msm_dp_display->connector);
 
 	return 0;
 }
