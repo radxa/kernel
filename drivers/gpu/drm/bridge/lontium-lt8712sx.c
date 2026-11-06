@@ -1084,7 +1084,8 @@ static void lt8712sx_cec_notifiers_unregister(void *data)
 	lt8712sx->cec_notifier_count = 0;
 }
 
-static void lt8712sx_enable(struct drm_bridge *bridge)
+static void lt8712sx_atomic_enable(struct drm_bridge *bridge,
+				   struct drm_atomic_commit *state)
 {
 	struct lt8712sx *lt8712sx = bridge_to_lt8712sx(bridge);
 
@@ -1092,7 +1093,8 @@ static void lt8712sx_enable(struct drm_bridge *bridge)
 		gpiod_set_value_cansleep(lt8712sx->enable_gpio, 1);
 }
 
-static void lt8712sx_disable(struct drm_bridge *bridge)
+static void lt8712sx_atomic_disable(struct drm_bridge *bridge,
+				    struct drm_atomic_commit *state)
 {
 	struct lt8712sx *lt8712sx = bridge_to_lt8712sx(bridge);
 
@@ -1101,10 +1103,13 @@ static void lt8712sx_disable(struct drm_bridge *bridge)
 }
 
 static const struct drm_bridge_funcs lt8712sx_bridge_funcs = {
+	.atomic_create_state = drm_atomic_helper_bridge_create_state,
+	.atomic_destroy_state = drm_atomic_helper_bridge_destroy_state,
+	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
 	.attach = lt8712sx_attach,
 	.hpd_notify = lt8712sx_hpd,
-	.enable = lt8712sx_enable,
-	.disable = lt8712sx_disable,
+	.atomic_enable = lt8712sx_atomic_enable,
+	.atomic_disable = lt8712sx_atomic_disable,
 };
 
 static int lt8712sx_probe(struct i2c_client *client)
