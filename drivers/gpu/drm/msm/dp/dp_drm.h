@@ -22,8 +22,7 @@ struct msm_dp_bridge {
 struct drm_connector *msm_dp_drm_connector_init(struct msm_dp *msm_dp_display,
 					    struct drm_encoder *encoder);
 int msm_dp_bridge_init(struct msm_dp *msm_dp_display, struct drm_device *dev,
-		   struct drm_encoder *encoder,
-		   bool yuv_supported);
+		   struct drm_encoder *encoder);
 
 enum drm_connector_status msm_dp_bridge_detect(struct drm_bridge *bridge,
 					       struct drm_connector *connector);

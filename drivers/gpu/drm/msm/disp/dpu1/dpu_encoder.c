@@ -233,11 +233,20 @@ u32 dpu_encoder_get_drm_fmt(struct dpu_encoder_phys *phys_enc)
 	struct dpu_encoder_virt *dpu_enc;
 	struct drm_display_info *info;
 	struct drm_display_mode *mode;
+	struct msm_drm_private *priv;
+	struct msm_display_info *disp_info;
 
 	drm_enc = phys_enc->parent;
 	dpu_enc = to_dpu_encoder_virt(drm_enc);
 	info = &dpu_enc->connector->display_info;
 	mode = &phys_enc->cached_mode;
+	priv = drm_enc->dev->dev_private;
+	disp_info = &dpu_enc->disp_info;
+
+	if (disp_info->intf_type == INTF_DP &&
+	    msm_dp_get_output_format(priv->kms->dp[disp_info->h_tile_instance[0]],
+				     NULL, mode) == DRM_FORMAT_YUYV)
+		return DRM_FORMAT_YUYV;
 
 	if (drm_mode_is_420_only(info, mode))
 		return DRM_FORMAT_YUV420;
@@ -727,8 +736,8 @@ void dpu_encoder_update_topology(struct drm_encoder *drm_enc,
 		if (fb && MSM_FORMAT_IS_YUV(msm_framebuffer_format(fb)))
 			topology->num_cdm++;
 	} else if (disp_info->intf_type == INTF_DP) {
-		if (msm_dp_is_yuv_420_enabled(priv->kms->dp[disp_info->h_tile_instance[0]],
-					      adj_mode))
+		if (msm_dp_get_output_format(priv->kms->dp[disp_info->h_tile_instance[0]],
+					     state, adj_mode) != DRM_FORMAT_RGB888)
 			topology->num_cdm++;
 	}
 }

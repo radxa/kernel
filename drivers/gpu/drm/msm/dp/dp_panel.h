@@ -9,6 +9,7 @@
 #include <drm/display/drm_dsc.h>
 #include <drm/drm_connector.h>
 #include <drm/drm_modes.h>
+#include <drm/drm_fourcc.h>
 #include <drm/msm_drm.h>
 
 #include "dp_aux.h"
@@ -21,7 +22,7 @@ struct msm_dp_display_mode {
 	u32 bpp;
 	u32 h_active_low;
 	u32 v_active_low;
-	bool out_fmt_is_yuv_420;
+	u32 out_format;
 };
 
 struct msm_dp_panel_psr {
