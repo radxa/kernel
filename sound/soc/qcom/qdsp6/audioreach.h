@@ -6,6 +6,7 @@
 #include <linux/soc/qcom/apr.h>
 #include <uapi/sound/snd_ar_tokens.h>
 #include <sound/soc.h>
+#include "q6dsp-common.h"
 struct q6apm;
 struct q6apm_graph;
 
@@ -805,7 +806,6 @@ struct param_id_hw_ep_power_mode_cfg {
 #define PARAM_ID_HW_EP_DMA_DATA_ALIGN	0x08001233
 #define AR_HW_EP_DMA_DATA_ALIGN_MSB	0
 #define AR_HW_EP_DMA_DATA_ALIGN_LSB	1
-#define AR_PCM_MAX_NUM_CHANNEL		8
 
 struct param_id_hw_ep_dma_data_align {
 	uint32_t dma_data_align;
@@ -998,13 +998,12 @@ struct audioreach_module_config {
 	u16	nslots_per_frame;
 	u16	slot_width;
 	struct snd_codec codec;
-	u8 channel_map[AR_PCM_MAX_NUM_CHANNEL];
+	u8 channel_map[PCM_MAX_NUM_CHANNEL];
 };
 
 /* Packet Allocation routines */
 void *audioreach_alloc_apm_cmd_pkt(int pkt_size, uint32_t opcode, uint32_t
 				    token);
-void audioreach_set_default_channel_mapping(u8 *ch_map, int num_channels);
 void *audioreach_alloc_cmd_pkt(int payload_size, uint32_t opcode,
 			       uint32_t token, uint32_t src_port,
 			       uint32_t dest_port);
