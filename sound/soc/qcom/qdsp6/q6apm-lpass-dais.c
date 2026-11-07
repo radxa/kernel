@@ -99,6 +99,7 @@ static int q6dma_set_channel_map(struct snd_soc_dai *dai,
 				tx_num);
 			return -EINVAL;
 		}
+		memset(cfg->channel_map, 0, sizeof(cfg->channel_map));
 		for (i = 0; i < tx_num; i++)
 			cfg->channel_map[i] = tx_ch_mask[i];
 
@@ -123,6 +124,7 @@ static int q6dma_set_channel_map(struct snd_soc_dai *dai,
 				rx_num);
 			return -EINVAL;
 		}
+		memset(cfg->channel_map, 0, sizeof(cfg->channel_map));
 		for (i = 0; i < rx_num; i++)
 			cfg->channel_map[i] = rx_ch_mask[i];
 
