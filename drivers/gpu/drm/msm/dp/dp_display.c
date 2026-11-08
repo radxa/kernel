@@ -475,6 +475,9 @@ static int msm_dp_display_handle_irq_hpd(struct msm_dp_display_private *dp)
 
 	drm_dbg_dp(dp->drm_dev, "%d\n", sink_request);
 
+	if (!dp->msm_dp_display.power_on)
+		return 0;
+
 	msm_dp_ctrl_handle_sink_request(dp->ctrl, dp->panel);
 
 	if (sink_request & DP_TEST_LINK_VIDEO_PATTERN)
@@ -487,6 +490,7 @@ static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
 {
 	int ret;
 	struct platform_device *pdev = dp->msm_dp_display.pdev;
+	bool was_plugged;
 
 	drm_dbg_dp(dp->drm_dev, "Before, type=%d sink_count=%d\n",
 			dp->msm_dp_display.connector_type,
@@ -499,9 +503,15 @@ static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
 	}
 
 	mutex_lock(&dp->plugged_lock);
+	was_plugged = dp->plugged;
+	if (was_plugged && dp->panel->link_caps_valid) {
+		mutex_unlock(&dp->plugged_lock);
+		pm_runtime_put_sync(&pdev->dev);
+		return 0;
+	}
 
 	/* eDP calls this for every enable, including automatic retries. */
-	if (!dp->msm_dp_display.is_edp && !dp->plugged)
+	if (!dp->msm_dp_display.is_edp && !was_plugged)
 		msm_dp_display_reset_link_status(dp);
 
 	msm_dp_aux_enable_xfers(dp->aux, true);
@@ -516,12 +526,22 @@ static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
 
 	ret = msm_dp_display_process_hpd_high(dp);
 
+	if (!ret && !dp->msm_dp_display.is_edp &&
+	    dp->msm_dp_display.power_on && !was_plugged) {
+		dp->link_failed = true;
+		schedule_work(&dp->link_status_work);
+	}
+
 	drm_dbg_dp(dp->drm_dev, "After, type=%d sink_count=%d\n",
 			dp->msm_dp_display.connector_type,
 			dp->link->sink_count);
 
-	dp->plugged = true;
+	if (!was_plugged)
+		dp->plugged = true;
 	mutex_unlock(&dp->plugged_lock);
+
+	if (was_plugged)
+		pm_runtime_put_sync(&pdev->dev);
 
 	return ret;
 };
@@ -543,8 +563,10 @@ static void msm_dp_display_handle_plugged_change(struct msm_dp *msm_dp_display,
 static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 {
 	struct platform_device *pdev = dp->msm_dp_display.pdev;
+	bool was_plugged;
 
 	mutex_lock(&dp->plugged_lock);
+	was_plugged = dp->plugged;
 
 	if (!dp->msm_dp_display.is_edp)
 		msm_dp_display_reset_link_status(dp);
@@ -562,18 +584,11 @@ static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 	if (!dp->msm_dp_display.is_edp) {
 		dp->panel->link_caps_valid = false;
 		dp->panel->caps_cached = false;
-	}
-	if (!dp->plugged) {
-		mutex_unlock(&dp->plugged_lock);
-		return 0;
-	}
-
-	/* Don't forget modes for eDP */
-	if (!dp->msm_dp_display.is_edp)
 		drm_edid_connector_update(dp->msm_dp_display.connector, NULL);
+	}
 
 	/* triggered by irq_hdp with sink_count = 0 */
-	if (dp->link->sink_count == 0)
+	if (dp->link->sink_count == 0 && !dp->msm_dp_display.power_on)
 		msm_dp_display_host_phy_exit(dp);
 
 	/*
@@ -596,7 +611,8 @@ static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 	dp->plugged = false;
 	mutex_unlock(&dp->plugged_lock);
 
-	pm_runtime_put_sync(&pdev->dev);
+	if (was_plugged)
+		pm_runtime_put_sync(&pdev->dev);
 
 	return 0;
 }
@@ -849,6 +865,8 @@ static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp,
 		DRM_ERROR("Failed link training (rc=%d)\n", rc);
 		return rc;
 	}
+
+	force_link_train = false;
 
 	return msm_dp_ctrl_prepare_stream_on(dp->ctrl, dp->panel, force_link_train);
 }
@@ -1216,7 +1234,8 @@ enum drm_connector_status msm_dp_bridge_detect(struct drm_bridge *bridge,
 	u8 dpcd[DP_RECEIVER_CAP_SIZE];
 	struct drm_dp_desc desc;
 	bool phy_deinit;
-	bool put;
+	bool was_plugged;
+	int put_count = 0;
 	int ret;
 
 	dp = to_dp_bridge(bridge)->msm_dp_display;
@@ -1230,11 +1249,11 @@ enum drm_connector_status msm_dp_bridge_detect(struct drm_bridge *bridge,
 	}
 
 	mutex_lock(&priv->plugged_lock);
-	put = false;
+	was_plugged = priv->plugged;
 
 	ret = msm_dp_display_host_phy_init(priv);
 	if (ret < 0) {
-		put = true;
+		put_count = 1;
 		goto unlock;
 	}
 	phy_deinit = ret;
@@ -1277,8 +1296,8 @@ enum drm_connector_status msm_dp_bridge_detect(struct drm_bridge *bridge,
 
 end:
 	/*
-	 * If we detected the DPRX, leave the controller on so that it doesn't
-	 * lose the state.
+	 * Hold detect()'s own reference for the duration of the call, and
+	 * maintain exactly one runtime PM reference for priv->plugged == true.
 	 */
 	if (!priv->plugged) {
 		if (phy_deinit) {
@@ -1286,12 +1305,14 @@ end:
 			msm_dp_display_host_phy_exit(priv);
 		}
 
-		put = true;
+		put_count = was_plugged ? 2 : 1;
+	} else {
+		put_count = was_plugged ? 1 : 0;
 	}
 unlock:
 	mutex_unlock(&priv->plugged_lock);
 
-	if (put)
+	while (put_count--)
 		pm_runtime_put_sync(&dp->pdev->dev);
 
 	return status;
@@ -1325,11 +1346,9 @@ static irqreturn_t msm_dp_display_irq_handler(int irq, void *dev_id)
 static irqreturn_t msm_dp_display_irq_thread(int irq, void *dev_id)
 {
 	struct msm_dp_display_private *dp = dev_id;
-	struct platform_device *pdev = dp->msm_dp_display.pdev;
 	irqreturn_t ret = IRQ_NONE;
 	unsigned long flags;
 	u32 hpd_isr_status;
-	int rc;
 	bool was_plugged;
 
 	spin_lock_irqsave(&dp->irq_thread_lock, flags);
@@ -1363,15 +1382,10 @@ static irqreturn_t msm_dp_display_irq_thread(int irq, void *dev_id)
 				      connector_status_connected);
 	}
 
-	if (hpd_isr_status & DP_DP_IRQ_HPD_INT_MASK) {
-		rc = pm_runtime_resume_and_get(&pdev->dev);
-		if (rc)
-			DRM_ERROR("failed to pm_runtime_resume\n");
-		else
-			msm_dp_irq_hpd_handle(dp);
-		if (!rc)
-			pm_runtime_put_sync(&pdev->dev);
-	}
+	if (hpd_isr_status & DP_DP_IRQ_HPD_INT_MASK)
+		drm_bridge_hpd_notify_extra(dp->msm_dp_display.bridge,
+					    connector_status_connected,
+					    DRM_CONNECTOR_DP_IRQ_HPD);
 
 	ret = IRQ_HANDLED;
 
@@ -1842,57 +1856,22 @@ void msm_dp_display_atomic_pre_enable(struct msm_dp *msm_dp_display,
 				to_dp_bridge_state(old_bridge_state));
 }
 
-static void msm_dp_display_abort_enable_locked(struct msm_dp_display_private *dp)
-{
-	bool keep_aux;
-	int ret;
-
-	lockdep_assert_held(&dp->plugged_lock);
-
-	keep_aux = !dp->msm_dp_display.is_edp && dp->plugged &&
-		msm_dp_aux_is_link_connected(dp->aux);
-
-	if (dp->stream_link_attempted) {
-		/* The AUX peer is the remaining dongle, not its absent sink. */
-		if (keep_aux && !dp->link->sink_count && dp->phy_initialized)
-			msm_dp_link_psm_config(dp->link, &dp->panel->link_info, true);
-
-		if (dp->msm_dp_display.power_on)
-			msm_dp_panel_disable_vsc_sdp(dp->panel);
-
-		msm_dp_ctrl_off_pixel_clk(dp->ctrl, dp->panel->stream_id);
-		msm_dp_ctrl_off_link(dp->ctrl, dp->panel);
-		dp->stream_link_attempted = false;
-
-		/* Mainlink power-off can also power down the AUX circuitry. */
-		msm_dp_display_host_phy_exit(dp);
-		if (keep_aux) {
-			ret = msm_dp_display_host_phy_init(dp);
-			if (ret < 0) {
-				DRM_ERROR("Failed to restore AUX PHY: %d\n", ret);
-				msm_dp_aux_enable_xfers(dp->aux, false);
-			}
-		}
-	} else if (!keep_aux) {
-		msm_dp_display_host_phy_exit(dp);
-	}
-	dp->msm_dp_display.power_on = false;
-}
-
 static void msm_dp_display_unprepare(struct msm_dp_display_private *dp)
 {
 	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
 
 	scoped_guard(mutex, &dp->plugged_lock) {
 		if (dp->stream_link_attempted) {
-			/* dongle is still connected but sinks are disconnected */
-			if (dp->link->sink_count == 0)
-				msm_dp_link_psm_config(dp->link, &dp->panel->link_info, true);
+			if (msm_dp_display->power_on) {
+				/* dongle is still connected but sinks are disconnected */
+				if (dp->link->sink_count == 0)
+					msm_dp_link_psm_config(dp->link, &dp->panel->link_info, true);
 
-			msm_dp_ctrl_off_link(dp->ctrl, dp->panel);
+				msm_dp_ctrl_off_link(dp->ctrl, dp->panel);
+			}
 			dp->stream_link_attempted = false;
 
-			if (dp->link->sink_count == 0)
+			if (dp->link->sink_count == 0 && dp->plugged && !msm_dp_display->is_edp)
 				/* re-init PHY to listen for Dongle disconnect */
 				msm_dp_ctrl_reinit_phy(dp->ctrl);
 			else
@@ -1954,12 +1933,20 @@ void msm_dp_display_atomic_enable(struct msm_dp *msm_dp_display,
 	return;
 
 err:
-	msm_dp_display_abort_enable_locked(dp);
+	/*
+	 * Do not tear down the DP PHY or drop stream_pm_active here while the
+	 * DPU video interface is still enabled; .atomic_post_disable() will
+	 * run msm_dp_display_unprepare() after the DPU encoder stops its INTF.
+	 */
+	if (msm_dp_display->power_on) {
+		msm_dp_panel_disable_vsc_sdp(dp->panel);
+		msm_dp_panel_disable_hdr_sdp(dp->panel);
+		msm_dp_ctrl_off_pixel_clk(dp->ctrl, dp->panel->stream_id);
+		msm_dp_ctrl_off_link(dp->ctrl, dp->panel);
+		msm_dp_display->power_on = false;
+	}
 	mutex_unlock(&dp->plugged_lock);
 err_prepare:
-	if (msm_dp_display->is_edp)
-		msm_dp_hpd_unplug_handle(dp);
-	msm_dp_display_unprepare(dp);
 	scoped_guard(mutex, &dp->plugged_lock) {
 		dp->video_test_blocked = false;
 		dp->link_failed = true;
@@ -2066,15 +2053,16 @@ void msm_dp_bridge_hpd_notify(struct drm_bridge *bridge,
 		   msm_dp_display->connector_type, hpd_link_status, status);
 
 	if (status == connector_status_connected) {
-		if (hpd_link_status == ISR_IRQ_HPD_PULSE_COUNT ||
-		    event == DRM_CONNECTOR_DP_IRQ_HPD) {
-			msm_dp_irq_hpd_handle(dp);
-		} else if (hpd_link_status == ISR_HPD_REPLUG_COUNT) {
+		if (hpd_link_status == ISR_HPD_REPLUG_COUNT) {
 			msm_dp_hpd_unplug_handle(dp);
 			msm_dp_hpd_plug_handle(dp);
 		} else {
 			msm_dp_hpd_plug_handle(dp);
 		}
+
+		if (hpd_link_status == ISR_IRQ_HPD_PULSE_COUNT ||
+		    event == DRM_CONNECTOR_DP_IRQ_HPD)
+			msm_dp_irq_hpd_handle(dp);
 	} else {
 		msm_dp_hpd_unplug_handle(dp);
 	}
