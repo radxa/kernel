@@ -1500,6 +1500,8 @@ static int dpu_crtc_assign_resources(struct drm_crtc *crtc,
 	int i, num_lm, num_ctl, num_dspp;
 	struct dpu_kms *dpu_kms = _dpu_crtc_get_kms(crtc);
 	struct dpu_global_state *global_state;
+	struct drm_crtc_state *other_crtc_state;
+	struct drm_crtc *other_crtc;
 	struct dpu_crtc_state *cstate;
 	struct msm_display_topology topology;
 	int ret;
@@ -1510,6 +1512,12 @@ static int dpu_crtc_assign_resources(struct drm_crtc *crtc,
 	global_state = dpu_kms_get_global_state(crtc_state->state);
 	if (IS_ERR(global_state))
 		return PTR_ERR(global_state);
+
+	for_each_new_crtc_in_state(crtc_state->state, other_crtc,
+				   other_crtc_state, i) {
+		if (!other_crtc_state->enable)
+			dpu_rm_release(global_state, other_crtc);
+	}
 
 	dpu_rm_release(global_state, crtc);
 
@@ -1703,8 +1711,9 @@ static enum drm_mode_status dpu_crtc_mode_valid(struct drm_crtc *crtc,
 	adjusted_mode_clk = dpu_core_perf_adjusted_mode_clk(mode->clock,
 							    dpu_kms->perf.perf_cfg);
 
-	adjusted_mode_clk /= dpu_crtc_num_lm_for_mode(dpu_kms, mode,
-						      max_pingpong_width);
+	adjusted_mode_clk = div_u64(adjusted_mode_clk,
+				    dpu_crtc_num_lm_for_mode(dpu_kms, mode,
+							     max_pingpong_width));
 
 	/*
 	 * The given mode, adjusted for the perf clock factor, should not exceed
