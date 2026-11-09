@@ -3150,8 +3150,11 @@ static void rtl_hw_aspm_clkreq_enable(struct rtl8169_private *tp, bool enable)
 		case RTL_GIGA_MAC_VER_61 ... RTL_GIGA_MAC_VER_LAST:
 			/* reset ephy tx/rx disable timer */
 			r8168_mac_ocp_modify(tp, 0xe094, 0xff00, 0);
-			/* chip can trigger L1.2 */
-			r8168_mac_ocp_modify(tp, 0xe092, 0x00ff, BIT(2));
+			/* chip can trigger L1.2, only if the vendor tested it */
+			if (r8168_mac_ocp_read(tp, 0xc0b2) & 0xf)
+				r8168_mac_ocp_modify(tp, 0xe092, 0x00ff, BIT(2));
+			else
+				r8168_mac_ocp_modify(tp, 0xe092, 0x00ff, 0);
 			break;
 		default:
 			break;
@@ -5585,7 +5588,8 @@ done:
 /* register is set if system vendor successfully tested ASPM 1.2 */
 static bool rtl_aspm_is_safe(struct rtl8169_private *tp)
 {
-	if (tp->mac_version >= RTL_GIGA_MAC_VER_46)
+	if (tp->mac_version >= RTL_GIGA_MAC_VER_46 &&
+	    r8168_mac_ocp_read(tp, 0xc0b2) & 0xf)
 		return true;
 
 	return false;
@@ -5666,6 +5670,15 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (rtl_aspm_is_safe(tp)) {
 		dev_info(&pdev->dev, "System vendor flags ASPM as safe\n");
 		rc = 0;
+	} else if (tp->mac_version >= RTL_GIGA_MAC_VER_46) {
+		/* RTL8111K and other RTL8168h/8111h-generation chips may
+		 * drop rx packets while the link wakes up from L1.2.
+		 * Keep L1/L1.1 enabled to avoid the
+		 * resume AER storm seen with a full L1 disable, and turn
+		 * off L1.2 only, unless the vendor validated L1.2.
+		 */
+		rc = pci_disable_link_state(pdev, PCIE_LINK_STATE_L1_2 |
+					    PCIE_LINK_STATE_L1_2_PCIPM);
 	} else {
 		rc = pci_disable_link_state(pdev, PCIE_LINK_STATE_L1);
 	}
