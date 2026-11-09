@@ -690,8 +690,12 @@ static int q6apm_dai_compr_open(struct snd_soc_component *component,
 	runtime->dma_bytes = BUFFER_BYTES_MAX;
 	size = COMPR_PLAYBACK_MAX_FRAGMENT_SIZE * COMPR_PLAYBACK_MAX_NUM_FRAGMENTS;
 	ret = snd_dma_alloc_pages(SNDRV_DMA_TYPE_DEV, dev, size, &prtd->dma_buffer);
-	if (ret)
+	if (ret) {
+		runtime->private_data = NULL;
+		q6apm_graph_close(prtd->graph);
+		kfree(prtd);
 		return ret;
+	}
 
 	if (pdata->sid < 0)
 		prtd->phys = prtd->dma_buffer.addr;
