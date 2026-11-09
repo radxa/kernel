@@ -2239,6 +2239,7 @@ static const u32 rk3576_dsi_grf_reg_fields[MAX_FIELDS] = {
 	[IPI_FORMAT]		= GRF_REG_FIELD(0x0028, 4, 7),
 };
 
+#if IS_ENABLED(CONFIG_CPU_RK3588)
 static const u32 rk3588_dsi0_grf_reg_fields[MAX_FIELDS] = {
 	[TXREQCLKHS_EN]		= GRF_REG_FIELD(0x0000, 11, 11),
 	[GATING_EN]		= GRF_REG_FIELD(0x0000, 10, 10),
@@ -2256,6 +2257,7 @@ static const u32 rk3588_dsi1_grf_reg_fields[MAX_FIELDS] = {
 	[IPI_COLOR_DEPTH]	= GRF_REG_FIELD(0x0004,  4,  7),
 	[IPI_FORMAT]		= GRF_REG_FIELD(0x0004,  0,  3),
 };
+#endif
 
 static const struct dw_mipi_dsi2_plat_data rk3576_mipi_dsi2_plat_data = {
 	.dsc = false,
@@ -2267,6 +2269,7 @@ static const struct dw_mipi_dsi2_plat_data rk3576_mipi_dsi2_plat_data = {
 	.max_vbp = 1023,
 };
 
+#if IS_ENABLED(CONFIG_CPU_RK3588)
 static const struct dw_mipi_dsi2_plat_data rk3588_mipi_dsi2_plat_data = {
 	.dsc = true,
 	.dsi0_grf_reg_fields = rk3588_dsi0_grf_reg_fields,
@@ -2277,6 +2280,7 @@ static const struct dw_mipi_dsi2_plat_data rk3588_mipi_dsi2_plat_data = {
 	.max_vsync = 1023,
 	.max_vbp = 1023,
 };
+#endif
 
 static const struct of_device_id dw_mipi_dsi2_dt_ids[] = {
 #if IS_ENABLED(CONFIG_CPU_RK3576)
