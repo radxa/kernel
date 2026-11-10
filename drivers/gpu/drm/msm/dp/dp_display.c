@@ -1306,6 +1306,11 @@ enum drm_connector_status msm_dp_bridge_detect(struct drm_bridge *bridge,
 	mutex_lock(&priv->plugged_lock);
 	was_plugged = priv->plugged;
 
+	if (dp->mst_active) {
+		put_count = 1;
+		goto unlock;
+	}
+
 	ret = msm_dp_display_host_phy_init(priv);
 	if (ret < 0) {
 		put_count = 1;
