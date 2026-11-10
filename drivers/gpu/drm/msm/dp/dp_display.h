@@ -51,4 +51,22 @@ int msm_dp_display_atomic_check(struct msm_dp *dp, struct msm_dp_bridge_state *s
 				const struct drm_display_mode *mode,
 				const struct drm_connector_state *conn_state);
 
+void msm_dp_display_enable_helper(struct msm_dp *msm_dp_display,
+				  struct msm_dp_panel *msm_dp_panel,
+				  const struct msm_dp_mst_slot_info *slots,
+				  const struct msm_dp_bridge_state *state);
+void msm_dp_display_disable_helper(struct msm_dp *msm_dp_display,
+				   struct msm_dp_panel *msm_dp_panel,
+				   const struct msm_dp_mst_slot_info *slots);
+void msm_dp_display_atomic_post_disable_helper(struct msm_dp *msm_dp_display,
+					       struct msm_dp_panel *msm_dp_panel);
+int msm_dp_display_set_mode_helper(struct msm_dp *msm_dp_display,
+				   struct drm_atomic_commit *state,
+				   struct drm_encoder *drm_encoder,
+				   struct msm_dp_panel *msm_dp_panel,
+				   const struct msm_dp_bridge_state *dp_state);
+int msm_dp_display_prepare_link(struct msm_dp *msm_dp_display,
+				const struct msm_dp_bridge_state *state);
+void msm_dp_display_unprepare(struct msm_dp *dp);
+
 #endif /* _DP_DISPLAY_H_ */
