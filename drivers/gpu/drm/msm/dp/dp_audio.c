@@ -284,7 +284,7 @@ int msm_dp_audio_prepare(struct drm_bridge *bridge,
 	 * such cases check for connection status and bail out if not
 	 * connected.
 	 */
-	if (!msm_dp_display->power_on)
+	if (!msm_dp_display->active_stream_mask)
 		goto end;
 
 	audio = msm_dp_audio_get_data(msm_dp_display);
@@ -340,7 +340,7 @@ void msm_dp_audio_restore(struct msm_dp *msm_dp_display)
 {
 	struct msm_dp_audio_private *audio;
 
-	if (!msm_dp_display->power_on || !msm_dp_display->audio_enabled)
+	if (!msm_dp_display->active_stream_mask || !msm_dp_display->audio_enabled)
 		return;
 
 	audio = msm_dp_audio_get_data(msm_dp_display);

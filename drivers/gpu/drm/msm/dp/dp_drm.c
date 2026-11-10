@@ -70,7 +70,7 @@ static void msm_dp_bridge_atomic_pre_enable(struct drm_bridge *drm_bridge,
 	 * self refresh, even when its color configuration requires a modeset.
 	 * Tear down the retained stream before installing the new state.
 	 */
-	if (dp->is_edp && dp->power_on && old_crtc_state->self_refresh_active &&
+	if (dp->is_edp && dp->active_stream_mask && old_crtc_state->self_refresh_active &&
 	    new_crtc_state->active && msm_dp_utils_psr_needs_modeset(new_crtc_state)) {
 		msm_dp_display_set_psr(dp, false);
 		msm_dp_display_atomic_disable(dp);
@@ -247,7 +247,7 @@ static void msm_edp_bridge_atomic_enable(struct drm_bridge *drm_bridge,
 
 	old_crtc_state = drm_atomic_get_old_crtc_state(state, crtc);
 
-	if (dp->power_on && old_crtc_state && old_crtc_state->self_refresh_active &&
+	if (dp->active_stream_mask && old_crtc_state && old_crtc_state->self_refresh_active &&
 	    !msm_dp_utils_psr_needs_modeset(drm_atomic_get_new_crtc_state(state, crtc))) {
 		msm_dp_display_set_psr(dp, false);
 		return;

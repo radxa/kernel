@@ -476,7 +476,7 @@ static int msm_dp_display_handle_irq_hpd(struct msm_dp_display_private *dp)
 
 	drm_dbg_dp(dp->drm_dev, "%d\n", sink_request);
 
-	if (!dp->msm_dp_display.power_on)
+	if (!dp->msm_dp_display.active_stream_mask)
 		return 0;
 
 	msm_dp_ctrl_handle_sink_request(dp->ctrl, dp->panel);
@@ -528,7 +528,7 @@ static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
 	ret = msm_dp_display_process_hpd_high(dp);
 
 	if (!ret && !dp->msm_dp_display.is_edp &&
-	    dp->msm_dp_display.power_on && !was_plugged) {
+	    dp->msm_dp_display.active_stream_mask && !was_plugged) {
 		dp->link_failed = true;
 		schedule_work(&dp->link_status_work);
 	}
@@ -589,7 +589,7 @@ static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 	}
 
 	/* triggered by irq_hdp with sink_count = 0 */
-	if (dp->link->sink_count == 0 && !dp->msm_dp_display.power_on)
+	if (dp->link->sink_count == 0 && !dp->msm_dp_display.active_stream_mask)
 		msm_dp_display_host_phy_exit(dp);
 
 	/*
@@ -854,21 +854,21 @@ static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp,
 	if (dp->link->sink_count == 0)
 		return -ENOTCONN;
 
-	if (!msm_dp_display->power_on) {
+	if (!msm_dp_display->active_stream_mask) {
 		rc = msm_dp_display_host_phy_init(dp);
 		if (rc < 0)
 			return rc;
 		force_link_train = true;
-	}
 
-	dp->stream_link_attempted = true;
+		dp->stream_link_attempted = true;
 	rc = msm_dp_ctrl_on_link(dp->ctrl, dp->panel);
 	if (rc) {
 		DRM_ERROR("Failed link training (rc=%d)\n", rc);
 		return rc;
 	}
 
-	force_link_train = false;
+		force_link_train = false;
+	}
 
 	return msm_dp_ctrl_prepare_stream_on(dp->ctrl, dp->panel, force_link_train);
 }
@@ -884,15 +884,11 @@ static int msm_dp_display_enable(struct msm_dp_display_private *dp,
 	lockdep_assert_held(&dp->plugged_lock);
 
 	drm_dbg_dp(dp->drm_dev, "sink_count=%d\n", dp->link->sink_count);
-	if (msm_dp_display->power_on) {
-		drm_dbg_dp(dp->drm_dev, "Link already setup, return\n");
-		return 0;
-	}
 
 	rc = msm_dp_ctrl_on_stream(dp->ctrl, msm_dp_panel, state,
 				   msm_dp_display->mst_active, slots);
 	if (!rc)
-		msm_dp_display->power_on = true;
+		msm_dp_display->active_stream_mask |= BIT(msm_dp_panel->stream_id);
 
 	return rc;
 }
@@ -958,8 +954,10 @@ static int msm_dp_display_disable(struct msm_dp_display_private *dp,
 
 	dp->video_test_blocked = false;
 
-	if (!msm_dp_display->power_on)
+	if (!(msm_dp_display->active_stream_mask & BIT(msm_dp_panel->stream_id)))
 		return 0;
+
+	msm_dp_display->active_stream_mask &= ~BIT(msm_dp_panel->stream_id);
 
 	msm_dp_panel_disable_vsc_sdp(msm_dp_panel);
 	msm_dp_panel_disable_hdr_sdp(msm_dp_panel);
@@ -1122,10 +1120,10 @@ void msm_dp_snapshot(struct msm_disp_state *disp_state, struct msm_dp *dp)
 	 * if we are reading registers we need the link clocks to be on
 	 * however till DP cable is connected this will not happen as we
 	 * do not know the resolution to power up with. Hence check the
-	 * power_on status before dumping DP registers to avoid crash due
+	 * active stream state before dumping DP registers to avoid crash due
 	 * to unclocked access
 	 */
-	if (!dp->power_on)
+	if (!dp->active_stream_mask)
 		return;
 
 	msm_disp_snapshot_add_block(disp_state, msm_dp_display->ahb_len,
@@ -1865,8 +1863,10 @@ static void msm_dp_display_unprepare(struct msm_dp_display_private *dp)
 	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
 
 	scoped_guard(mutex, &dp->plugged_lock) {
+		if (msm_dp_display->active_stream_mask)
+			return;
 		if (dp->stream_link_attempted) {
-			if (msm_dp_display->power_on) {
+			{
 				/* dongle is still connected but sinks are disconnected */
 				if (dp->link->sink_count == 0)
 					msm_dp_link_psm_config(dp->link, &dp->panel->link_info, true);
@@ -1881,7 +1881,6 @@ static void msm_dp_display_unprepare(struct msm_dp_display_private *dp)
 			else
 				msm_dp_display_host_phy_exit(dp);
 
-			msm_dp_display->power_on = false;
 		}
 	}
 
@@ -1942,12 +1941,12 @@ err:
 	 * DPU video interface is still enabled; .atomic_post_disable() will
 	 * run msm_dp_display_unprepare() after the DPU encoder stops its INTF.
 	 */
-	if (msm_dp_display->power_on) {
+	if (msm_dp_display->active_stream_mask) {
 		msm_dp_panel_disable_vsc_sdp(dp->panel);
 		msm_dp_panel_disable_hdr_sdp(dp->panel);
 		msm_dp_ctrl_off_pixel_clk(dp->ctrl, dp->panel->stream_id);
 		msm_dp_ctrl_off_link(dp->ctrl, dp->panel);
-		msm_dp_display->power_on = false;
+		msm_dp_display->active_stream_mask = false;
 	}
 	mutex_unlock(&dp->plugged_lock);
 err_prepare:
@@ -1969,16 +1968,17 @@ void msm_dp_display_atomic_disable(struct msm_dp *dp)
 
 	/*
 	 * If .atomic_enable() bailed out - link training failure is the common
-	 * case - the mainlink was never brought up and ->power_on stayed false.
-	 * Driving the PUSH_IDLE pattern into a controller that was never
-	 * enabled times out, and .atomic_post_disable() then drops the
-	 * controller's runtime-PM reference without tearing the PHY back down,
-	 * because msm_dp_display_disable() returns early on !power_on.  On
+	 * case - the mainlink was never brought up and the stream was never
+	 * marked active in ->active_stream_mask.  Driving the PUSH_IDLE pattern
+	 * into a controller that was never enabled times out, and
+	 * .atomic_post_disable() then drops the controller's runtime-PM
+	 * reference without tearing the PHY back down, because
+	 * msm_dp_display_disable() returns early for an inactive stream.  On
 	 * glymur (Snapdragon X2 Elite) that combination is answered by a
 	 * TrustZone-level SOCCP/ADSP force-stop and a silent SoC reset.
 	 * There is nothing to push idle, so leave it alone.
 	 */
-	if (!dp->power_on)
+	if (!dp->active_stream_mask)
 		return;
 
 	msm_dp_ctrl_push_vcpf(msm_dp_display->ctrl, msm_dp_display->panel);
