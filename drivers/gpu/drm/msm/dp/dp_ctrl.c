@@ -596,6 +596,7 @@ static void msm_dp_ctrl_configure_source_params(struct msm_dp_ctrl_private *ctrl
 	msm_dp_ctrl_config_misc1_misc0(ctrl, panel, state);
 
 	msm_dp_panel_timing_cfg(panel, ctrl->msm_dp_ctrl.wide_bus_en);
+	msm_dp_panel_mst_async_fifo(panel, ctrl->mst_mode);
 
 	if (state->vsc_enabled)
 		msm_dp_panel_enable_vsc_sdp(panel, vsc_sdp);
