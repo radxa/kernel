@@ -875,7 +875,8 @@ static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp,
 
 static int msm_dp_display_enable(struct msm_dp_display_private *dp,
 				 struct msm_dp_panel *msm_dp_panel,
-				 const struct msm_dp_bridge_state *state)
+				 const struct msm_dp_bridge_state *state,
+				 const struct msm_dp_mst_slot_info *slots)
 {
 	int rc = 0;
 	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
@@ -889,7 +890,7 @@ static int msm_dp_display_enable(struct msm_dp_display_private *dp,
 	}
 
 	rc = msm_dp_ctrl_on_stream(dp->ctrl, msm_dp_panel, state,
-				   msm_dp_display->mst_active);
+				   msm_dp_display->mst_active, slots);
 	if (!rc)
 		msm_dp_display->power_on = true;
 
@@ -1917,7 +1918,7 @@ void msm_dp_display_atomic_enable(struct msm_dp *msm_dp_display,
 		goto err;
 	}
 
-	rc = msm_dp_display_enable(dp, dp->panel, dp_state);
+	rc = msm_dp_display_enable(dp, dp->panel, dp_state, NULL);
 	if (rc) {
 		DRM_ERROR("DP display enable failed, rc=%d\n", rc);
 		goto err;
@@ -1981,6 +1982,7 @@ void msm_dp_display_atomic_disable(struct msm_dp *dp)
 		return;
 
 	msm_dp_ctrl_push_vcpf(msm_dp_display->ctrl, msm_dp_display->panel);
+	msm_dp_ctrl_mst_timeslot_setup(msm_dp_display->ctrl, NULL);
 	msm_dp_ctrl_mst_send_act(msm_dp_display->ctrl, msm_dp_display->panel);
 }
 
