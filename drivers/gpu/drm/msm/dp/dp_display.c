@@ -14,6 +14,7 @@
 #include <linux/string_choices.h>
 #include <linux/workqueue.h>
 #include <drm/display/drm_dp_aux_bus.h>
+#include <drm/display/drm_dp_mst_helper.h>
 #include <drm/display/drm_hdmi_audio_helper.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_panel.h>
@@ -319,10 +320,34 @@ static int msm_dp_display_lttpr_init(struct msm_dp_display_private *dp, u8 *dpcd
 	return lttpr_count;
 }
 
+static void msm_dp_display_mst_enable(struct msm_dp_display_private *dp)
+{
+	struct msm_dp *msm_dp = &dp->msm_dp_display;
+	int ret;
+
+	/* Clear any pre-existing MST state before enabling MST. */
+	ret = drm_dp_dpcd_write_byte(dp->aux, DP_MSTM_CTRL, 0);
+	if (ret < 0) {
+		DRM_ERROR("failed to clear DP_MSTM_CTRL, ret=%d\n", ret);
+		return;
+	}
+
+	ret = drm_dp_dpcd_write_byte(dp->aux, DP_MSTM_CTRL,
+				     DP_MST_EN | DP_UP_REQ_EN | DP_UPSTREAM_IS_SRC);
+	if (ret < 0) {
+		DRM_ERROR("sink MST enablement failed\n");
+		return;
+	}
+
+	msm_dp->mst_active = true;
+	msm_dp_mst_display_set_mgr_state(msm_dp, true);
+}
+
 static int msm_dp_display_process_hpd_high(struct msm_dp_display_private *dp)
 {
 	struct drm_connector *connector = dp->msm_dp_display.connector;
 	const struct drm_display_info *info = &connector->display_info;
+	enum drm_dp_mst_mode mst_mode = DRM_DP_SST;
 	int rc = 0;
 	u8 dpcd[DP_RECEIVER_CAP_SIZE];
 	const struct drm_edid *drm_edid = NULL;
@@ -343,18 +368,23 @@ static int msm_dp_display_process_hpd_high(struct msm_dp_display_private *dp)
 	if (rc)
 		goto end;
 
-	drm_edid = drm_edid_read_ddc(connector, &dp->aux->ddc);
-	drm_edid_connector_update(connector, drm_edid);
+	if (msm_dp_ctrl_get_stream_cnt(dp->ctrl) > 1)
+		mst_mode = drm_dp_read_mst_cap(dp->aux, dp->panel->dpcd);
 
-	if (drm_edid) {
-		drm_dp_cec_attach(dp->aux,
-				  connector->display_info.source_physical_address);
-	} else {
-		DRM_ERROR("panel edid read failed\n");
-		drm_dp_cec_unset_edid(dp->aux);
-		/* check edid read fail is due to unplug */
-		if (!msm_dp_aux_is_link_connected(dp->aux))
-			return -ETIMEDOUT;
+	if (mst_mode != DRM_DP_MST) {
+		drm_edid = drm_edid_read_ddc(connector, &dp->aux->ddc);
+		drm_edid_connector_update(connector, drm_edid);
+
+		if (drm_edid) {
+			drm_dp_cec_attach(dp->aux,
+					  connector->display_info.source_physical_address);
+		} else {
+			DRM_ERROR("panel edid read failed\n");
+			drm_dp_cec_unset_edid(dp->aux);
+			/* check edid read fail is due to unplug */
+			if (!msm_dp_aux_is_link_connected(dp->aux))
+				return -ETIMEDOUT;
+		}
 	}
 
 	msm_dp_link_process_request(dp->link, connector, dp->panel->dpcd,
@@ -376,6 +406,9 @@ static int msm_dp_display_process_hpd_high(struct msm_dp_display_private *dp)
 	 * before dpcd read
 	 */
 	msm_dp_link_psm_config(dp->link, &dp->link->link_caps, false);
+
+	if (mst_mode == DRM_DP_MST)
+		msm_dp_display_mst_enable(dp);
 
 	msm_dp_link_reset_phy_params_vx_px(dp->link);
 
@@ -612,6 +645,11 @@ static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 						 connector_status_disconnected,
 						 dp->panel->dpcd,
 						 dp->panel->downstream_ports);
+
+	if (dp->msm_dp_display.mst_active) {
+		msm_dp_mst_display_set_mgr_state(&dp->msm_dp_display, false);
+		dp->msm_dp_display.mst_active = false;
+	}
 
 	/* signal the disconnect event early to ensure proper teardown */
 	msm_dp_display_handle_plugged_change(&dp->msm_dp_display, false);
