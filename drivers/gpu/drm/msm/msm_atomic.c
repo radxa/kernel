@@ -4,6 +4,7 @@
  * Author: Rob Clark <robdclark@gmail.com>
  */
 
+#include <drm/display/drm_dp_mst_helper.h>
 #include <drm/drm_atomic_uapi.h>
 #include <drm/drm_vblank.h>
 
@@ -192,7 +193,11 @@ int msm_atomic_check(struct drm_device *dev, struct drm_atomic_commit *state)
 	if (ret)
 		return ret;
 
-	return drm_atomic_helper_check(dev, state);
+	ret = drm_atomic_helper_check(dev, state);
+	if (ret)
+		return ret;
+
+	return drm_dp_mst_atomic_check(state);
 }
 
 void msm_atomic_commit_tail(struct drm_atomic_commit *state)
@@ -205,6 +210,8 @@ void msm_atomic_commit_tail(struct drm_atomic_commit *state)
 	bool async = can_do_async(state, &async_crtc);
 
 	trace_msm_atomic_commit_tail_start(async, crtc_mask);
+
+	drm_dp_mst_atomic_wait_for_dependencies(state);
 
 	kms->funcs->enable_commit(kms);
 
@@ -306,4 +313,9 @@ fallback:
 	drm_atomic_helper_cleanup_planes(dev, state);
 
 	trace_msm_atomic_commit_tail_finish(async, crtc_mask);
+}
+
+int msm_atomic_commit_setup(struct drm_atomic_commit *state)
+{
+	return drm_dp_mst_atomic_setup_commit(state);
 }
