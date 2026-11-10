@@ -239,6 +239,7 @@ struct pcie_link_state {
 	u32 aspm_default:7;		/* Default ASPM state by BIOS or
 					   override */
 	u32 aspm_disable:7;		/* Disabled ASPM state */
+	u32 aspm_driver_disable:7;	/* States banned by pci_disable_link_state() */
 
 	/* Clock PM state */
 	u32 clkpm_capable:1;		/* Clock PM capable? */
@@ -1423,6 +1424,7 @@ static int __pci_disable_link_state(struct pci_dev *pdev, int state, bool locked
 	if (!locked)
 		down_read(&pci_bus_sem);
 	mutex_lock(&aspm_lock);
+	link->aspm_driver_disable |= pci_calc_aspm_disable_mask(state);
 	link->aspm_disable |= pci_calc_aspm_disable_mask(state);
 	pcie_config_aspm_link(link, policy_to_aspm_state(link));
 
@@ -1636,6 +1638,8 @@ static ssize_t aspm_attr_store_common(struct device *dev,
 		/* need to enable L1 for substates */
 		if (state & PCIE_LINK_STATE_L1SS)
 			link->aspm_disable &= ~PCIE_LINK_STATE_L1;
+		/* never override pci_disable_link_state() bans */
+		link->aspm_disable |= link->aspm_driver_disable;
 	} else {
 		link->aspm_disable |= state;
 		if (state & PCIE_LINK_STATE_L1)
