@@ -23,6 +23,7 @@ struct msm_dp {
 	bool audio_restore_pending;
 	u32 active_stream_mask;
 	bool mst_active;
+	bool link_ready;
 	unsigned int connector_type;
 	bool is_edp;
 

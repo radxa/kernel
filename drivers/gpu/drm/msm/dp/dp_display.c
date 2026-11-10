@@ -820,6 +820,9 @@ static int msm_dp_display_prepare(struct msm_dp_display_private *dp)
 	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
 	int rc;
 
+	if (dp->stream_pm_active)
+		return 0;
+
 	if (msm_dp_display->is_edp) {
 		rc = msm_dp_hpd_plug_handle(dp);
 		if (rc)
@@ -848,6 +851,9 @@ static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp,
 
 	lockdep_assert_held(&dp->plugged_lock);
 
+	if (msm_dp_display->link_ready)
+		return 0;
+
 	if (state->vsc_enabled && !dp->panel->vsc_sdp_supported)
 		return -EINVAL;
 
@@ -870,7 +876,11 @@ static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp,
 		force_link_train = false;
 	}
 
-	return msm_dp_ctrl_prepare_stream_on(dp->ctrl, dp->panel, force_link_train);
+	rc = msm_dp_ctrl_prepare_stream_on(dp->ctrl, dp->panel, force_link_train);
+	if (!rc)
+		msm_dp_display->link_ready = true;
+
+	return rc;
 }
 
 static int msm_dp_display_enable(struct msm_dp_display_private *dp,
@@ -1856,6 +1866,9 @@ int msm_dp_display_prepare_link(struct msm_dp *msm_dp_display,
 				struct msm_dp_display_private, msm_dp_display);
 	int ret;
 
+	if (msm_dp_display->link_ready)
+		return 0;
+
 	ret = msm_dp_display_prepare(dp);
 	if (ret)
 		return ret;
@@ -1923,6 +1936,7 @@ void msm_dp_display_unprepare(struct msm_dp *msm_dp_display)
 				msm_dp_ctrl_off_link(dp->ctrl, dp->panel);
 			}
 			dp->stream_link_attempted = false;
+			msm_dp_display->link_ready = false;
 
 			if (dp->link->sink_count == 0 && dp->plugged && !msm_dp_display->is_edp)
 				/* re-init PHY to listen for Dongle disconnect */
