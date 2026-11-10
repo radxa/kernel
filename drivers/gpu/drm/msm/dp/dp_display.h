@@ -70,4 +70,6 @@ int msm_dp_display_prepare_link(struct msm_dp *msm_dp_display,
 				const struct msm_dp_bridge_state *state);
 void msm_dp_display_unprepare(struct msm_dp *dp);
 
+struct msm_dp_panel *msm_dp_display_get_panel(struct msm_dp *msm_dp_display,
+					      enum msm_dp_stream_id stream_id);
 #endif /* _DP_DISPLAY_H_ */
