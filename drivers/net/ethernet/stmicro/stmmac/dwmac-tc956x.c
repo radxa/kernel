@@ -839,6 +839,8 @@ static int tc956x_plat_dat_init(struct tc956x_data *td)
 
 	plat->mac_port_sel_speed = speed;
 	plat->flags = STMMAC_FLAG_MULTI_MSI_EN | STMMAC_FLAG_TSO_EN;
+	if (phy_interface == PHY_INTERFACE_MODE_USXGMII)
+		plat->flags |= STMMAC_FLAG_TSO_DEFAULT_OFF;
 
 	td->plat = plat;
 

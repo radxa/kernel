@@ -8038,6 +8038,8 @@ static int __stmmac_dvr_probe(struct device *device,
 	}
 
 	ndev->features |= ndev->hw_features | NETIF_F_HIGHDMA;
+	if (priv->plat->flags & STMMAC_FLAG_TSO_DEFAULT_OFF)
+		ndev->features &= ~(NETIF_F_TSO | NETIF_F_TSO6);
 	ndev->watchdog_timeo = msecs_to_jiffies(watchdog);
 #ifdef STMMAC_VLAN_TAG_USED
 	/* Both mac100 and gmac support receive VLAN tag detection */
