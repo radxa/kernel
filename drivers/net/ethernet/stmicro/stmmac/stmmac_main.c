@@ -3957,8 +3957,10 @@ static int stmmac_request_irq_multi_msi(struct net_device *dev)
 			irq_idx = i;
 			goto irq_error;
 		}
-		irq_set_affinity_hint(msi->rx_irq[i],
-				      cpumask_of(i % num_online_cpus()));
+		if (!irqd_affinity_is_managed(irq_get_irq_data(msi->rx_irq[i])) &&
+		    !irqd_affinity_was_set(irq_get_irq_data(msi->rx_irq[i])))
+			irq_set_affinity_hint(msi->rx_irq[i],
+					      cpumask_of(i % num_online_cpus()));
 	}
 
 	/* Request Tx MSI irq */
@@ -3981,8 +3983,10 @@ static int stmmac_request_irq_multi_msi(struct net_device *dev)
 			irq_idx = i;
 			goto irq_error;
 		}
-		irq_set_affinity_hint(msi->tx_irq[i],
-				      cpumask_of(i % num_online_cpus()));
+		if (!irqd_affinity_is_managed(irq_get_irq_data(msi->tx_irq[i])) &&
+		    !irqd_affinity_was_set(irq_get_irq_data(msi->tx_irq[i])))
+			irq_set_affinity_hint(msi->tx_irq[i],
+					      cpumask_of(i % num_online_cpus()));
 	}
 
 	return 0;
