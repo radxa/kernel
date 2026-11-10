@@ -5672,12 +5672,14 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		rc = 0;
 	} else if (tp->mac_version >= RTL_GIGA_MAC_VER_46) {
 		/* RTL8111K and other RTL8168h/8111h-generation chips may
-		 * drop rx packets while the link wakes up from L1.2.
-		 * Keep L1/L1.1 enabled to avoid the
-		 * resume AER storm seen with a full L1 disable, and turn
-		 * off L1.2 only, unless the vendor validated L1.2.
+		 * drop rx packets while the link wakes up from L1.2 and
+		 * generate correctable AER noise in L0s.
+		 * Keep L1/L1.1 enabled to avoid the resume AER storm seen
+		 * with a full L1 disable, and turn off L1.2 and L0s,
+		 * unless the vendor validated L1.2.
 		 */
-		rc = pci_disable_link_state(pdev, PCIE_LINK_STATE_L1_2 |
+		rc = pci_disable_link_state(pdev, PCIE_LINK_STATE_L0S |
+					    PCIE_LINK_STATE_L1_2 |
 					    PCIE_LINK_STATE_L1_2_PCIPM);
 	} else {
 		rc = pci_disable_link_state(pdev, PCIE_LINK_STATE_L1);
