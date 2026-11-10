@@ -6514,12 +6514,13 @@ static u16 stmmac_select_queue(struct net_device *dev, struct sk_buff *skb,
 {
 	int gso = skb_shinfo(skb)->gso_type;
 
-	if (gso & (SKB_GSO_TCPV4 | SKB_GSO_TCPV6 | SKB_GSO_UDP_L4)) {
+	if ((gso & (SKB_GSO_TCPV4 | SKB_GSO_TCPV6 | SKB_GSO_UDP_L4)) &&
+	    skb_gso_ok(skb, dev->features)) {
 		/*
 		 * There is no way to determine the number of TSO/USO
 		 * capable Queues. Let's use always the Queue 0
 		 * because if TSO/USO is supported then at least this
-		 * one will be capable.
+		 * one will be capable. Software segmentation can use any queue.
 		 */
 		return 0;
 	}
