@@ -562,6 +562,16 @@ static void msm_dp_display_handle_plugged_change(struct msm_dp *msm_dp_display,
 							plugged);
 }
 
+bool msm_dp_display_is_plugged(struct msm_dp *msm_dp_display)
+{
+	struct msm_dp_display_private *dp;
+
+	dp = container_of(msm_dp_display,
+			  struct msm_dp_display_private, msm_dp_display);
+
+	return READ_ONCE(dp->plugged);
+}
+
 static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 {
 	struct platform_device *pdev = dp->msm_dp_display.pdev;
@@ -1656,7 +1666,8 @@ int msm_dp_mst_register(struct msm_dp *msm_dp_display)
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 
-	return msm_dp_mst_mgr_init(msm_dp_display, msm_dp_ctrl_get_stream_cnt(dp->ctrl), dp->aux);
+	return msm_dp_mst_mgr_init(msm_dp_display, dp->link,
+				   msm_dp_ctrl_get_stream_cnt(dp->ctrl), dp->aux);
 }
 
 void msm_dp_mst_unregister(struct msm_dp *msm_dp_display)
@@ -1931,7 +1942,7 @@ int msm_dp_display_prepare_link(struct msm_dp *msm_dp_display,
 	return msm_dp_display_prepare_link_locked(dp, state);
 }
 
-void msm_dp_display_enable_helper(struct msm_dp *msm_dp_display,
+int msm_dp_display_enable_helper(struct msm_dp *msm_dp_display,
 				  struct msm_dp_panel *panel,
 				  const struct msm_dp_mst_slot_info *slots,
 				  const struct msm_dp_bridge_state *state)
@@ -1941,9 +1952,14 @@ void msm_dp_display_enable_helper(struct msm_dp *msm_dp_display,
 	int ret;
 
 	guard(mutex)(&dp->plugged_lock);
+	if (!msm_dp_display->link_ready)
+		return -ENOLINK;
+
 	ret = msm_dp_display_enable(dp, panel, state, slots);
 	if (ret)
 		DRM_ERROR("DP display enable failed, rc=%d\n", ret);
+
+	return ret;
 }
 
 void msm_dp_display_atomic_pre_enable(struct msm_dp *msm_dp_display,
