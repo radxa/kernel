@@ -210,11 +210,11 @@ static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel,
 			/* Retry discovery rather than caching a failed optional read. */
 			*caps_valid = false;
 		} else {
-			msm_dp_panel->vsc_sdp_supported =
+			panel->link->vsc_sdp_supported =
 				rx_feature & DP_VSC_SDP_EXT_FOR_COLORIMETRY_SUPPORTED;
 		}
 	}
-	link_info = &msm_dp_panel->link_info;
+	link_info = &panel->link->link_caps;
 	link_info->revision = dpcd[DP_DPCD_REV];
 	major = (link_info->revision >> 4) & 0x0f;
 	minor = link_info->revision & 0x0f;
@@ -318,7 +318,7 @@ static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel,
 
 static int msm_dp_panel_read_link_rate_set(struct msm_dp_panel_private *panel)
 {
-	struct msm_dp_link_info *link_info = &panel->msm_dp_panel.link_info;
+	struct msm_dp_link_info *link_info = &panel->link->link_caps;
 	u8 bw_set;
 	int ret;
 
@@ -338,13 +338,15 @@ static int msm_dp_panel_read_link_rate_set(struct msm_dp_panel_private *panel)
 static u32 msm_dp_panel_get_supported_bpp(struct msm_dp_panel *msm_dp_panel,
 		u32 mode_edid_bpp, u32 mode_pclk_khz)
 {
+	struct msm_dp_panel_private *panel =
+		container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
 	const struct msm_dp_link_info *link_info;
 	const u32 max_supported_bpp = 30, min_supported_bpp = 18;
 	u32 bpp, data_rate_khz;
 
 	bpp = min(mode_edid_bpp, max_supported_bpp);
 
-	link_info = &msm_dp_panel->link_info;
+	link_info = &panel->link->link_caps;
 	data_rate_khz = link_info->num_lanes * link_info->rate * 8;
 
 	do {
@@ -382,11 +384,11 @@ int msm_dp_panel_read_link_caps(struct msm_dp_panel *msm_dp_panel,
 	    msm_dp_panel->caps_cached)
 		return msm_dp_panel_read_link_rate_set(panel);
 
-	msm_dp_panel->link_caps_valid = false;
+	panel->link->link_caps_valid = false;
 	msm_dp_panel->caps_cached = false;
-	memset(&msm_dp_panel->link_info, 0, sizeof(msm_dp_panel->link_info));
+	memset(&panel->link->link_caps, 0, sizeof(panel->link->link_caps));
 	memset(&msm_dp_panel->psr_cap, 0, sizeof(msm_dp_panel->psr_cap));
-	msm_dp_panel->vsc_sdp_supported = false;
+	panel->link->vsc_sdp_supported = false;
 	rc = msm_dp_panel_read_dpcd(msm_dp_panel, &caps_valid);
 	if (rc) {
 		DRM_ERROR("read dpcd failed %d\n", rc);
@@ -398,12 +400,12 @@ int msm_dp_panel_read_link_caps(struct msm_dp_panel *msm_dp_panel,
 	if (rc)
 		memset(&msm_dp_panel->desc, 0, sizeof(msm_dp_panel->desc));
 
-	bw_code = drm_dp_link_rate_to_bw_code(msm_dp_panel->link_info.rate);
+	bw_code = drm_dp_link_rate_to_bw_code(panel->link->link_caps.rate);
 	if (!is_link_rate_valid(bw_code) ||
-			!is_lane_count_valid(msm_dp_panel->link_info.num_lanes) ||
+			!is_lane_count_valid(panel->link->link_caps.num_lanes) ||
 			(bw_code > msm_dp_panel->max_bw_code)) {
-		DRM_ERROR("Illegal link rate=%d lane=%d\n", msm_dp_panel->link_info.rate,
-				msm_dp_panel->link_info.num_lanes);
+		DRM_ERROR("Illegal link rate=%d lane=%d\n", panel->link->link_caps.rate,
+				panel->link->link_caps.num_lanes);
 		return -EINVAL;
 	}
 
@@ -428,7 +430,7 @@ int msm_dp_panel_read_link_caps(struct msm_dp_panel *msm_dp_panel,
 
 	rc = msm_dp_panel_read_link_rate_set(panel);
 	if (!rc) {
-		msm_dp_panel->link_caps_valid = true;
+		panel->link->link_caps_valid = true;
 		msm_dp_panel->caps_cached = caps_valid;
 	}
 	return rc;
@@ -877,4 +879,3 @@ struct msm_dp_panel *msm_dp_panel_get(struct device *dev, struct drm_dp_aux *aux
 
 	return msm_dp_panel;
 }
-

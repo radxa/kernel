@@ -330,7 +330,7 @@ static int msm_dp_display_process_hpd_high(struct msm_dp_display_private *dp)
 	if (dp->msm_dp_display.is_edp && dp->panel->caps_cached) {
 		memcpy(dpcd, dp->panel->dpcd, sizeof(dpcd));
 	} else {
-		dp->panel->link_caps_valid = false;
+		dp->link->link_caps_valid = false;
 		rc = drm_dp_read_dpcd_caps(dp->aux, dpcd);
 		if (rc)
 			goto end;
@@ -375,7 +375,7 @@ static int msm_dp_display_process_hpd_high(struct msm_dp_display_private *dp)
 	 * set sink to normal operation mode -- D0
 	 * before dpcd read
 	 */
-	msm_dp_link_psm_config(dp->link, &dp->panel->link_info, false);
+	msm_dp_link_psm_config(dp->link, &dp->link->link_caps, false);
 
 	msm_dp_link_reset_phy_params_vx_px(dp->link);
 
@@ -506,7 +506,7 @@ static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
 
 	mutex_lock(&dp->plugged_lock);
 	was_plugged = dp->plugged;
-	if (was_plugged && dp->panel->link_caps_valid) {
+	if (was_plugged && dp->link->link_caps_valid) {
 		mutex_unlock(&dp->plugged_lock);
 		pm_runtime_put_sync(&pdev->dev);
 		return 0;
@@ -584,7 +584,7 @@ static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 
 	/* eDP uses this path for power-down, not a change of sink. */
 	if (!dp->msm_dp_display.is_edp) {
-		dp->panel->link_caps_valid = false;
+		dp->link->link_caps_valid = false;
 		dp->panel->caps_cached = false;
 		drm_edid_connector_update(dp->msm_dp_display.connector, NULL);
 	}
@@ -808,7 +808,7 @@ int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
 
 	guard(mutex)(&dp->plugged_lock);
 
-	if (!dp->panel->link_caps_valid)
+	if (!dp->link->link_caps_valid)
 		return -EINVAL;
 
 	ret = msm_dp_utils_pack_hdr_sdp(conn_state, &state->hdr_sdp);
@@ -820,8 +820,8 @@ int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
 		return -EINVAL;
 
 	bpp = msm_dp_utils_select_bpp(info->bpc, conn_state->max_requested_bpc ?: 8,
-				      clock, dp->panel->link_info.rate,
-				      dp->panel->link_info.num_lanes,
+				      clock, dp->link->link_caps.rate,
+				      dp->link->link_caps.num_lanes,
 				      drm_mode_is_420_only(info, mode),
 				      state->hdr_enabled && state->hdr_sdp.db[2] !=
 				      HDMI_EOTF_TRADITIONAL_GAMMA_SDR);
@@ -836,7 +836,7 @@ int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
 	if (!state->vsc_enabled)
 		return 0;
 
-	if (dp->panel->link_caps_valid && !dp->panel->vsc_sdp_supported)
+	if (dp->link->link_caps_valid && !dp->link->vsc_sdp_supported)
 		return -EINVAL;
 
 	return msm_dp_utils_pack_vsc_sdp(&state->vsc_sdp, state->colorspace,
@@ -882,7 +882,7 @@ static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp,
 	if (msm_dp_display->link_ready)
 		return 0;
 
-	if (state->vsc_enabled && !dp->panel->vsc_sdp_supported)
+	if (state->vsc_enabled && !dp->link->vsc_sdp_supported)
 		return -EINVAL;
 
 	if (dp->link->sink_count == 0)
@@ -1074,7 +1074,7 @@ enum drm_mode_status msm_dp_display_mode_valid(struct msm_dp *dp,
 	}
 
 	msm_dp_display = container_of(dp, struct msm_dp_display_private, msm_dp_display);
-	link_info = &msm_dp_display->panel->link_info;
+	link_info = &msm_dp_display->link->link_caps;
 
 	is_yuv_420 = drm_mode_is_420_only(&dp->connector->display_info, mode);
 
@@ -1082,7 +1082,7 @@ enum drm_mode_status msm_dp_display_mode_valid(struct msm_dp *dp,
 	 * YUV 420 is carried over DP by signalling the colorimetry through a
 	 * VSC SDP, so a 420-only mode cannot be driven without VSC SDP support.
 	 */
-	if (is_yuv_420 && !msm_dp_display->panel->vsc_sdp_supported)
+	if (is_yuv_420 && !msm_dp_display->link->vsc_sdp_supported)
 		return MODE_NO_420;
 
 	link_pclk_khz = is_yuv_420 ? mode_pclk_khz / 2 : mode_pclk_khz;
@@ -1213,7 +1213,7 @@ enum drm_connector_status msm_edp_bridge_detect(struct drm_bridge *bridge,
 
 	/* The fixed panel's bandwidth capabilities survive power cycles. */
 	scoped_guard(mutex, &dp->plugged_lock) {
-		if (dp->panel->link_caps_valid)
+		if (dp->link->link_caps_valid)
 			return connector_status_connected;
 	}
 
@@ -1985,7 +1985,7 @@ void msm_dp_display_unprepare(struct msm_dp *msm_dp_display)
 			{
 				/* dongle is still connected but sinks are disconnected */
 				if (dp->link->sink_count == 0)
-					msm_dp_link_psm_config(dp->link, &dp->panel->link_info, true);
+					msm_dp_link_psm_config(dp->link, &dp->link->link_caps, true);
 
 				msm_dp_ctrl_off_link(dp->ctrl, dp->panel);
 			}
