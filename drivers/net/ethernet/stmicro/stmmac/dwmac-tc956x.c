@@ -683,12 +683,53 @@ static int tc956x_dwmac_resume(struct device *dev, void *bsp_priv)
 	return tc956x_mac_enable(td);
 }
 
+static int tc956x_mdio_clock_config(struct tc956x_data *td,
+				    struct device_node *mdio_node)
+{
+	static const struct {
+		u16 divisor;
+		u8 cr;
+	} clock_ranges[] = {
+		{ 8, STMMAC_CSR_I_8 },
+		{ 10, STMMAC_CSR_I_10 },
+		{ 12, STMMAC_CSR_I_12 },
+		{ 14, STMMAC_CSR_I_14 },
+		{ 16, STMMAC_CSR_I_16 },
+		{ 18, STMMAC_CSR_I_18 },
+		{ 62, 0 },
+		{ 102, 1 },
+		{ 122, 2 },
+		{ 142, 3 },
+		{ 162, 4 },
+		{ 202, 5 },
+	};
+	u32 frequency;
+	unsigned int i;
+
+	if (of_property_read_u32(mdio_node, "clock-frequency", &frequency))
+		return 0;
+
+	/* QPS615 supports MDC up to 15.625 MHz (125 MHz / 8). */
+	for (i = 0; i < ARRAY_SIZE(clock_ranges); i++) {
+		if (DIV_ROUND_UP(TC956X_MAC_CLOCK_RATE,
+				 clock_ranges[i].divisor) > frequency)
+			continue;
+
+		td->plat->clk_csr = clock_ranges[i].cr;
+		return 0;
+	}
+
+	return dev_err_probe(td->dev, -EINVAL,
+			     "unsupported MDIO clock frequency %u\n", frequency);
+}
+
 /* Called by tc956x_dwmac_probe(); return errors with dev_err_probe() */
 static int tc956x_dwmac_parse_dt(struct tc956x_data *td)
 {
 	struct device_node *mdio_node;
 	struct device *dev = td->dev;
 	struct device_node *np;
+	int ret;
 
 	np = dev_of_node(dev);
 	if (!np)
@@ -703,6 +744,12 @@ static int tc956x_dwmac_parse_dt(struct tc956x_data *td)
 
 	/* Pass the MDIO bus (if there is one) to the core driver */
 	if (mdio_node) {
+		ret = tc956x_mdio_clock_config(td, mdio_node);
+		if (ret) {
+			of_node_put(mdio_node);
+			return ret;
+		}
+
 		td->plat->mdio_node = mdio_node;
 		td->plat->mdio_bus_data->needs_reset = true;
 	}
