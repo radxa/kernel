@@ -236,17 +236,11 @@ static void tc956x_msigen_irq_handler(struct irq_desc *desc)
 	chained_irq_exit(chip, desc);
 }
 
-static int tc956x_msigen_irq_chip_init(struct irq_chip_generic *gc)
+static void tc956x_msigen_restore(struct irq_chip_generic *gc)
 {
 	struct tc956x_data *td = gc->domain->host_data;
 	unsigned int src, i;
 	u32 value;
-
-	gc->reg_base = td->auxbus_data->msigen;
-	gc->chip_types[0].regs.mask = MSI_OUT_EN_OFFSET;
-	gc->chip_types[0].chip.irq_mask = irq_gc_mask_clr_bit;
-	gc->chip_types[0].chip.irq_unmask = irq_gc_mask_set_bit;
-	gc->chip_types[0].chip.irq_set_affinity = tc956x_msigen_set_affinity;
 
 	/* Disable all interrupts */
 	irq_reg_writel(gc, 0, MSI_OUT_EN_OFFSET);
@@ -261,6 +255,20 @@ static int tc956x_msigen_irq_chip_init(struct irq_chip_generic *gc)
 	}
 	irq_reg_writel(gc, BIT(td->auxbus_data->msigen_nvec) - 1,
 		       MSI_MASK_CLR_OFFSET);
+	irq_reg_writel(gc, gc->mask_cache, MSI_OUT_EN_OFFSET);
+}
+
+static int tc956x_msigen_irq_chip_init(struct irq_chip_generic *gc)
+{
+	struct tc956x_data *td = gc->domain->host_data;
+
+	gc->reg_base = td->auxbus_data->msigen;
+	gc->chip_types[0].regs.mask = MSI_OUT_EN_OFFSET;
+	gc->chip_types[0].chip.irq_mask = irq_gc_mask_clr_bit;
+	gc->chip_types[0].chip.irq_unmask = irq_gc_mask_set_bit;
+	gc->chip_types[0].chip.irq_set_affinity = tc956x_msigen_set_affinity;
+
+	tc956x_msigen_restore(gc);
 
 	return 0;
 }
@@ -679,6 +687,14 @@ static int tc956x_dwmac_suspend(struct device *dev, void *bsp_priv)
 static int tc956x_dwmac_resume(struct device *dev, void *bsp_priv)
 {
 	struct tc956x_data *td = bsp_priv;
+	struct irq_chip_generic *gc;
+	unsigned long flags;
+
+	/* The parent resets MSIGEN during system sleep. */
+	gc = irq_get_domain_generic_chip(td->irq_domain, 0);
+	raw_spin_lock_irqsave(&gc->lock, flags);
+	tc956x_msigen_restore(gc);
+	raw_spin_unlock_irqrestore(&gc->lock, flags);
 
 	return tc956x_mac_enable(td);
 }
