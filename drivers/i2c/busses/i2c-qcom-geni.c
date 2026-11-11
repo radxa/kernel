@@ -1196,8 +1196,11 @@ static int geni_i2c_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	/* Keep interrupts disabled initially to allow for low-power modes */
-	ret = devm_request_irq(dev, gi2c->irq, geni_i2c_irq, IRQF_NO_AUTOEN,
+	/* Runtime PM masks the IRQ before turning the controller resources off.
+	 * Keep it available for transfers from noirq resume callbacks.
+	 */
+	ret = devm_request_irq(dev, gi2c->irq, geni_i2c_irq,
+			       IRQF_NO_AUTOEN | IRQF_NO_SUSPEND,
 			       dev_name(dev), gi2c);
 	if (ret)
 		return ret;
@@ -1280,6 +1283,18 @@ static int __maybe_unused geni_i2c_runtime_resume(struct device *dev)
 	return 0;
 }
 
+static int __maybe_unused geni_i2c_prepare(struct device *dev)
+{
+	/* Keep a reference so force_resume() restores resources for noirq users. */
+	return pm_runtime_resume_and_get(dev);
+}
+
+static void __maybe_unused geni_i2c_complete(struct device *dev)
+{
+	pm_runtime_mark_last_busy(dev);
+	pm_runtime_put_autosuspend(dev);
+}
+
 static int __maybe_unused geni_i2c_suspend_noirq(struct device *dev)
 {
 	struct geni_i2c_dev *gi2c = dev_get_drvdata(dev);
@@ -1308,6 +1323,8 @@ static int __maybe_unused geni_i2c_resume_noirq(struct device *dev)
 }
 
 static const struct dev_pm_ops geni_i2c_pm_ops = {
+	.prepare = pm_sleep_ptr(geni_i2c_prepare),
+	.complete = pm_sleep_ptr(geni_i2c_complete),
 	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(geni_i2c_suspend_noirq, geni_i2c_resume_noirq)
 	SET_RUNTIME_PM_OPS(geni_i2c_runtime_suspend, geni_i2c_runtime_resume,
 									NULL)
