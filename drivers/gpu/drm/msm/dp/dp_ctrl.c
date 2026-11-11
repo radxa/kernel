@@ -3144,8 +3144,10 @@ irqreturn_t msm_dp_ctrl_isr(struct msm_dp_ctrl *msm_dp_ctrl,
 	if (panel->psr_cap.version) {
 		isr = msm_dp_ctrl_get_psr_interrupt(ctrl);
 
-		if (isr)
+		if (isr) {
 			complete(&ctrl->psr_op_comp);
+			ret = IRQ_HANDLED;
+		}
 
 		if (isr & PSR_EXIT_INT)
 			drm_dbg_dp(ctrl->drm_dev, "PSR exit done\n");

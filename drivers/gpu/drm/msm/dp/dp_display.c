@@ -1431,7 +1431,7 @@ static irqreturn_t msm_dp_display_irq_handler(int irq, void *dev_id)
 	struct msm_dp_display_private *dp = dev_id;
 	u32 hpd_isr_status;
 	unsigned long flags;
-	irqreturn_t ret = IRQ_HANDLED;
+	irqreturn_t ret = IRQ_NONE;
 	bool hpd_irq_pending;
 
 	hpd_isr_status = msm_dp_aux_get_hpd_intr_status(dp->aux);
