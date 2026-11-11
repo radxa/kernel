@@ -334,20 +334,85 @@
 	temperature = <60000>;
 };
 
-&little_core_thermal {
-	sustainable-power = <5000>; /* milliwatts */
-	cooling-maps {
-		map3 {
-			trip = <&target>;
-			cooling-device =
-				<&fan0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
-			contribution = <8192>;
+&bigcore_thermal {
+	polling-delay-passive = <100>;
+
+	trips {
+		bigcore_fan_low_trip: fan-low {
+			temperature = <60000>;
+			hysteresis = <10000>;
+			type = "passive";
 		};
-		map4 {
-			trip = <&threshold>;
-			cooling-device =
-				<&fan0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
-			contribution = <8192>;
+
+		bigcore_fan_mid_trip: fan-mid {
+			temperature = <70000>;
+			hysteresis = <5000>;
+			type = "passive";
+		};
+
+		bigcore_fan_high_trip: fan-high {
+			temperature = <80000>;
+			hysteresis = <5000>;
+			type = "passive";
+		};
+	};
+
+	cooling-maps {
+		map-fan-low {
+			trip = <&bigcore_fan_low_trip>;
+			cooling-device = <&fan0 1 1>;
+		};
+
+		map-fan-mid {
+			trip = <&bigcore_fan_mid_trip>;
+			cooling-device = <&fan0 2 2>;
+		};
+
+		map-fan-high {
+			trip = <&bigcore_fan_high_trip>;
+			cooling-device = <&fan0 4 4>;
+		};
+	};
+};
+
+&little_core_thermal {
+	polling-delay-passive = <100>;
+	sustainable-power = <5000>; /* milliwatts */
+
+	trips {
+		little_core_fan_low_trip: fan-low {
+			temperature = <60000>;
+			hysteresis = <10000>;
+			type = "passive";
+		};
+
+		little_core_fan_mid_trip: fan-mid {
+			temperature = <70000>;
+			hysteresis = <5000>;
+			type = "passive";
+		};
+
+		little_core_fan_high_trip: fan-high {
+			temperature = <80000>;
+			hysteresis = <5000>;
+			type = "passive";
+		};
+	};
+
+	cooling-maps {
+		map-fan-low {
+			trip = <&little_core_fan_low_trip>;
+			cooling-device = <&fan0 1 1>;
+		};
+
+		map-fan-mid {
+			trip = <&little_core_fan_mid_trip>;
+			cooling-device = <&fan0 2 2>;
+		};
+
+		map-fan-high {
+			trip = <&little_core_fan_high_trip>;
+			cooling-device = <&fan0 4 4>;
 		};
 	};
 };
