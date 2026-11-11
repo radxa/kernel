@@ -153,6 +153,7 @@ struct tc956x_mac_speed {
 };
 
 static struct tc956x_mac_speed mac_speed[] = {
+	{ PHY_INTERFACE_MODE_10GBASER,	SPEED_10000, SP_SEL_USXGMII_10G, },
 	{ PHY_INTERFACE_MODE_USXGMII,	SPEED_10000, SP_SEL_USXGMII_10G, },
 	{ PHY_INTERFACE_MODE_USXGMII,	SPEED_5000,  SP_SEL_USXGMII_5G, },
 	{ PHY_INTERFACE_MODE_USXGMII,	SPEED_2500,  SP_SEL_USXGMII_2500M, },
@@ -438,7 +439,7 @@ static int tc956x_mac_configure(struct tc956x_data *td, int speed)
 	val = u32_replace_bits(val, sp_sel, EMAC_SP_SEL_MASK);
 	writel(val, emac_ctl);
 
-	if (td->plat->phy_interface == PHY_INTERFACE_MODE_USXGMII) {
+	if (td->plat->max_speed == SPEED_10000) {
 		switch (speed) {
 		case SPEED_1000:
 			rate = MISC_SP_ETH_1G;
@@ -475,7 +476,7 @@ static int tc956x_mac_enable(struct tc956x_data *td)
 	if (id)
 		tc956x_clock_enable(chip, id, MAC_CLOCK_RMII);
 
-	if (plat->phy_interface == PHY_INTERFACE_MODE_USXGMII) {
+	if (plat->max_speed == SPEED_10000) {
 		tc956x_common_clock_enable(chip, COMMON_CLOCK_PLL);
 		tc956x_common_clock_enable(chip, COMMON_CLOCK_SGMII);
 		tc956x_common_clock_enable(chip, COMMON_CLOCK_REFCLK);
@@ -598,7 +599,7 @@ static int tc956x_mac_setup(void *apriv, struct mac_device_info *mac)
 
 	td = priv->plat->bsp_priv;
 
-	if (priv->plat->phy_interface == PHY_INTERFACE_MODE_USXGMII) {
+	if (priv->plat->max_speed == SPEED_10000) {
 		priv->dma_conf.dma_rx_size = DMA_MAX_RX_SIZE;
 		priv->dma_conf.dma_tx_size = DMA_MAX_TX_SIZE;
 	}
@@ -661,7 +662,7 @@ static void tc956x_fix_mac_speed(void *bsp_priv, phy_interface_t interface,
 	struct tc956x_data *td = bsp_priv;
 
 	tc956x_mac_configure(td, speed);
-	if (td->plat->phy_interface == PHY_INTERFACE_MODE_USXGMII)
+	if (td->plat->max_speed == SPEED_10000)
 		return;
 	tc956x_pma_init(td);
 }
@@ -712,6 +713,7 @@ static int tc956x_dwmac_parse_dt(struct tc956x_data *td)
 static int tc956x_lookup_max_speed(phy_interface_t phy_interface)
 {
 	switch (phy_interface) {
+	case PHY_INTERFACE_MODE_10GBASER:
 	case PHY_INTERFACE_MODE_USXGMII:
 		return SPEED_10000;
 
@@ -789,7 +791,7 @@ static int tc956x_plat_dat_init(struct tc956x_data *td)
 		min(TC956X_TX_FIFO_KB, 8 * plat->tx_queues_to_use) * SZ_1K;
 	plat->rx_fifo_size =
 		min(TC956X_RX_FIFO_KB, 8 * plat->rx_queues_to_use) * SZ_1K;
-	if (phy_interface == PHY_INTERFACE_MODE_USXGMII) {
+	if (speed == SPEED_10000) {
 		/* Keep the receive FIFO available to the active DMA channel. */
 		plat->rx_queues_to_use = 1;
 		plat->tx_queues_to_use = 2;
@@ -839,7 +841,7 @@ static int tc956x_plat_dat_init(struct tc956x_data *td)
 
 	plat->mac_port_sel_speed = speed;
 	plat->flags = STMMAC_FLAG_MULTI_MSI_EN | STMMAC_FLAG_TSO_EN;
-	if (phy_interface == PHY_INTERFACE_MODE_USXGMII)
+	if (speed == SPEED_10000)
 		plat->flags |= STMMAC_FLAG_TSO_DEFAULT_OFF;
 
 	td->plat = plat;
