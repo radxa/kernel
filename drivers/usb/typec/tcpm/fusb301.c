@@ -154,8 +154,6 @@
 #define FUSB_STATE_TRYWAIT_SRC          0x0B
 #define FUSB_STATE_TRY_SRC              0x0C
 #define FUSB_STATE_TRYWAIT_SNK          0x0D
-/* wake lock timeout in ms */
-#define FUSB301_WAKE_LOCK_TIMEOUT       1000
 #define ROLE_SWITCH_TIMEOUT		1500
 #define FUSB301_TRY_TIMEOUT		600
 #define FUSB301_CC_DEBOUNCE_TIMEOUT	200
@@ -173,7 +171,6 @@ struct fusb301_chip {
 	struct i2c_client *client;
 	struct fusb301_data *pdata;
 	struct workqueue_struct  *cc_wq;
-	int ufp_power;
 	u8 mode;
 	u8 dev_id;
 	u8 type;
@@ -184,10 +181,13 @@ struct fusb301_chip {
 	u8 dttime;
 	bool triedsnk;
 	int try_attcnt;
-	struct work_struct dwork;
 	struct delayed_work twork;
 	struct wakeup_source *wlock;
 	struct mutex mlock;
+	bool stopping;
+	bool suspended;
+	bool irq_requested;
+	bool irq_wake_enabled;
 
 	struct usb_role_switch *role_sw;
 };
@@ -197,6 +197,16 @@ struct fusb301_chip {
 
 static void fusb301_detach(struct fusb301_chip *chip);
 DECLARE_WAIT_QUEUE_HEAD(mode_switch);
+
+static int fusb301_set_role(struct fusb301_chip *chip, enum usb_role role)
+{
+	int ret = usb_role_switch_set_role(chip->role_sw, role);
+
+	if (ret)
+		dev_err(&chip->client->dev, "failed to set USB role %d: %d\n",
+			role, ret);
+	return ret;
+}
 
 static void fusb_update_state(struct fusb301_chip *chip, u8 state)
 {
@@ -238,9 +248,11 @@ static int fusb301_read_device_id(struct i2c_client *client)
 
 	rc = i2c_smbus_read_byte_data(client, FUSB301_REG_DEVICEID);
 
-	if ((IS_ERR_VALUE_FUSB301(rc)) || (rc != 0x12)) {
-		dev_err(cdev, "failed to read device id, err : 0x%2x\n", rc);
-		return (rc != 0x12) ? (-1) : (-2);
+	if (rc < 0)
+		return rc;
+	if (rc != FUSB301_REV12) {
+		dev_err(cdev, "unsupported device id: 0x%02x\n", rc);
+		return -ENODEV;
 	}
 	dev_info(cdev, "device id: 0x%2x\n", rc);
 	return rc;
@@ -271,13 +283,16 @@ static int fusb301_get_current_setting(struct fusb301_chip *chip)
  *  FUSB_STATE_UNATTACHED_SNK
  *  FUSB_STATE_UNATTACHED_SRC
  */
-static int fusb301_set_chip_state(struct fusb301_chip *chip, u8 state)
+static int fusb301_set_chip_state(struct fusb301_chip *chip, int state)
 {
 	struct device *cdev = &chip->client->dev;
 	int rc = 0;
 
-	if (state > FUSB_STATE_UNATTACHED_SRC)
+	if (state < FUSB_STATE_DISABLED || state > FUSB_STATE_UNATTACHED_SRC)
 		return -EINVAL;
+	/* FUSB301/D, Table 8: wait 2 ms after selecting Sink mode. */
+	if (state == FUSB_STATE_UNATTACHED_SNK)
+		usleep_range(2000, 2500);
 	rc = i2c_smbus_write_byte_data(chip->client, FUSB301_REG_MANUAL,
 				state == FUSB_STATE_DISABLED ? FUSB301_DISABLED :
 				state == FUSB_STATE_ERROR_RECOVERY ? FUSB301_ERR_REC :
@@ -288,12 +303,20 @@ static int fusb301_set_chip_state(struct fusb301_chip *chip, u8 state)
 	return rc;
 }
 
-static int fusb301_set_mode(struct fusb301_chip *chip, u8 mode)
+static int fusb301_set_mode(struct fusb301_chip *chip, int mode)
 {
 	struct device *cdev = &chip->client->dev;
 	int rc = 0;
 
-	if (mode > FUSB301_DRP_ACC) {
+	switch (mode) {
+	case FUSB301_SRC:
+	case FUSB301_SRC_ACC:
+	case FUSB301_SNK:
+	case FUSB301_SNK_ACC:
+	case FUSB301_DRP:
+	case FUSB301_DRP_ACC:
+		break;
+	default:
 		dev_err(cdev, "mode(%d) is unavailable\n", mode);
 		return -EINVAL;
 	}
@@ -311,12 +334,12 @@ static int fusb301_set_mode(struct fusb301_chip *chip, u8 mode)
 }
 
 /* Set output current indicator */
-static int fusb301_set_dfp_power(struct fusb301_chip *chip, u8 hcurrent)
+static int fusb301_set_dfp_power(struct fusb301_chip *chip, int hcurrent)
 {
 	struct device *cdev = &chip->client->dev;
 	int rc = 0;
 
-	if (hcurrent > FUSB301_HOST_3000MA) {
+	if (hcurrent < FUSB301_HOST_0MA || hcurrent > FUSB301_HOST_3000MA) {
 		dev_err(cdev, "hcurrent(%d) is unavailable\n", hcurrent);
 		return -EINVAL;
 	}
@@ -363,12 +386,12 @@ static int fusb301_init_force_dfp_power(struct fusb301_chip *chip)
 	return rc;
 }
 
-static int fusb301_set_toggle_time(struct fusb301_chip *chip, u8 toggle_time)
+static int fusb301_set_toggle_time(struct fusb301_chip *chip, int toggle_time)
 {
 	struct device *cdev = &chip->client->dev;
 	int rc = 0;
 
-	if (toggle_time > FUSB301_TGL_20MS) {
+	if (toggle_time < FUSB301_TGL_35MS || toggle_time > FUSB301_TGL_20MS) {
 		dev_err(cdev, "toggle_time(%d) is unavailable\n", toggle_time);
 		return -EINVAL;
 	}
@@ -395,23 +418,29 @@ static int fusb301_init_reg(struct fusb301_chip *chip)
 
 	/* change current */
 	rc = fusb301_init_force_dfp_power(chip);
-	if (IS_ERR_VALUE_FUSB301(rc))
+	if (IS_ERR_VALUE_FUSB301(rc)) {
 		dev_err(cdev, "%s: failed to force dfp power\n",
 				__func__);
+		return rc;
+	}
 
 	/* change toggle time */
 	rc = fusb301_set_toggle_time(chip, chip->pdata->dttime);
-	if (IS_ERR_VALUE_FUSB301(rc))
+	if (IS_ERR_VALUE_FUSB301(rc)) {
 		dev_err(cdev, "%s: failed to set toggle time\n",
 				__func__);
+		return rc;
+	}
 	/* change mode */
 	/*
 	 * force to DRP+ACC,chip->pdata->init_mode
 	 */
 	rc = fusb301_set_mode(chip, FUSB301_DRP_ACC);
-	if (IS_ERR_VALUE_FUSB301(rc))
+	if (IS_ERR_VALUE_FUSB301(rc)) {
 		dev_err(cdev, "%s: failed to set mode\n",
 				__func__);
+		return rc;
+	}
 	/* set error recovery state */
 	rc = fusb301_set_chip_state(chip,
 				FUSB_STATE_ERROR_RECOVERY);
@@ -437,11 +466,15 @@ static int fusb301_reset_device(struct fusb301_chip *chip)
 	msleep(20);
 
 	rc = fusb301_get_current_setting(chip);
-	if (IS_ERR_VALUE_FUSB301(rc))
+	if (IS_ERR_VALUE_FUSB301(rc)) {
 		dev_err(cdev, "failed to read settings\n");
+		return rc;
+	}
 	rc = fusb301_init_reg(chip);
-	if (IS_ERR_VALUE_FUSB301(rc))
+	if (IS_ERR_VALUE_FUSB301(rc)) {
 		dev_err(cdev, "failed to init reg\n");
+		return rc;
+	}
 
 	fusb301_detach(chip);
 	/* clear global interrupt mask */
@@ -464,29 +497,22 @@ static ssize_t fregdump_show(struct device *dev,
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct fusb301_chip *chip = i2c_get_clientdata(client);
-	u8 start_reg[] = {0x01, 0x02,
-			  0x03, 0x04,
-			  0x05, 0x06,
-			  0x10, 0x11,
-			  0x12, 0x13}; /* reserved 0x06 */
+	/* Interrupt (0x13) is read-to-clear; only the IRQ path may read it. */
+	static const u8 registers[] = {0x01, 0x02, 0x03, 0x04,
+				      0x05, 0x10, 0x11, 0x12};
 	int i = 0;
 	int rc = 0;
 	int ret = 0;
 
 	mutex_lock(&chip->mlock);
-	for (i = 0 ; i < 5; i++) {
-		rc = i2c_smbus_read_word_data(chip->client, start_reg[(i*2)]);
+	for (i = 0; i < ARRAY_SIZE(registers); i++) {
+		rc = i2c_smbus_read_byte_data(chip->client, registers[i]);
 		if (IS_ERR_VALUE_FUSB301(rc)) {
-			pr_err("cannot read 0x%02x\n", start_reg[(i*2)]);
-			rc = 0;
+			ret = rc;
 			goto dump_unlock;
 		}
-		ret += snprintf(buf + ret, 1024, "from 0x%02x read 0x%02x\n"
-						"from 0x%02x read 0x%02x\n",
-							start_reg[(i*2)],
-							(rc & 0xFF),
-							start_reg[(i*2)+1],
-							((rc >> 8) & 0xFF));
+		ret += sysfs_emit_at(buf, ret, "from 0x%02x read 0x%02x\n",
+				     registers[i], rc);
 	}
 dump_unlock:
 	mutex_unlock(&chip->mlock);
@@ -563,7 +589,7 @@ static ssize_t fchip_state_store(struct device *dev,
 			mutex_unlock(&chip->mlock);
 			return -EINVAL;
 		}
-		rc = fusb301_set_chip_state(chip, (u8)state);
+		rc = fusb301_set_chip_state(chip, state);
 		if (IS_ERR_VALUE_FUSB301(rc)) {
 			mutex_unlock(&chip->mlock);
 			return rc;
@@ -629,7 +655,7 @@ static ssize_t fmode_store(struct device *dev,
 		 * doesn't prevent usb enumeration as device
 		 * KNOWN LIMITATION
 		 */
-		rc = fusb301_set_mode(chip, (u8)mode);
+		rc = fusb301_set_mode(chip, mode);
 		if (IS_ERR_VALUE_FUSB301(rc)) {
 			mutex_unlock(&chip->mlock);
 			return rc;
@@ -673,7 +699,7 @@ static ssize_t fdttime_store(struct device *dev,
 
 	if (!kstrtoint(buff, 0, &dttime)) {
 		mutex_lock(&chip->mlock);
-		rc = fusb301_set_toggle_time(chip, (u8)dttime);
+		rc = fusb301_set_toggle_time(chip, dttime);
 		mutex_unlock(&chip->mlock);
 		if (IS_ERR_VALUE_FUSB301(rc))
 			return rc;
@@ -708,7 +734,7 @@ static ssize_t fhostcur_store(struct device *dev,
 
 	if (!kstrtoint(buff, 0, &buf)) {
 		mutex_lock(&chip->mlock);
-		rc = fusb301_set_dfp_power(chip, (u8)buf);
+		rc = fusb301_set_dfp_power(chip, buf);
 		mutex_unlock(&chip->mlock);
 		if (IS_ERR_VALUE_FUSB301(rc))
 			return rc;
@@ -727,7 +753,8 @@ static ssize_t fclientcur_show(struct device *dev,
 	int ret;
 
 	mutex_lock(&chip->mlock);
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", chip->ufp_power);
+	/* 0: absent, 1: USB default, 2: 1.5 A, 3: 3 A advertisement. */
+	ret = sysfs_emit(buf, "%u\n", chip->bc_lvl);
 	mutex_unlock(&chip->mlock);
 	return ret;
 }
@@ -862,17 +889,16 @@ static ssize_t ftypec_cc_orientation_show(struct device *dev,
 	int typec_cc_orientation = -1;
 	int rc, ret = 0;
 
+	mutex_lock(&chip->mlock);
 	rc = i2c_smbus_read_byte_data(chip->client, FUSB301_REG_STATUS);
-
 	if (rc < 0) {
-		pr_err("cannot read FUSB301_REG_STATUS\n");
-		rc = 0xFF;
-		ret = snprintf(buf, PAGE_SIZE, "%d\n", rc);
+		ret = rc;
 	} else {
 		chip->orient = (rc & 0x30) >> 4;
 		typec_cc_orientation = chip->orient;
 		ret = snprintf(buf, PAGE_SIZE, "%d\n", typec_cc_orientation);
 	}
+	mutex_unlock(&chip->mlock);
 	return ret;
 }
 DEVICE_ATTR_RO(ftypec_cc_orientation);
@@ -922,13 +948,6 @@ static void fusb301_bclvl_changed(struct fusb301_chip *chip)
 			type == FUSB301_TYPE_PWR_DBG_ACC ||
 			type == FUSB301_TYPE_PWR_ACC) {
 		chip->orient = (status & 0x30) >> 4;
-		if (chip->orient == 0x01)
-			chip->orient = 0;
-		else if (chip->orient == 0x02)
-			chip->orient = 1;
-		else
-			chip->orient = 2;
-		chip->bc_lvl = status & 0x06;
 		chip->bc_lvl = (status & 0x06) >> 1;
 	}
 }
@@ -951,10 +970,10 @@ static void fusb301_src_detected(struct fusb301_chip *chip)
 	}
 	if (chip->state == FUSB_STATE_TRY_SNK)
 		cancel_delayed_work(&chip->twork);
+	if (fusb301_set_role(chip, USB_ROLE_DEVICE))
+		return;
 	fusb_update_state(chip, FUSB_STATE_ATTACHED_SNK);
 	chip->type = FUSB301_TYPE_SRC;
-
-	usb_role_switch_set_role(chip->role_sw, USB_ROLE_DEVICE);
 }
 
 static void fusb301_snk_detected(struct fusb301_chip *chip)
@@ -988,13 +1007,14 @@ static void fusb301_snk_detected(struct fusb301_chip *chip)
 		 * or
 		 * mode == FUSB301_SRC/FUSB301_SRC_ACC
 		 */
-		fusb301_set_dfp_power(chip, chip->pdata->dfp_power);
+		if (fusb301_set_dfp_power(chip, chip->pdata->dfp_power))
+			return;
 		if (chip->state == FUSB_STATE_TRYWAIT_SRC)
 			cancel_delayed_work(&chip->twork);
+		if (fusb301_set_role(chip, USB_ROLE_HOST))
+			return;
 		fusb_update_state(chip, FUSB_STATE_ATTACHED_SRC);
 		chip->type = FUSB301_TYPE_SNK;
-
-		usb_role_switch_set_role(chip->role_sw, USB_ROLE_HOST);
 	}
 }
 
@@ -1058,10 +1078,10 @@ static void fusb301_detach(struct fusb301_chip *chip)
 	switch (chip->state) {
 	case FUSB_STATE_ATTACHED_SRC:
 		fusb301_init_force_dfp_power(chip);
-		usb_role_switch_set_role(chip->role_sw, USB_ROLE_NONE);
+		fusb301_set_role(chip, USB_ROLE_NONE);
 		break;
 	case FUSB_STATE_ATTACHED_SNK:
-		usb_role_switch_set_role(chip->role_sw, USB_ROLE_NONE);
+		fusb301_set_role(chip, USB_ROLE_NONE);
 		break;
 	case FUSB_STATE_DEBUG_ACCESSORY:
 	case FUSB_STATE_AUDIO_ACCESSORY:
@@ -1091,7 +1111,7 @@ static void fusb301_detach(struct fusb301_chip *chip)
 	}
 	chip->type = FUSB301_TYPE_INVALID;
 	chip->bc_lvl = FUSB301_SNK_0MA;
-	chip->ufp_power = 0;
+	chip->orient = FUSB301_NO_CONN;
 	chip->triedsnk = !chip->pdata->try_snk_emulation;
 	chip->try_attcnt = 0;
 	fusb_update_state(chip, FUSB_STATE_ERROR_RECOVERY);
@@ -1191,12 +1211,7 @@ static void fusb301_attach(struct fusb301_chip *chip)
 	}
 
 	chip->orient = (status & 0x30) >> 4;
-	if (chip->orient == 0x01)
-		chip->orient = 0;
-	else if (chip->orient == 0x02)
-		chip->orient = 1;
-	else
-		chip->orient = 2;
+	chip->bc_lvl = (status & FUSB301_BCLVL_MASK) >> 1;
 
 	if ((chip->dev_id == FUSB301_REV10) &&
 		fusb301_bclvl_detect_wa(chip, status, type)) {
@@ -1252,6 +1267,8 @@ static void fusb301_timer_work_handler(struct work_struct *work)
 	struct device *cdev = &chip->client->dev;
 
 	mutex_lock(&chip->mlock);
+	if (chip->stopping || chip->suspended)
+		goto unlock;
 	if (chip->state == FUSB_STATE_TRY_SNK) {
 		if (fusb301_is_vbus_on(chip)) {
 			if (IS_ERR_VALUE_FUSB301(fusb301_set_mode(chip,	chip->pdata->init_mode)))
@@ -1264,104 +1281,118 @@ static void fusb301_timer_work_handler(struct work_struct *work)
 	} else if (chip->state == FUSB_STATE_TRYWAIT_SRC) {
 		fusb301_detach(chip);
 	}
+unlock:
 	mutex_unlock(&chip->mlock);
 }
 
-static void fusb301_work_handler(struct work_struct *work)
+/* Caller holds mlock. Reading INT consumes all accumulated event bits. */
+static int fusb301_handle_events(struct fusb301_chip *chip)
 {
-	struct fusb301_chip *chip =
-			container_of(work, struct fusb301_chip, dwork);
 	struct i2c_client *client = chip->client;
 	struct device *cdev = &client->dev;
 	int rc;
 	u8 int_sts;
 
-	__pm_stay_awake(chip->wlock);
-	mutex_lock(&chip->mlock);
-
 	rc = i2c_smbus_read_byte_data(chip->client, FUSB301_REG_INT);
 	if (IS_ERR_VALUE_FUSB301(rc)) {
 		dev_err(cdev, "%s: fusb301 failed to read REG_INT\n", __func__);
-		goto unlock;
+		return rc;
 	}
 	int_sts = rc & FUSB301_INT_STS_MASK;
 	dev_info(cdev, "%s: int_sts[0x%02x]\n", __func__, int_sts);
-	if (int_sts & FUSB301_INT_DETACH) {
+	if (int_sts & FUSB301_INT_DETACH)
 		fusb301_detach(chip);
-	} else {
-		if (int_sts & FUSB301_INT_ATTACH)
-			fusb301_attach(chip);
-		if (int_sts & FUSB301_INT_BCLVL)
-			fusb301_bclvl_changed(chip);
-		if (int_sts & FUSB301_INT_ACC_CH)
-			fusb301_acc_changed(chip);
-	}
-unlock:
-	mutex_unlock(&chip->mlock);
-	__pm_relax(chip->wlock);
-	enable_irq(client->irq);
+	/* A reattach may already have occurred while the interrupt was masked. */
+	if (int_sts & FUSB301_INT_ATTACH)
+		fusb301_attach(chip);
+	if (int_sts & FUSB301_INT_BCLVL)
+		fusb301_bclvl_changed(chip);
+	if (int_sts & FUSB301_INT_ACC_CH)
+		fusb301_acc_changed(chip);
+	return 0;
 }
 
-static irqreturn_t fusb301_irq_handler(int irq, void *data)
+static irqreturn_t fusb301_irq_thread(int irq, void *data)
 {
-	struct fusb301_chip *chip = (struct fusb301_chip *)data;
-	struct i2c_client *client = chip->client;
+	struct fusb301_chip *chip = data;
 
-	if (!chip)
-		return IRQ_HANDLED;
-
-	disable_irq_nosync(client->irq);
-	/*
-	 * wake_lock_timeout, prevents multiple suspend entries
-	 * before charger gets chance to trigger usb core for device
-	 */
-	__pm_wakeup_event(chip->wlock, jiffies_to_msecs(FUSB301_WAKE_LOCK_TIMEOUT));
-	queue_work(chip->cc_wq, &chip->dwork);
+	__pm_stay_awake(chip->wlock);
+	mutex_lock(&chip->mlock);
+	if (!chip->stopping && !chip->suspended)
+		fusb301_handle_events(chip);
+	mutex_unlock(&chip->mlock);
+	__pm_relax(chip->wlock);
 	return IRQ_HANDLED;
+}
+
+static void fusb301_put_role_switch(void *data)
+{
+	usb_role_switch_put(data);
 }
 
 static int fusb_role_sw_get(struct fusb301_chip *chip)
 {
-	int err;
 	struct fwnode_handle *typec;
 	struct fwnode_handle *child_node = NULL;
-
-	chip->role_sw = devm_kzalloc(&chip->client->dev, sizeof(chip->role_sw), GFP_KERNEL);
-
-	if (!chip->role_sw)
-		return -ENOMEM;
+	struct device *dev = &chip->client->dev;
 
 	typec = dev_fwnode(&chip->client->dev);
 	if (!typec)
 		return -ENODEV;
 
 	child_node = fwnode_get_named_child_node(typec, "connector");
+	if (!child_node)
+		return dev_err_probe(dev, -ENODEV, "missing connector node\n");
 
 	chip->role_sw = fwnode_usb_role_switch_get(child_node);
-	if (IS_ERR_OR_NULL(chip->role_sw)) {
-		err = PTR_ERR(chip->role_sw);
-		chip->role_sw = NULL;
-		if (err == -EPROBE_DEFER) {
-			fwnode_handle_put(child_node);
-			return err;
-		}
-		dev_err(&chip->client->dev, "no role switch found\n");
-	}
-
 	fwnode_handle_put(child_node);
-	return 0;
+	if (IS_ERR(chip->role_sw))
+		return dev_err_probe(dev, PTR_ERR(chip->role_sw),
+				     "failed to get USB role switch\n");
+	if (!chip->role_sw)
+		return dev_err_probe(dev, -ENODEV, "no USB role switch found\n");
 
+	return devm_add_action_or_reset(dev, fusb301_put_role_switch, chip->role_sw);
+}
+
+static void fusb301_restart_timer(struct fusb301_chip *chip)
+{
+	unsigned int timeout;
+
+	if (chip->state == FUSB_STATE_TRY_SNK)
+		timeout = chip->pdata->ttry_timeout;
+	else if (chip->state == FUSB_STATE_TRYWAIT_SRC)
+		timeout = chip->pdata->ccdebounce_timeout;
+	else
+		return;
+	queue_delayed_work(chip->cc_wq, &chip->twork, msecs_to_jiffies(timeout));
 }
 
 static int fusb301_pm_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct fusb301_chip *chip = i2c_get_clientdata(client);
+	int ret;
 
-	if (device_may_wakeup(&client->dev))
-		enable_irq_wake(client->irq);
+	/* Drain the IRQ thread before stopping the delayed state machine. */
 	disable_irq(client->irq);
-	fusb301_set_mode(chip, FUSB301_SNK);
+	mutex_lock(&chip->mlock);
+	chip->suspended = true;
+	mutex_unlock(&chip->mlock);
+	cancel_delayed_work_sync(&chip->twork);
+	/* Keep the electrical role intact while asleep. */
+	if (device_may_wakeup(dev)) {
+		ret = enable_irq_wake(client->irq);
+		if (ret) {
+			mutex_lock(&chip->mlock);
+			chip->suspended = false;
+			fusb301_restart_timer(chip);
+			mutex_unlock(&chip->mlock);
+			enable_irq(client->irq);
+			return ret;
+		}
+		chip->irq_wake_enabled = true;
+	}
 	return 0;
 }
 
@@ -1369,28 +1400,58 @@ static int fusb301_pm_resume(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct fusb301_chip *chip = i2c_get_clientdata(client);
+	int ret;
 
-	enable_irq(client->irq);
-	if (device_may_wakeup(&client->dev))
+	if (chip->irq_wake_enabled) {
 		disable_irq_wake(client->irq);
-	fusb301_set_mode(chip, FUSB301_DRP_ACC);
-	return 0;
+		chip->irq_wake_enabled = false;
+	}
+	mutex_lock(&chip->mlock);
+	chip->suspended = false;
+	ret = fusb301_handle_events(chip);
+	fusb301_restart_timer(chip);
+	mutex_unlock(&chip->mlock);
+	enable_irq(client->irq);
+	return ret;
 }
 
 static SIMPLE_DEV_PM_OPS(fusb301_dev_pm_ops,
 			fusb301_pm_suspend, fusb301_pm_resume);
 
-#if defined(NV_I2C_DRIVER_STRUCT_PROBE_WITHOUT_I2C_DEVICE_ID_ARG) /* Linux 6.3 */
+static void fusb301_stop(struct fusb301_chip *chip)
+{
+	struct i2c_client *client = chip->client;
+	int ret;
+
+	mutex_lock(&chip->mlock);
+	chip->stopping = true;
+	ret = fusb301_write_masked_byte(client, FUSB301_REG_CONTROL,
+					FUSB301_INT_MASK, FUSB301_INT_DISABLE);
+	mutex_unlock(&chip->mlock);
+	if (ret < 0)
+		dev_warn(&client->dev, "failed to mask interrupts: %d\n", ret);
+	if (chip->irq_wake_enabled) {
+		disable_irq_wake(client->irq);
+		chip->irq_wake_enabled = false;
+	}
+	if (chip->irq_requested) {
+		devm_free_irq(&client->dev, client->irq, chip);
+		chip->irq_requested = false;
+	}
+	/* Neither the IRQ thread nor the timer may outlive cc_wq or chip. */
+	cancel_delayed_work_sync(&chip->twork);
+	fusb301_set_role(chip, USB_ROLE_NONE);
+}
+
 static int fusb301_probe(struct i2c_client *client)
-#else
-static int fusb301_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
-#endif
 {
 	struct fusb301_chip *chip = NULL;
 	struct device *cdev = &client->dev;
 	struct fusb301_data *data;
 	int ret, chip_vid;
+
+	if (client->irq <= 0)
+		return dev_err_probe(cdev, -EINVAL, "missing interrupt\n");
 
 	if (!i2c_check_functionality(client->adapter,
 				I2C_FUNC_SMBUS_BYTE_DATA |
@@ -1400,10 +1461,8 @@ static int fusb301_probe(struct i2c_client *client,
 	}
 
 	chip_vid = fusb301_read_device_id(client);
-	if (chip_vid < 0) {
-		dev_err(cdev, "fusb301 not support\n");
-		return -EINVAL;
-	}
+	if (chip_vid < 0)
+		return dev_err_probe(cdev, chip_vid, "failed to identify FUSB301\n");
 
 	chip = devm_kzalloc(cdev, sizeof(struct fusb301_chip), GFP_KERNEL);
 	if (!chip)
@@ -1436,7 +1495,6 @@ static int fusb301_probe(struct i2c_client *client,
 	chip->type = FUSB301_TYPE_INVALID;
 	chip->state = FUSB_STATE_ERROR_RECOVERY;
 	chip->bc_lvl = FUSB301_SNK_0MA;
-	chip->ufp_power = 0;
 	chip->triedsnk = !chip->pdata->try_snk_emulation;
 	chip->try_attcnt = 0;
 
@@ -1444,34 +1502,42 @@ static int fusb301_probe(struct i2c_client *client,
 	if (!chip->cc_wq)
 		return -ENOMEM;
 
-	INIT_WORK(&chip->dwork, fusb301_work_handler);
 	INIT_DELAYED_WORK(&chip->twork, fusb301_timer_work_handler);
-	chip->wlock = wakeup_source_register(cdev, "fusb301-wake");
 	mutex_init(&chip->mlock);
+	chip->wlock = wakeup_source_register(cdev, "fusb301-wake");
+	if (!chip->wlock) {
+		ret = -ENOMEM;
+		goto destroy_workqueue;
+	}
 
+	/* Initialize before exposing IRQ and sysfs consumers of the state. */
+	mutex_lock(&chip->mlock);
+	ret = fusb301_reset_device(chip);
+	mutex_unlock(&chip->mlock);
+	if (ret)
+		goto stop;
 	ret = devm_request_threaded_irq(cdev, client->irq,
-			  fusb301_irq_handler, NULL,
+			  NULL, fusb301_irq_thread,
 			  IRQF_ONESHOT, dev_name(cdev),
 			  chip);
 	if (ret)
-		goto destroy_workqueue;
+		goto stop;
+	chip->irq_requested = true;
 
 	ret = sysfs_create_group(&cdev->kobj, &fusb_sysfs_group);
 	if (ret) {
 		dev_err(cdev, "could not create devices\n");
-		goto destroy_workqueue;
+		goto stop;
 	}
-
-	enable_irq_wake(client->irq);
-
-	fusb301_reset_device(chip);
 
 	return 0;
 
+stop:
+	fusb301_stop(chip);
+	wakeup_source_unregister(chip->wlock);
 destroy_workqueue:
 	destroy_workqueue(chip->cc_wq);
 	mutex_destroy(&chip->mlock);
-	wakeup_source_unregister(chip->wlock);
 	return ret;
 }
 
@@ -1492,6 +1558,7 @@ static void fusb301_remove(struct i2c_client *client)
 #endif
 
 	sysfs_remove_group(&cdev->kobj, &fusb_sysfs_group);
+	fusb301_stop(chip);
 	destroy_workqueue(chip->cc_wq);
 	mutex_destroy(&chip->mlock);
 	wakeup_source_unregister(chip->wlock);
@@ -1505,11 +1572,13 @@ static void fusb301_shutdown(struct i2c_client *client)
 	struct fusb301_chip *chip = i2c_get_clientdata(client);
 	struct device *cdev = &client->dev;
 
-	disable_irq(client->irq);
+	fusb301_stop(chip);
+	mutex_lock(&chip->mlock);
 	if (IS_ERR_VALUE_FUSB301(fusb301_set_mode(chip, FUSB301_SNK)) ||
 			IS_ERR_VALUE_FUSB301(fusb301_set_chip_state(chip,
 					FUSB_STATE_ERROR_RECOVERY)))
 		dev_err(cdev, "%s: failed to set sink mode\n", __func__);
+	mutex_unlock(&chip->mlock);
 }
 
 static const struct i2c_device_id fusb301_id_table[] = {
