@@ -78,6 +78,7 @@ struct msm_dp_display_private {
 	struct drm_dp_aux *aux;
 	struct msm_dp_link    *link;
 	struct msm_dp_panel   *panel;
+	struct msm_dp_panel *mst_panels[DP_STREAM_MAX];
 	struct msm_dp_ctrl    *ctrl;
 
 	struct msm_dp msm_dp_display;
@@ -725,6 +726,9 @@ struct msm_dp_panel *msm_dp_display_get_panel(struct msm_dp *msm_dp_display,
 		return NULL;
 	}
 
+	if (dp->mst_panels[stream_id])
+		return dp->mst_panels[stream_id];
+
 	dp_panel = msm_dp_panel_get(&dp->msm_dp_display.pdev->dev, dp->aux, dp->link,
 				    dp->link_base, dp->mst2link_base, dp->mst3link_base,
 				    dp->pixel_base[stream_id]);
@@ -735,6 +739,7 @@ struct msm_dp_panel *msm_dp_display_get_panel(struct msm_dp *msm_dp_display,
 	}
 
 	dp_panel->stream_id = stream_id;
+	dp->mst_panels[stream_id] = dp_panel;
 
 	return dp_panel;
 }
