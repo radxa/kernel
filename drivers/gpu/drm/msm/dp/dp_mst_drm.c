@@ -27,6 +27,7 @@ struct msm_dp_mst_connector {
 struct msm_dp_mst_connector_state {
 	struct drm_connector_state base;
 	u32 bpp;
+	struct drm_encoder *encoder;
 };
 
 #define to_msm_dp_mst_connector_state(x) \
@@ -152,20 +153,29 @@ static int msm_dp_mst_connector_get_modes(struct drm_connector *connector)
 	return rc;
 }
 
-static enum drm_mode_status msm_dp_mst_connector_mode_valid(struct drm_connector *connector,
-							    const struct drm_display_mode *mode)
+static int msm_dp_mst_connector_mode_valid(struct drm_connector *connector,
+					   const struct drm_display_mode *mode,
+					   struct drm_modeset_acquire_ctx *ctx,
+					   enum drm_mode_status *status)
 {
 	struct msm_dp_mst_connector *mst_conn;
 	struct drm_dp_mst_port *mst_port;
 	struct msm_dp *dp_display;
-	int required_pbn;
+	int required_pbn, ret;
 
-	if (drm_connector_is_unregistered(connector))
-		return 0;
 
 	mst_conn = to_dp_mst_connector(connector);
 	mst_port = mst_conn->mst_port;
 	dp_display = mst_conn->dp_mst->msm_dp;
+
+	ret = drm_modeset_lock(&mst_conn->dp_mst->mst_mgr.base.lock, ctx);
+	if (ret)
+		return ret;
+
+	if (drm_connector_is_unregistered(connector)) {
+		*status = MODE_ERROR;
+		return 0;
+	}
 
 	/* Use minimum possible bpp (6bpc RGB, 8b10b) to avoid rejecting modes
 	 * that would be feasible at the actual link bpp. mode_valid must not
@@ -175,10 +185,12 @@ static enum drm_mode_status msm_dp_mst_connector_mode_valid(struct drm_connector
 
 	if (required_pbn > mst_port->full_pbn) {
 		drm_dbg_dp(dp_display->drm_dev, "mode:%s not supported.\n", mode->name);
-		return MODE_CLOCK_HIGH;
+		*status = MODE_CLOCK_HIGH;
+		return 0;
 	}
 
-	return msm_dp_display_mode_valid(dp_display, &connector->display_info, mode);
+	*status = msm_dp_display_mode_valid(dp_display, &connector->display_info, mode);
+	return 0;
 }
 
 static int msm_dp_mst_connector_atomic_check(struct drm_connector *connector,
@@ -528,6 +540,7 @@ msm_dp_mst_atomic_best_encoder(struct drm_connector *connector, struct drm_atomi
 	struct msm_dp_mst_connector *mst_conn = to_dp_mst_connector(connector);
 	struct msm_dp_mst *mst = mst_conn->dp_mst;
 	struct drm_connector_state *conn_state;
+	struct msm_dp_mst_connector_state *mst_state;
 	struct drm_connector *iter;
 	struct drm_connector_list_iter conn_iter;
 	u32 stream_mask = 0;
@@ -537,8 +550,7 @@ msm_dp_mst_atomic_best_encoder(struct drm_connector *connector, struct drm_atomi
 	if (!conn_state)
 		return NULL;
 
-	if (conn_state->best_encoder)
-		return conn_state->best_encoder;
+	mst_state = to_msm_dp_mst_connector_state(conn_state);
 
 	drm_connector_list_iter_begin(connector->dev, &conn_iter);
 	drm_for_each_connector_iter(iter, &conn_iter) {
@@ -551,18 +563,26 @@ msm_dp_mst_atomic_best_encoder(struct drm_connector *connector, struct drm_atomi
 			continue;
 
 		peer_state = drm_atomic_get_new_connector_state(state, iter) ?: iter->state;
-		if (!peer_state || !peer_state->crtc || !peer_state->best_encoder)
+		if (!peer_state || !peer_state->crtc)
 			continue;
 
-		stream_id = msm_dp_mst_encoder_stream_id(mst, peer_state->best_encoder);
+		stream_id = msm_dp_mst_encoder_stream_id(mst,
+			to_msm_dp_mst_connector_state(peer_state)->encoder ?: peer_state->best_encoder);
 		if (stream_id >= 0 && stream_id < mst->max_streams)
 			stream_mask |= BIT(stream_id);
 	}
 	drm_connector_list_iter_end(&conn_iter);
 
+	if (mst_state->encoder) {
+		int stream_id = msm_dp_mst_encoder_stream_id(mst, mst_state->encoder);
+
+		if (stream_id >= 0 && !(stream_mask & BIT(stream_id)))
+			return mst_state->encoder;
+	}
+
 	for (i = 0; i < mst->max_streams; i++) {
 		if (!(stream_mask & BIT(i))) {
-			conn_state->best_encoder = mst->mst_encoders[i].enc;
+			mst_state->encoder = mst->mst_encoders[i].enc;
 			return mst->mst_encoders[i].enc;
 		}
 	}
@@ -574,7 +594,7 @@ msm_dp_mst_atomic_best_encoder(struct drm_connector *connector, struct drm_atomi
 static const struct drm_connector_helper_funcs msm_dp_drm_mst_connector_helper_funcs = {
 	.get_modes =    msm_dp_mst_connector_get_modes,
 	.detect_ctx =   msm_dp_mst_connector_detect,
-	.mode_valid =   msm_dp_mst_connector_mode_valid,
+	.mode_valid_ctx = msm_dp_mst_connector_mode_valid,
 	.atomic_best_encoder = msm_dp_mst_atomic_best_encoder,
 	.atomic_check = msm_dp_mst_connector_atomic_check,
 };
@@ -604,6 +624,8 @@ msm_dp_mst_add_connector(struct drm_dp_mst_topology_mgr *mgr,
 
 	drm_connector_helper_add(connector, &msm_dp_drm_mst_connector_helper_funcs);
 	connector->funcs->reset(connector);
+	if (!connector->state)
+		goto err_connector;
 
 	/* add all encoders as possible encoders */
 	for (i = 0; i < mst->max_streams; i++) {
