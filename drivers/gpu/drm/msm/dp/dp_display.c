@@ -1877,10 +1877,67 @@ static int msm_dp_pm_runtime_resume(struct device *dev)
 	return 0;
 }
 
+static int msm_dp_pm_resume(struct device *dev)
+{
+	struct msm_dp_display_private *dp = dev_get_dp_display_private(dev);
+	struct msm_dp *display = &dp->msm_dp_display;
+	int ret;
+
+	ret = pm_runtime_force_resume(dev);
+	if (ret || !display->mst_active)
+		return ret;
+
+	scoped_guard(mutex, &dp->plugged_lock) {
+		ret = msm_dp_display_host_phy_init(dp);
+		if (ret >= 0)
+			msm_dp_aux_enable_xfers(dp->aux, true);
+	}
+
+	if (ret >= 0)
+		ret = msm_dp_mst_resume(display);
+	if (ret < 0) {
+		/* The hub may have disappeared while the system was asleep. */
+		msm_dp_mst_display_set_mgr_state(display, false);
+		scoped_guard(mutex, &dp->plugged_lock)
+			display->mst_active = false;
+		drm_kms_helper_hotplug_event(display->drm_dev);
+	}
+
+	return 0;
+}
+
+static int msm_dp_pm_suspend(struct device *dev)
+{
+	struct msm_dp_display_private *dp = dev_get_dp_display_private(dev);
+	struct msm_dp *display = &dp->msm_dp_display;
+	int ret;
+
+	if (display->mst_active) {
+		scoped_guard(mutex, &dp->plugged_lock) {
+			ret = msm_dp_display_host_phy_init(dp);
+			if (ret < 0)
+				return ret;
+			msm_dp_aux_enable_xfers(dp->aux, true);
+		}
+		/* Drain sideband workers before taking AUX and the PHY down. */
+		msm_dp_mst_suspend(display);
+		msm_dp_display_unprepare(display);
+		scoped_guard(mutex, &dp->plugged_lock) {
+			msm_dp_aux_enable_xfers(dp->aux, false);
+			msm_dp_display_host_phy_exit(dp);
+		}
+	}
+
+	ret = pm_runtime_force_suspend(dev);
+	if (ret && display->mst_active)
+		msm_dp_pm_resume(dev);
+
+	return ret;
+}
+
 static const struct dev_pm_ops msm_dp_pm_ops = {
 	SET_RUNTIME_PM_OPS(msm_dp_pm_runtime_suspend, msm_dp_pm_runtime_resume, NULL)
-	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend,
-				pm_runtime_force_resume)
+	SET_SYSTEM_SLEEP_PM_OPS(msm_dp_pm_suspend, msm_dp_pm_resume)
 };
 
 static struct platform_driver msm_dp_display_driver = {
@@ -2090,7 +2147,7 @@ void msm_dp_display_unprepare(struct msm_dp *msm_dp_display)
 			if (dp->plugged && !msm_dp_display->is_edp &&
 			    (!dp->link->sink_count || msm_dp_display->mst_active))
 				msm_dp_ctrl_reinit_phy(dp->ctrl);
-			else
+			else if (!msm_dp_display->mst_active || !dp->plugged)
 				msm_dp_display_host_phy_exit(dp);
 		}
 	}

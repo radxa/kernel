@@ -405,7 +405,7 @@ int msm_dp_panel_read_link_caps(struct msm_dp_panel *msm_dp_panel,
 			!is_lane_count_valid(panel->link->link_caps.num_lanes) ||
 			(bw_code > msm_dp_panel->max_bw_code)) {
 		DRM_ERROR("Illegal link rate=%d lane=%d\n", panel->link->link_caps.rate,
-				panel->link->link_caps.num_lanes);
+			  panel->link->link_caps.num_lanes);
 		return -EINVAL;
 	}
 

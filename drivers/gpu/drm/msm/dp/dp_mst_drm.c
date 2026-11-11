@@ -164,7 +164,6 @@ static int msm_dp_mst_connector_mode_valid(struct drm_connector *connector,
 	struct msm_dp *dp_display;
 	int required_pbn, ret;
 
-
 	mst_conn = to_dp_mst_connector(connector);
 	mst_port = mst_conn->mst_port;
 	dp_display = mst_conn->dp_mst->msm_dp;
@@ -266,12 +265,13 @@ static void msm_dp_mst_collect_slots(struct msm_dp_mst *mst,
 	for (i = 0; i < mst->max_streams; i++) {
 		struct msm_dp_panel *dp_panel = mst->mst_encoders[i].dp_panel;
 		struct drm_dp_mst_atomic_payload *payload;
+		struct drm_dp_mst_port *port;
 
 		if (!dp_panel->connector)
 			continue;
 
-		payload = drm_atomic_get_mst_payload_state(mst_state,
-				to_dp_mst_connector(dp_panel->connector)->mst_port);
+		port = to_dp_mst_connector(dp_panel->connector)->mst_port;
+		payload = drm_atomic_get_mst_payload_state(mst_state, port);
 		if (!payload || payload->vc_start_slot < 0)
 			continue;
 
@@ -308,9 +308,10 @@ int msm_dp_mst_stream_enable(struct drm_encoder *encoder,
 	struct drm_dp_mst_atomic_payload *payload =
 		drm_atomic_get_mst_payload_state(mst_state, port);
 	struct msm_dp_mst_slot_info slots[DP_STREAM_MAX] = {};
+	struct drm_connector_state *conn_state =
+		drm_atomic_get_new_connector_state(state, connector);
 	struct msm_dp_mst_connector_state *mst_conn_state =
-		to_msm_dp_mst_connector_state(drm_atomic_get_new_connector_state(state,
-								 connector));
+		to_msm_dp_mst_connector_state(conn_state);
 	const struct msm_dp_bridge_state *dp_state = &mst_conn_state->dp_state;
 	int rc;
 
@@ -474,7 +475,7 @@ int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 	    dp_state->hdr_sdp.db[2] != HDMI_EOTF_TRADITIONAL_GAMMA_SDR)
 		min_bpp = 30;
 	yuv420 = drm_mode_is_420_only(&conn_state->connector->display_info,
-				    &crtc_state->adjusted_mode);
+				      &crtc_state->adjusted_mode);
 
 	rc = msm_dp_mst_select_bpp(crtc_state->state, mst, mst_state,
 				   mst_conn->mst_port, &crtc_state->adjusted_mode,
@@ -508,6 +509,20 @@ int msm_dp_mst_attach_encoder(struct msm_dp *dp_display, unsigned int stream_id,
 	mst->mst_encoders[stream_id].dp_panel = dp_panel;
 
 	return 0;
+}
+
+void msm_dp_mst_suspend(struct msm_dp *dp_display)
+{
+	struct msm_dp_mst *mst = dp_display->msm_dp_mst;
+
+	drm_dp_mst_topology_mgr_suspend(&mst->mst_mgr);
+}
+
+int msm_dp_mst_resume(struct msm_dp *dp_display)
+{
+	struct msm_dp_mst *mst = dp_display->msm_dp_mst;
+
+	return drm_dp_mst_topology_mgr_resume(&mst->mst_mgr, true);
 }
 
 int msm_dp_mst_display_set_mgr_state(struct msm_dp *dp_display, bool state)
