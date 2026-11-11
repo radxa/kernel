@@ -28,6 +28,7 @@ struct msm_dp {
 	bool is_edp;
 
 	void *msm_dp_mst;
+	unsigned int max_streams;
 
 	struct msm_dp_audio *msm_dp_audio;
 	bool psr_supported;

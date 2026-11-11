@@ -654,6 +654,7 @@ static int _dpu_kms_initialize_displayport(struct drm_device *dev,
 	struct drm_encoder *encoder = NULL;
 	struct msm_display_info info;
 	bool yuv_supported;
+	unsigned int intf_count;
 	int rc;
 	int i, stream_cnt;
 
@@ -680,6 +681,17 @@ static int _dpu_kms_initialize_displayport(struct drm_device *dev,
 		}
 
 		stream_cnt = msm_dp_get_mst_max_stream(priv->kms->dp[i]);
+
+		/* Pixel clocks alone do not describe the DPU stream routing. */
+		intf_count = 0;
+		for (int j = 0; j < dpu_kms->catalog->intf_count; j++) {
+			const struct dpu_intf_cfg *intf = &dpu_kms->catalog->intf[j];
+
+			if (intf->type == INTF_DP && intf->controller_id == i)
+				intf_count++;
+		}
+		stream_cnt = min_t(unsigned int, stream_cnt, intf_count);
+		msm_dp_set_mst_max_stream(priv->kms->dp[i], stream_cnt);
 
 		if (stream_cnt > 1) {
 			rc = msm_dp_mst_register(priv->kms->dp[i]);

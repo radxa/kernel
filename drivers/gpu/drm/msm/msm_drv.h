@@ -361,6 +361,7 @@ bool msm_dp_needs_periph_flush(const struct msm_dp *dp_display,
 			       const struct drm_display_mode *mode);
 bool msm_dp_wide_bus_available(const struct msm_dp *dp_display);
 int msm_dp_get_mst_max_stream(struct msm_dp *dp_display);
+void msm_dp_set_mst_max_stream(struct msm_dp *dp, unsigned int max_streams);
 int msm_dp_mst_register(struct msm_dp *dp_display);
 void msm_dp_mst_unregister(struct msm_dp *dp_display);
 int msm_dp_mst_attach_encoder(struct msm_dp *dp_display, unsigned int stream_id,
@@ -407,6 +408,9 @@ static inline int msm_dp_get_mst_max_stream(struct msm_dp *dp_display)
 {
 	return -EINVAL;
 }
+
+static inline void msm_dp_set_mst_max_stream(struct msm_dp *dp,
+					   unsigned int max_streams) {}
 
 static inline int msm_dp_mst_register(struct msm_dp *dp_display)
 {

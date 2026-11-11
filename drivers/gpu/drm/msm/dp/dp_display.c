@@ -368,7 +368,7 @@ static int msm_dp_display_process_hpd_high(struct msm_dp_display_private *dp)
 	if (rc)
 		goto end;
 
-	if (msm_dp_ctrl_get_stream_cnt(dp->ctrl) > 1)
+	if (msm_dp_get_mst_max_stream(&dp->msm_dp_display) > 1)
 		mst_mode = drm_dp_read_mst_cap(dp->aux, dp->panel->dpcd);
 
 	if (mst_mode != DRM_DP_MST) {
@@ -1393,7 +1393,7 @@ enum drm_connector_status msm_dp_bridge_detect(struct drm_bridge *bridge,
 	}
 
 	/* Mark SST connector as disconnected in DP boot-up case. */
-	if (msm_dp_ctrl_get_stream_cnt(priv->ctrl) > 1 &&
+	if (msm_dp_get_mst_max_stream(dp) > 1 &&
 	    drm_dp_read_mst_cap(priv->aux, dpcd) == DRM_DP_MST)
 		status = connector_status_disconnected;
 
@@ -1714,7 +1714,12 @@ int msm_dp_get_mst_max_stream(struct msm_dp *msm_dp_display)
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 
-	return msm_dp_ctrl_get_stream_cnt(dp->ctrl);
+	return msm_dp_display->max_streams ?: msm_dp_ctrl_get_stream_cnt(dp->ctrl);
+}
+
+void msm_dp_set_mst_max_stream(struct msm_dp *dp, unsigned int max_streams)
+{
+	dp->max_streams = max_streams;
 }
 
 int msm_dp_mst_register(struct msm_dp *msm_dp_display)
@@ -1724,7 +1729,7 @@ int msm_dp_mst_register(struct msm_dp *msm_dp_display)
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 
 	return msm_dp_mst_mgr_init(msm_dp_display, dp->link,
-				   msm_dp_ctrl_get_stream_cnt(dp->ctrl), dp->aux);
+				   msm_dp_get_mst_max_stream(msm_dp_display), dp->aux);
 }
 
 void msm_dp_mst_unregister(struct msm_dp *msm_dp_display)
