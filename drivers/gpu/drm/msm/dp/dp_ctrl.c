@@ -306,8 +306,8 @@ static void msm_dp_ctrl_mst_config(struct msm_dp_ctrl_private *ctrl, bool enable
 }
 
 static void msm_dp_ctrl_mst_update_timeslot(struct msm_dp_ctrl_private *ctrl,
-					  enum msm_dp_stream_id stream_id, u32 ch_start_slot,
-					  u32 tot_slot_cnt)
+					    enum msm_dp_stream_id stream_id, u32 ch_start_slot,
+					    u32 tot_slot_cnt)
 {
 	u32 slot_reg_1 = 0, slot_reg_2 = 0;
 
@@ -556,7 +556,7 @@ void msm_dp_ctrl_push_idle(struct msm_dp_ctrl *msm_dp_ctrl)
 	msm_dp_write_link(ctrl, REG_DP_STATE_CTRL, DP_STATE_CTRL_PUSH_IDLE);
 
 	if (!wait_for_completion_timeout(&ctrl->idle_comp,
-			IDLE_PATTERN_COMPLETION_TIMEOUT_JIFFIES))
+					 IDLE_PATTERN_COMPLETION_TIMEOUT_JIFFIES))
 		pr_warn("PUSH_IDLE pattern timedout\n");
 
 	drm_dbg_dp(ctrl->drm_dev, "mainlink off\n");
@@ -587,7 +587,7 @@ void msm_dp_ctrl_push_vcpf(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel 
 	msm_dp_write_stream_link(ctrl, msm_dp_panel->stream_id, REG_DP_STATE_CTRL, state);
 
 	if (!wait_for_completion_timeout(&ctrl->idle_comp,
-			IDLE_PATTERN_COMPLETION_TIMEOUT_JIFFIES))
+					 IDLE_PATTERN_COMPLETION_TIMEOUT_JIFFIES))
 		pr_warn("PUSH_VCPF pattern timedout\n");
 }
 

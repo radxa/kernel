@@ -345,7 +345,7 @@ static enum drm_mode_status msm_edp_bridge_mode_valid(struct drm_bridge *bridge,
 		return -EINVAL;
 	}
 
-	if (msm_dp_wide_bus_available(dp))
+	if (msm_dp_wide_bus_available(dp, 0, false))
 		mode_pclk_khz /= 2;
 
 	if (mode_pclk_khz > DP_MAX_PIXEL_CLK_KHZ)

@@ -358,8 +358,10 @@ int msm_dp_modeset_init(struct msm_dp *dp_display, struct drm_device *dev,
 			 struct drm_encoder *encoder, bool yuv_supported);
 void msm_dp_snapshot(struct msm_disp_state *disp_state, struct msm_dp *dp_display);
 bool msm_dp_needs_periph_flush(const struct msm_dp *dp_display,
-			       const struct drm_display_mode *mode);
-bool msm_dp_wide_bus_available(const struct msm_dp *dp_display);
+			       const struct drm_display_mode *mode,
+			       unsigned int stream_id, bool mst);
+bool msm_dp_wide_bus_available(const struct msm_dp *dp_display,
+			       unsigned int stream_id, bool mst);
 int msm_dp_get_mst_max_stream(struct msm_dp *dp_display);
 void msm_dp_set_mst_max_stream(struct msm_dp *dp, unsigned int max_streams);
 int msm_dp_mst_register(struct msm_dp *dp_display);
@@ -394,12 +396,14 @@ static inline void msm_dp_snapshot(struct msm_disp_state *disp_state, struct msm
 }
 
 static inline bool msm_dp_needs_periph_flush(const struct msm_dp *dp_display,
-					     const struct drm_display_mode *mode)
+					     const struct drm_display_mode *mode,
+					     unsigned int stream_id, bool mst)
 {
 	return false;
 }
 
-static inline bool msm_dp_wide_bus_available(const struct msm_dp *dp_display)
+static inline bool msm_dp_wide_bus_available(const struct msm_dp *dp_display,
+					     unsigned int stream_id, bool mst)
 {
 	return false;
 }
@@ -410,7 +414,7 @@ static inline int msm_dp_get_mst_max_stream(struct msm_dp *dp_display)
 }
 
 static inline void msm_dp_set_mst_max_stream(struct msm_dp *dp,
-					   unsigned int max_streams) {}
+					     unsigned int max_streams) {}
 
 static inline int msm_dp_mst_register(struct msm_dp *dp_display)
 {
@@ -429,15 +433,17 @@ static inline int msm_dp_mst_attach_encoder(struct msm_dp *dp_display,
 }
 
 static inline int msm_dp_mst_stream_enable(struct drm_encoder *enc,
-					 struct drm_atomic_commit *state)
+					   struct drm_atomic_commit *state)
 {
 	return -EINVAL;
 }
+
 static inline bool msm_dp_mst_stream_disable(struct drm_encoder *enc,
-					   struct drm_atomic_commit *state)
+					     struct drm_atomic_commit *state)
 {
 	return false;
 }
+
 static inline void msm_dp_mst_stream_post_disable(struct drm_encoder *enc,
 						struct drm_atomic_commit *state) {}
 static inline int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,

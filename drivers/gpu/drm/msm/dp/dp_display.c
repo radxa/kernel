@@ -58,8 +58,6 @@ struct msm_dp_display_private {
 	bool core_initialized;
 	bool phy_initialized;
 	bool audio_supported;
-	/* Pending DPU peripheral flush, set before encoder enable. */
-	bool sdp_needs_flush;
 	/* Block asynchronous video tests while an HDR stream is pending or active. */
 	bool video_test_blocked;
 	bool stream_pm_active;
@@ -835,14 +833,14 @@ static int msm_dp_display_set_mode(struct msm_dp *msm_dp_display,
 
 	/* A checked HDR modeset supersedes any intervening video test request. */
 	if (state->hdr_enabled)
-		dp->panel->video_test = false;
+		msm_dp_panel->video_test = false;
 
-	if (dp->panel->video_test)
+	if (msm_dp_panel->video_test)
 		bpp = msm_dp_link_bit_depth_to_bpp(dp->link->test_video.test_bit_depth);
 	else
 		bpp = state->bpp;
 
-	dp->sdp_needs_flush = old_state->vsc_enabled || state->vsc_enabled ||
+	msm_dp_panel->sdp_needs_flush = old_state->vsc_enabled || state->vsc_enabled ||
 		old_state->hdr_enabled || state->hdr_enabled;
 	msm_dp_panel_init_panel_info(msm_dp_panel, adjusted_mode, bpp ? bpp : 24);
 
@@ -868,6 +866,9 @@ int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
 
 	if (!dp->link->link_caps_valid)
 		return -EINVAL;
+
+	state->link_rate = dp->link->link_caps.rate;
+	state->num_lanes = dp->link->link_caps.num_lanes;
 
 	ret = msm_dp_utils_pack_hdr_sdp(conn_state, &state->hdr_sdp);
 	if (ret)
@@ -927,6 +928,7 @@ static int msm_dp_display_prepare(struct msm_dp_display_private *dp)
 }
 
 static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp,
+					      struct msm_dp_panel *panel,
 					      const struct msm_dp_bridge_state *state)
 {
 	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
@@ -950,19 +952,16 @@ static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp,
 		rc = msm_dp_display_host_phy_init(dp);
 		if (rc < 0)
 			return rc;
-		force_link_train = true;
 
 		dp->stream_link_attempted = true;
-	rc = msm_dp_ctrl_on_link(dp->ctrl, dp->panel);
-	if (rc) {
-		DRM_ERROR("Failed link training (rc=%d)\n", rc);
-		return rc;
+		rc = msm_dp_ctrl_on_link(dp->ctrl, panel);
+		if (rc) {
+			DRM_ERROR("Failed link training (rc=%d)\n", rc);
+			return rc;
+		}
 	}
 
-		force_link_train = false;
-	}
-
-	rc = msm_dp_ctrl_prepare_stream_on(dp->ctrl, dp->panel, force_link_train);
+	rc = msm_dp_ctrl_prepare_stream_on(dp->ctrl, panel, force_link_train);
 	if (!rc)
 		msm_dp_display->link_ready = true;
 
@@ -1132,9 +1131,10 @@ enum drm_mode_status msm_dp_display_mode_valid(struct msm_dp *dp,
 	}
 
 	msm_dp_display = container_of(dp, struct msm_dp_display_private, msm_dp_display);
+	guard(mutex)(&msm_dp_display->plugged_lock);
 	link_info = &msm_dp_display->link->link_caps;
 
-	is_yuv_420 = drm_mode_is_420_only(&dp->connector->display_info, mode);
+	is_yuv_420 = drm_mode_is_420_only(info, mode);
 
 	/*
 	 * YUV 420 is carried over DP by signalling the colorimetry through a
@@ -1154,7 +1154,7 @@ enum drm_mode_status msm_dp_display_mode_valid(struct msm_dp *dp,
 	if (!msm_dp_bridge_mode_filter_valid(mode))
 		return MODE_BAD;
 
-	mode_bpp = dp->connector->display_info.bpc * num_components;
+	mode_bpp = info->bpc * num_components;
 	if (!mode_bpp)
 		mode_bpp = default_bpp;
 
@@ -1913,21 +1913,27 @@ void __exit msm_dp_unregister(void)
 }
 
 bool msm_dp_needs_periph_flush(const struct msm_dp *msm_dp_display,
-			       const struct drm_display_mode *mode)
+			       const struct drm_display_mode *mode,
+			       unsigned int stream_id, bool mst)
 {
 	struct msm_dp_display_private *dp = container_of(msm_dp_display,
 					struct msm_dp_display_private, msm_dp_display);
 
-	return dp->sdp_needs_flush;
+	struct msm_dp_panel *panel = mst ? dp->mst_panels[stream_id] : dp->panel;
+
+	return panel && panel->sdp_needs_flush;
 }
 
-bool msm_dp_wide_bus_available(const struct msm_dp *msm_dp_display)
+bool msm_dp_wide_bus_available(const struct msm_dp *msm_dp_display,
+			       unsigned int stream_id, bool mst)
 {
 	struct msm_dp_display_private *dp;
+	struct msm_dp_panel *panel;
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 
-	if (dp->panel->msm_dp_mode.out_fmt_is_yuv_420)
+	panel = mst ? dp->mst_panels[stream_id] : dp->panel;
+	if (!panel || panel->msm_dp_mode.out_fmt_is_yuv_420)
 		return false;
 
 	return dp->wide_bus_supported;
@@ -1998,6 +2004,7 @@ int msm_dp_display_set_mode_helper(struct msm_dp *msm_dp_display,
 }
 
 int msm_dp_display_prepare_link(struct msm_dp *msm_dp_display,
+				struct msm_dp_panel *panel,
 				const struct msm_dp_bridge_state *state)
 {
 	struct msm_dp_display_private *dp = container_of(msm_dp_display,
@@ -2012,13 +2019,13 @@ int msm_dp_display_prepare_link(struct msm_dp *msm_dp_display,
 		return ret;
 
 	guard(mutex)(&dp->plugged_lock);
-	return msm_dp_display_prepare_link_locked(dp, state);
+	return msm_dp_display_prepare_link_locked(dp, panel, state);
 }
 
 int msm_dp_display_enable_helper(struct msm_dp *msm_dp_display,
-				  struct msm_dp_panel *panel,
-				  const struct msm_dp_mst_slot_info *slots,
-				  const struct msm_dp_bridge_state *state)
+				 struct msm_dp_panel *panel,
+				 const struct msm_dp_mst_slot_info *slots,
+				 const struct msm_dp_bridge_state *state)
 {
 	struct msm_dp_display_private *dp = container_of(msm_dp_display,
 				struct msm_dp_display_private, msm_dp_display);
@@ -2071,13 +2078,11 @@ void msm_dp_display_unprepare(struct msm_dp *msm_dp_display)
 		if (msm_dp_display->active_stream_mask)
 			return;
 		if (dp->stream_link_attempted) {
-			{
-				/* dongle is still connected but sinks are disconnected */
-				if (dp->link->sink_count == 0)
-					msm_dp_link_psm_config(dp->link, &dp->link->link_caps, true);
+			/* dongle is still connected but sinks are disconnected */
+			if (dp->link->sink_count == 0)
+				msm_dp_link_psm_config(dp->link, &dp->link->link_caps, true);
 
-				msm_dp_ctrl_off_link(dp->ctrl, dp->panel);
-			}
+			msm_dp_ctrl_off_link(dp->ctrl, dp->panel);
 			dp->stream_link_attempted = false;
 			msm_dp_display->link_ready = false;
 
@@ -2087,7 +2092,6 @@ void msm_dp_display_unprepare(struct msm_dp *msm_dp_display)
 				msm_dp_ctrl_reinit_phy(dp->ctrl);
 			else
 				msm_dp_display_host_phy_exit(dp);
-
 		}
 	}
 
@@ -2118,7 +2122,7 @@ void msm_dp_display_atomic_enable(struct msm_dp *msm_dp_display,
 
 	mutex_lock(&dp->plugged_lock);
 
-	rc = msm_dp_display_prepare_link_locked(dp, dp_state);
+	rc = msm_dp_display_prepare_link_locked(dp, dp->panel, dp_state);
 	if (rc) {
 		DRM_ERROR("DP display prepare failed, rc=%d\n", rc);
 		goto err;
@@ -2217,7 +2221,6 @@ void msm_dp_display_atomic_post_disable_helper(struct msm_dp *dp,
 
 	scoped_guard(mutex, &msm_dp_display->plugged_lock)
 		msm_dp_display_disable(msm_dp_display, panel);
-
 }
 
 void msm_dp_display_atomic_post_disable(struct msm_dp *dp)

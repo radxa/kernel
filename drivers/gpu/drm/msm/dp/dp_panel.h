@@ -52,6 +52,7 @@ struct msm_dp_panel {
 	struct msm_dp_display_mode msm_dp_mode;
 	struct msm_dp_panel_psr psr_cap;
 	bool video_test;
+	bool sdp_needs_flush;
 	/* All capability reads completed; eDP can reuse the full cache. */
 	bool caps_cached;
 	u32 hw_revision;

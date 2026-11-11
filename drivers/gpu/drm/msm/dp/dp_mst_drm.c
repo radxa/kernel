@@ -11,6 +11,7 @@
 
 #include "dp_mst_drm.h"
 #include "dp_drm.h"
+#include "dp_utils.h"
 #include "dp_panel.h"
 
 #define to_dp_mst_connector(x) \
@@ -26,7 +27,7 @@ struct msm_dp_mst_connector {
 
 struct msm_dp_mst_connector_state {
 	struct drm_connector_state base;
-	u32 bpp;
+	struct msm_dp_bridge_state dp_state;
 	struct drm_encoder *encoder;
 };
 
@@ -207,18 +208,19 @@ static int msm_dp_mst_select_bpp(struct drm_atomic_commit *state,
 				 const struct drm_dp_mst_topology_state *mst_state,
 				 struct drm_dp_mst_port *port,
 				 const struct drm_display_mode *mode,
-				 u32 max_bpp, u32 *bpp)
+				 u32 min_bpp, u32 max_bpp, bool yuv420, u32 *bpp)
 {
 	static const u32 bpps[] = { 30, 24, 18 };
 	unsigned int i;
 
 	for (i = 0; i < ARRAY_SIZE(bpps); i++) {
-		int pbn, slots;
+		struct drm_dp_mst_atomic_payload *payload;
+		int pbn, slots, total_slots = 0;
 
-		if (bpps[i] > max_bpp)
+		if (bpps[i] > max_bpp || bpps[i] < min_bpp)
 			continue;
 
-		pbn = drm_dp_calc_pbn_mode(mode->clock, bpps[i] << 4);
+		pbn = drm_dp_calc_pbn_mode(mode->clock, bpps[i] << (yuv420 ? 3 : 4));
 		if (pbn > port->full_pbn)
 			continue;
 
@@ -226,7 +228,12 @@ static int msm_dp_mst_select_bpp(struct drm_atomic_commit *state,
 		if (slots < 0)
 			return slots;
 
-		if (slots <= mst_state->total_avail_slots) {
+		list_for_each_entry(payload, &mst_state->payloads, next) {
+			if (!payload->delete)
+				total_slots += payload->time_slots;
+		}
+
+		if (total_slots <= mst_state->total_avail_slots) {
 			drm_dbg_kms(mst->msm_dp->drm_dev,
 				    "[MST] bpp=%u pbn=%d slots=%d\n",
 				    bpps[i], pbn, slots);
@@ -239,7 +246,7 @@ static int msm_dp_mst_select_bpp(struct drm_atomic_commit *state,
 }
 
 static struct msm_dp_panel *msm_dp_mst_panel_from_encoder(struct msm_dp_mst *mst,
-							   struct drm_encoder *enc)
+							  struct drm_encoder *enc)
 {
 	int i;
 
@@ -287,7 +294,7 @@ static int msm_dp_mst_encoder_stream_id(struct msm_dp_mst *mst,
 }
 
 int msm_dp_mst_stream_enable(struct drm_encoder *encoder,
-			       struct drm_atomic_commit *state)
+			     struct drm_atomic_commit *state)
 {
 	struct drm_connector *connector =
 		drm_atomic_get_new_connector_for_encoder(state, encoder);
@@ -304,7 +311,7 @@ int msm_dp_mst_stream_enable(struct drm_encoder *encoder,
 	struct msm_dp_mst_connector_state *mst_conn_state =
 		to_msm_dp_mst_connector_state(drm_atomic_get_new_connector_state(state,
 								 connector));
-	struct msm_dp_bridge_state dp_state = { .bpp = mst_conn_state->bpp };
+	const struct msm_dp_bridge_state *dp_state = &mst_conn_state->dp_state;
 	int rc;
 
 	guard(mutex)(&mst->mst_lock);
@@ -312,14 +319,14 @@ int msm_dp_mst_stream_enable(struct drm_encoder *encoder,
 	drm_connector_get(connector);
 	panel->connector = connector;
 
-	rc = msm_dp_display_set_mode_helper(dp_display, state, encoder, panel, &dp_state);
+	rc = msm_dp_display_set_mode_helper(dp_display, state, encoder, panel, dp_state);
 	if (rc) {
 		drm_err(dp_display->drm_dev,
 			"[MST] stream:%u set_mode failed rc=%d\n", panel->stream_id, rc);
 		goto err;
 	}
 
-	rc = msm_dp_display_prepare_link(dp_display, &dp_state);
+	rc = msm_dp_display_prepare_link(dp_display, panel, dp_state);
 	if (rc) {
 		drm_err(dp_display->drm_dev,
 			"[MST] stream:%u prepare_link failed rc=%d\n", panel->stream_id, rc);
@@ -339,7 +346,7 @@ int msm_dp_mst_stream_enable(struct drm_encoder *encoder,
 		    panel->stream_id, payload->vc_start_slot,
 		    payload->time_slots, payload->pbn);
 
-	rc = msm_dp_display_enable_helper(dp_display, panel, slots, &dp_state);
+	rc = msm_dp_display_enable_helper(dp_display, panel, slots, dp_state);
 	if (rc)
 		goto err;
 
@@ -433,7 +440,9 @@ int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 		to_msm_dp_mst_connector_state(conn_state);
 	struct msm_dp_mst *mst = mst_conn->dp_mst;
 	struct drm_dp_mst_topology_state *mst_state;
-	u32 bpp, max_bpp;
+	struct msm_dp_bridge_state *dp_state = &mst_conn_state->dp_state;
+	u32 bpp, max_bpp, min_bpp = 18;
+	bool yuv420;
 	int rc;
 
 	if (!conn_state->crtc)
@@ -446,21 +455,37 @@ int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 	if (IS_ERR(mst_state))
 		return PTR_ERR(mst_state);
 
-	if (!dfixed_trunc(mst_state->pbn_div)) {
-		mst_state->pbn_div =
-			drm_dp_get_vc_payload_bw(mst->link->link_caps.rate,
-						 mst->link->link_caps.num_lanes);
-	}
-
-	max_bpp = clamp(conn_state->connector->display_info.bpc ?: 8, 6, 10) * 3;
-
-	rc = msm_dp_mst_select_bpp(crtc_state->state, mst, mst_state,
-				   mst_conn->mst_port, &crtc_state->adjusted_mode,
-				   max_bpp, &bpp);
+	rc = msm_dp_display_atomic_check(mst->msm_dp, dp_state,
+					 &crtc_state->adjusted_mode, conn_state);
 	if (rc)
 		return rc;
 
-	mst_conn_state->bpp = bpp;
+	if (!dfixed_trunc(mst_state->pbn_div)) {
+		mst_state->pbn_div =
+			drm_dp_get_vc_payload_bw(dp_state->link_rate,
+						 dp_state->num_lanes);
+	}
+
+	if (!mst_state->pbn_div.full)
+		return -ENOLINK;
+
+	max_bpp = dp_state->bpp;
+	if (dp_state->hdr_enabled &&
+	    dp_state->hdr_sdp.db[2] != HDMI_EOTF_TRADITIONAL_GAMMA_SDR)
+		min_bpp = 30;
+	yuv420 = drm_mode_is_420_only(&conn_state->connector->display_info,
+				    &crtc_state->adjusted_mode);
+
+	rc = msm_dp_mst_select_bpp(crtc_state->state, mst, mst_state,
+				   mst_conn->mst_port, &crtc_state->adjusted_mode,
+				   min_bpp, max_bpp, yuv420, &bpp);
+	if (rc)
+		return rc;
+
+	dp_state->bpp = bpp;
+	if (dp_state->vsc_enabled)
+		return msm_dp_utils_pack_vsc_sdp(&dp_state->vsc_sdp, dp_state->colorspace,
+						 bpp / 3, yuv420);
 
 	return 0;
 }
@@ -555,6 +580,7 @@ msm_dp_mst_atomic_best_encoder(struct drm_connector *connector, struct drm_atomi
 	drm_connector_list_iter_begin(connector->dev, &conn_iter);
 	drm_for_each_connector_iter(iter, &conn_iter) {
 		struct drm_connector_state *peer_state;
+		struct drm_encoder *peer_encoder;
 		int stream_id;
 
 		if (iter == connector ||
@@ -566,8 +592,9 @@ msm_dp_mst_atomic_best_encoder(struct drm_connector *connector, struct drm_atomi
 		if (!peer_state || !peer_state->crtc)
 			continue;
 
-		stream_id = msm_dp_mst_encoder_stream_id(mst,
-			to_msm_dp_mst_connector_state(peer_state)->encoder ?: peer_state->best_encoder);
+		peer_encoder = to_msm_dp_mst_connector_state(peer_state)->encoder ?:
+			       peer_state->best_encoder;
+		stream_id = msm_dp_mst_encoder_stream_id(mst, peer_encoder);
 		if (stream_id >= 0 && stream_id < mst->max_streams)
 			stream_mask |= BIT(stream_id);
 	}
@@ -672,7 +699,7 @@ static const struct drm_dp_mst_topology_cbs msm_dp_mst_drm_cbs = {
 };
 
 int msm_dp_mst_mgr_init(struct msm_dp *dp_display, struct msm_dp_link *link,
-			 u32 max_streams, struct drm_dp_aux *drm_aux)
+			u32 max_streams, struct drm_dp_aux *drm_aux)
 {
 	struct drm_device *dev = dp_display->drm_dev;
 	struct msm_dp_mst *mst;

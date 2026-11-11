@@ -267,7 +267,9 @@ bool dpu_encoder_needs_periph_flush(struct dpu_encoder_phys *phys_enc)
 	mode = &phys_enc->cached_mode;
 
 	return phys_enc->hw_intf->cap->type == INTF_DP &&
-	       msm_dp_needs_periph_flush(priv->kms->dp[disp_info->h_tile_instance[0]], mode);
+	       msm_dp_needs_periph_flush(priv->kms->dp[disp_info->h_tile_instance[0]], mode,
+					 disp_info->stream_id,
+					 drm_enc->encoder_type == DRM_MODE_ENCODER_DPMST);
 }
 
 /**
@@ -286,7 +288,8 @@ bool dpu_encoder_is_widebus_enabled(const struct drm_encoder *drm_enc)
 	index = disp_info->h_tile_instance[0];
 
 	if (disp_info->intf_type == INTF_DP)
-		return msm_dp_wide_bus_available(priv->kms->dp[index]);
+		return msm_dp_wide_bus_available(priv->kms->dp[index], disp_info->stream_id,
+						 drm_enc->encoder_type == DRM_MODE_ENCODER_DPMST);
 	else if (disp_info->intf_type == INTF_DSI)
 		return msm_dsi_wide_bus_enabled(priv->kms->dsi[index]);
 
@@ -1457,9 +1460,9 @@ static struct dpu_hw_intf *dpu_encoder_get_intf(const struct dpu_mdss_cfg *catal
 		return NULL;
 
 	for (i = 0; i < catalog->intf_count; i++) {
-		if (catalog->intf[i].type == disp_info->intf_type
-		    && catalog->intf[i].controller_id == controller_id
-		    && cnt++ == stream_id)
+		if (catalog->intf[i].type == disp_info->intf_type &&
+		    catalog->intf[i].controller_id == controller_id &&
+		    cnt++ == stream_id)
 			return dpu_rm_get_intf(dpu_rm, catalog->intf[i].id);
 	}
 
@@ -2752,7 +2755,7 @@ static const struct drm_encoder_helper_funcs dpu_encoder_helper_funcs = {
 };
 
 static void dpu_encoder_mst_atomic_enable(struct drm_encoder *enc,
-				      struct drm_atomic_commit *state)
+					  struct drm_atomic_commit *state)
 {
 	if (msm_dp_mst_stream_enable(enc, state))
 		return;
@@ -2760,7 +2763,7 @@ static void dpu_encoder_mst_atomic_enable(struct drm_encoder *enc,
 }
 
 static void dpu_encoder_mst_atomic_disable(struct drm_encoder *enc,
-				       struct drm_atomic_commit *state)
+					   struct drm_atomic_commit *state)
 {
 	if (msm_dp_mst_stream_disable(enc, state))
 		dpu_encoder_virt_atomic_disable(enc, state);
