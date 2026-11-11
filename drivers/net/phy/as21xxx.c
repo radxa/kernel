@@ -1284,6 +1284,28 @@ out:
 	return ret;
 }
 
+static int as22xxx_set_phy_enable(struct phy_device *phydev, bool enable)
+{
+	u16 data[] = { IPC_SYS_CPU_PHY_ENABLE, enable };
+	int ret;
+
+	ret = aeon_ipc_send_msg(phydev, IPC_CMD_SYS_CPU, data, sizeof(data), NULL);
+	return ret < 0 ? ret : 0;
+}
+
+static int as22xxx_suspend(struct phy_device *phydev)
+{
+	return as22xxx_set_phy_enable(phydev, false);
+}
+
+static int as22xxx_resume(struct phy_device *phydev)
+{
+	if (!phydev->suspended)
+		return 0;
+
+	return as22xxx_set_phy_enable(phydev, true);
+}
+
 static int as22xxx_probe(struct phy_device *phydev)
 {
 	struct as21xxx_priv *priv;
@@ -1329,7 +1351,8 @@ static int as22xxx_probe(struct phy_device *phydev)
 	if (ret)
 		return ret;
 
-	return 0;
+	/* Keep the copper link down until the interface is opened. */
+	return phy_suspend(phydev);
 }
 
 static struct phy_driver as21xxx_drivers[] = {
@@ -1471,6 +1494,8 @@ static struct phy_driver as21xxx_drivers[] = {
 		.config_aneg	= as22xxx_config_aneg,
 		.get_rate_matching = as22xxx_get_rate_matching,
 		.read_status	= as22xxx_read_status,
+		.suspend	= as22xxx_suspend,
+		.resume		= as22xxx_resume,
 		.led_brightness_set = as21xxx_led_brightness_set,
 		.led_hw_is_supported = as21xxx_led_hw_is_supported,
 		.led_hw_control_set = as21xxx_led_hw_control_set,
