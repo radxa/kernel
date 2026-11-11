@@ -68,6 +68,13 @@
 #define IPC_CMD_NG_TESTMODE		0x1b /* Set NG test mode and tone */
 #define IPC_CMD_TEMP_MON		0x15 /* Temperature monitoring function */
 #define IPC_CMD_SET_LED			0x23 /* Set led */
+#define IPC_OPCODE_DBGCMD		0x16
+#define IPC_OPCODE_POLL			0x17
+#define IPC_OPCODE_WBUF			0x18
+#define IPC_DBGCMD_DPC			0x8b
+#define IPC_DPC_FC_SET			0xd
+#define IPC_DBGCMD_SDS			0x96
+#define IPC_SDS_RESTART			26
 
 #define VEND1_IPC_STS			0x5802
 #define   AEON_IPC_STS_PARITY		BIT(15)
@@ -467,9 +474,9 @@ static int aeon_ipc_send_cmd(struct phy_device *phydev,
  * If data not NULL, return number of Bytes received from IPC or
  * a negative error.
  */
-static int aeon_ipc_send_msg(struct phy_device *phydev,
-			     u16 opcode, u16 *data, unsigned int data_len,
-			     u16 *ret_data)
+static int aeon_ipc_send_msg_locked(struct phy_device *phydev,
+				    u16 opcode, u16 *data, unsigned int data_len,
+				    u16 *ret_data)
 {
 	struct as21xxx_priv *priv = phydev->priv;
 	unsigned int ret_size;
@@ -483,14 +490,15 @@ static int aeon_ipc_send_msg(struct phy_device *phydev,
 	if (data_len > AEON_IPC_DATA_MAX)
 		return -EINVAL;
 
-	for (i = 0; i < data_len / sizeof(u16); i++)
-		phy_write_mmd(phydev, MDIO_MMD_VEND1, VEND1_IPC_DATA(i),
-			      data[i]);
+	for (i = 0; i < DIV_ROUND_UP(data_len, sizeof(u16)); i++) {
+		ret = phy_write_mmd(phydev, MDIO_MMD_VEND1,
+				    VEND1_IPC_DATA(i), data[i]);
+		if (ret < 0)
+			return ret;
+	}
 
 	cmd = FIELD_PREP(AEON_IPC_CMD_SIZE, data_len) |
 	      FIELD_PREP(AEON_IPC_CMD_OPCODE, opcode);
-
-	mutex_lock(&priv->ipc_lock);
 
 	ret = aeon_ipc_send_cmd(phydev, priv, cmd, &ret_sts);
 	if (ret) {
@@ -529,9 +537,89 @@ static int aeon_ipc_send_msg(struct phy_device *phydev,
 	ret = ret_size;
 
 out:
+	return ret;
+}
+
+static int aeon_ipc_send_msg(struct phy_device *phydev,
+			     u16 opcode, u16 *data, unsigned int data_len,
+			     u16 *ret_data)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	int ret;
+
+	mutex_lock(&priv->ipc_lock);
+	ret = aeon_ipc_send_msg_locked(phydev, opcode, data, data_len, ret_data);
 	mutex_unlock(&priv->ipc_lock);
 
 	return ret;
+}
+
+static int as22xxx_cfg_poll(struct phy_device *phydev)
+{
+	int ret;
+
+	ret = aeon_ipc_send_msg_locked(phydev, IPC_OPCODE_POLL, NULL, 0, NULL);
+	if (ret < 0)
+		return ret;
+
+	return phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_IPC_DATA(0));
+}
+
+static int as22xxx_set_byte_cfg(struct phy_device *phydev, u16 section,
+				u16 command, u8 value)
+{
+	u16 hdr[] = { (section << 8) | command, 1, 0 };
+	struct as21xxx_priv *priv = phydev->priv;
+	u16 payload = value, reply[AEON_IPC_DATA_NUM_REGISTERS];
+	int ret, status, cleanup;
+
+	mutex_lock(&priv->ipc_lock);
+	ret = aeon_ipc_send_msg_locked(phydev, IPC_OPCODE_DBGCMD, hdr,
+				       sizeof(hdr), reply);
+	if (ret < 0)
+		goto out;
+	ret = aeon_ipc_send_msg_locked(phydev, IPC_CMD_NOOP, NULL, 0, NULL);
+	if (ret < 0)
+		goto out;
+	ret = aeon_ipc_send_msg_locked(phydev, IPC_OPCODE_WBUF, &payload,
+				       sizeof(u8), reply);
+	if (ret < 0)
+		goto out;
+	ret = aeon_ipc_send_msg_locked(phydev, IPC_CMD_NOOP, NULL, 0, NULL);
+	if (ret < 0)
+		goto out;
+
+	ret = read_poll_timeout(as22xxx_cfg_poll, status, status,
+				1000, AEON_IPC_TIMEOUT, false, phydev);
+	if (ret)
+		goto out;
+	if (status < 0) {
+		ret = status;
+		goto out;
+	}
+	ret = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_IPC_DATA(1));
+	if (ret > 0)
+		ret = -EIO;
+out:
+	cleanup = aeon_ipc_send_msg_locked(phydev, IPC_CMD_NOOP, NULL, 0, NULL);
+	mutex_unlock(&priv->ipc_lock);
+
+	return ret < 0 ? ret : cleanup;
+}
+
+static int as22xxx_enable_pause(struct phy_device *phydev)
+{
+	int ret;
+
+	if (phydev->interface != PHY_INTERFACE_MODE_10GBASER)
+		return 0;
+
+	ret = as22xxx_set_byte_cfg(phydev, IPC_DBGCMD_DPC, IPC_DPC_FC_SET, 1);
+	if (ret)
+		return ret;
+
+	/* Firmware latches the MAC-side flow control setting on SDS restart. */
+	return as22xxx_set_byte_cfg(phydev, IPC_DBGCMD_SDS, IPC_SDS_RESTART, 0);
 }
 
 static int aeon_ipc_noop(struct phy_device *phydev,
@@ -812,6 +900,15 @@ done:
 	return 0;
 }
 
+static int as22xxx_config_init(struct phy_device *phydev)
+{
+	/* Buffered EEE is not configured for the XFI rate matching path. */
+	if (phydev->interface == PHY_INTERFACE_MODE_10GBASER)
+		phy_disable_eee(phydev);
+
+	return 0;
+}
+
 static int as22xxx_config_aneg(struct phy_device *phydev)
 {
 	u16 data[4] = { IPC_CFG_PARAM_DIRECT, IPC_CFG_PARAM_DIRECT_CU_AN,
@@ -876,6 +973,16 @@ static int as22xxx_config_aneg(struct phy_device *phydev)
 		return ret;
 
 	return genphy_c45_check_and_restart_aneg(phydev, changed);
+}
+
+static int as22xxx_get_rate_matching(struct phy_device *phydev,
+				     phy_interface_t interface)
+{
+	/* XFI stays at 10G; the PHY uses PAUSE to throttle the MAC. */
+	if (interface == PHY_INTERFACE_MODE_10GBASER)
+		return RATE_MATCH_PAUSE;
+
+	return RATE_MATCH_NONE;
 }
 
 static int as22xxx_read_lpa(struct phy_device *phydev)
@@ -951,14 +1058,23 @@ static int as22xxx_read_speed(struct phy_device *phydev, int bmcr)
 static int as22xxx_read_status(struct phy_device *phydev)
 {
 	int bmcr, old_link = phydev->link;
+	int old_speed = phydev->speed;
 	int ret;
+
+	phydev->rate_matching = as22xxx_get_rate_matching(phydev,
+							  phydev->interface);
 
 	ret = as22xxx_read_link(phydev, &bmcr);
 	if (ret)
 		return ret;
 
-	if (phydev->autoneg == AUTONEG_ENABLE && old_link && phydev->link)
-		return 0;
+	if (phydev->autoneg == AUTONEG_ENABLE && old_link && phydev->link) {
+		ret = as22xxx_read_speed(phydev, bmcr);
+		if (ret)
+			return ret;
+		if (phydev->speed == old_speed)
+			return 0;
+	}
 
 	phydev->speed = SPEED_UNKNOWN;
 	phydev->duplex = DUPLEX_UNKNOWN;
@@ -982,8 +1098,13 @@ static int as22xxx_read_status(struct phy_device *phydev)
 		}
 	} else {
 		linkmode_zero(phydev->lp_advertising);
-		return as22xxx_read_speed(phydev, bmcr);
+		ret = as22xxx_read_speed(phydev, bmcr);
+		if (ret)
+			return ret;
 	}
+
+	if (phydev->link && (!old_link || old_speed != phydev->speed))
+		return as22xxx_enable_pause(phydev);
 
 	return 0;
 }
@@ -1346,7 +1467,9 @@ static struct phy_driver as21xxx_drivers[] = {
 		PHY_ID_MATCH_EXACT(PHY_ID_AS22XXX),
 		.name		= "Aeonsemi AS22XXX",
 		.probe		= as22xxx_probe,
+		.config_init	= as22xxx_config_init,
 		.config_aneg	= as22xxx_config_aneg,
+		.get_rate_matching = as22xxx_get_rate_matching,
 		.read_status	= as22xxx_read_status,
 		.led_brightness_set = as21xxx_led_brightness_set,
 		.led_hw_is_supported = as21xxx_led_hw_is_supported,
