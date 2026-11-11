@@ -3017,6 +3017,8 @@ int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *
 		}
 	}
 
+	panel->hw_revision = ctrl->hw_revision;
+
 	pixel_rate = panel->msm_dp_mode.drm_mode.clock;
 
 	if (msm_dp_ctrl->wide_bus_en || panel->msm_dp_mode.out_fmt_is_yuv_420)
@@ -3055,16 +3057,22 @@ int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *
 
 	ret = msm_dp_ctrl_mst_send_act(msm_dp_ctrl, panel);
 	if (ret)
-		return ret;
+		goto err_pixel_clk;
 
 	ret = msm_dp_ctrl_wait4video_ready(ctrl);
 	if (ret)
-		return ret;
+		goto err_pixel_clk;
 
 	mainlink_ready = msm_dp_ctrl_mainlink_ready(ctrl);
 	drm_dbg_dp(ctrl->drm_dev,
 		"mainlink %s\n", mainlink_ready ? "READY" : "NOT READY");
 
+	return ret;
+
+err_pixel_clk:
+	msm_dp_panel_disable_vsc_sdp(panel);
+	msm_dp_panel_disable_hdr_sdp(panel);
+	msm_dp_ctrl_off_pixel_clk(msm_dp_ctrl, panel->stream_id);
 	return ret;
 }
 
