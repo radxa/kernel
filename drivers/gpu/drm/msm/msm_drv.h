@@ -366,8 +366,8 @@ int msm_dp_mst_register(struct msm_dp *dp_display);
 void msm_dp_mst_unregister(struct msm_dp *dp_display);
 int msm_dp_mst_attach_encoder(struct msm_dp *dp_display, unsigned int stream_id,
 			      struct drm_encoder *encoder);
-void msm_dp_mst_stream_enable(struct drm_encoder *enc, struct drm_atomic_commit *state);
-void msm_dp_mst_stream_disable(struct drm_encoder *enc, struct drm_atomic_commit *state);
+int msm_dp_mst_stream_enable(struct drm_encoder *enc, struct drm_atomic_commit *state);
+bool msm_dp_mst_stream_disable(struct drm_encoder *enc, struct drm_atomic_commit *state);
 void msm_dp_mst_stream_post_disable(struct drm_encoder *enc, struct drm_atomic_commit *state);
 int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 				   struct drm_crtc_state *crtc_state,
@@ -428,13 +428,18 @@ static inline int msm_dp_mst_attach_encoder(struct msm_dp *dp_display,
 	return -EINVAL;
 }
 
-static inline void msm_dp_mst_stream_enable(struct drm_encoder *enc,
-					     struct drm_atomic_commit *state)
-{}
-static inline void msm_dp_mst_stream_disable(struct drm_encoder *enc,
-					     struct drm_atomic_commit *state) {}
+static inline int msm_dp_mst_stream_enable(struct drm_encoder *enc,
+					 struct drm_atomic_commit *state)
+{
+	return -EINVAL;
+}
+static inline bool msm_dp_mst_stream_disable(struct drm_encoder *enc,
+					   struct drm_atomic_commit *state)
+{
+	return false;
+}
 static inline void msm_dp_mst_stream_post_disable(struct drm_encoder *enc,
-						  struct drm_atomic_commit *state) {}
+						struct drm_atomic_commit *state) {}
 static inline int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 						 struct drm_crtc_state *cs,
 						 struct drm_connector_state *cos)

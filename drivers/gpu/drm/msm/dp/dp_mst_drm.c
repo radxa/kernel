@@ -274,7 +274,7 @@ static int msm_dp_mst_encoder_stream_id(struct msm_dp_mst *mst,
 	return -1;
 }
 
-void msm_dp_mst_stream_enable(struct drm_encoder *encoder,
+int msm_dp_mst_stream_enable(struct drm_encoder *encoder,
 			       struct drm_atomic_commit *state)
 {
 	struct drm_connector *connector =
@@ -304,21 +304,21 @@ void msm_dp_mst_stream_enable(struct drm_encoder *encoder,
 	if (rc) {
 		drm_err(dp_display->drm_dev,
 			"[MST] stream:%u set_mode failed rc=%d\n", panel->stream_id, rc);
-		return;
+		goto err;
 	}
 
 	rc = msm_dp_display_prepare_link(dp_display, &dp_state);
 	if (rc) {
 		drm_err(dp_display->drm_dev,
 			"[MST] stream:%u prepare_link failed rc=%d\n", panel->stream_id, rc);
-		return;
+		goto err;
 	}
 
 	drm_dp_mst_update_slots(mst_state, DP_CAP_ANSI_8B10B);
 
 	rc = drm_dp_add_payload_part1(&mst->mst_mgr, mst_state, payload);
 	if (rc)
-		return;
+		goto err;
 
 	msm_dp_mst_collect_slots(mst, mst_state, slots);
 
@@ -329,14 +329,24 @@ void msm_dp_mst_stream_enable(struct drm_encoder *encoder,
 
 	rc = msm_dp_display_enable_helper(dp_display, panel, slots, &dp_state);
 	if (rc)
-		return;
+		goto err;
 
 	drm_dp_check_act_status(&mst->mst_mgr);
 
-	drm_dp_add_payload_part2(&mst->mst_mgr, payload);
+	rc = drm_dp_add_payload_part2(&mst->mst_mgr, payload);
+	if (rc)
+		goto err;
+
+	return 0;
+
+err:
+	/* Keep any allocated payload for the paired disable callback. */
+	msm_dp_display_atomic_post_disable_helper(dp_display, panel);
+	msm_dp_display_unprepare(dp_display);
+	return rc;
 }
 
-void msm_dp_mst_stream_disable(struct drm_encoder *encoder,
+bool msm_dp_mst_stream_disable(struct drm_encoder *encoder,
 			       struct drm_atomic_commit *state)
 {
 	struct drm_connector *connector = drm_atomic_get_old_connector_for_encoder(state, encoder);
@@ -352,8 +362,15 @@ void msm_dp_mst_stream_disable(struct drm_encoder *encoder,
 	struct drm_dp_mst_atomic_payload *new_payload =
 		drm_atomic_get_mst_payload_state(new_mst_state, mst_conn->mst_port);
 	struct msm_dp_mst_slot_info slots[DP_STREAM_MAX] = {};
+	bool enabled;
 
 	guard(mutex)(&mst->mst_lock);
+
+	enabled = mst->msm_dp->active_stream_mask & BIT(panel->stream_id);
+
+	/* Enable may have failed before part1 allocated a local payload. */
+	if (new_payload->vc_start_slot < 0)
+		return enabled;
 
 	drm_dp_remove_payload_part1(&mst->mst_mgr, new_mst_state, new_payload);
 
@@ -367,11 +384,13 @@ void msm_dp_mst_stream_disable(struct drm_encoder *encoder,
 		    new_payload->time_slots, new_payload->pbn);
 
 	if (!msm_dp_display_is_plugged(mst->msm_dp))
-		return;
+		return enabled;
 
 	msm_dp_display_disable_helper(mst->msm_dp, panel, slots);
 
 	drm_dp_check_act_status(&mst->mst_mgr);
+
+	return enabled;
 }
 
 void msm_dp_mst_stream_post_disable(struct drm_encoder *encoder,
@@ -386,8 +405,7 @@ void msm_dp_mst_stream_post_disable(struct drm_encoder *encoder,
 
 	msm_dp_display_atomic_post_disable_helper(mst->msm_dp, panel);
 
-	if (!mst->msm_dp->mst_active)
-		msm_dp_display_unprepare(mst->msm_dp);
+	msm_dp_display_unprepare(mst->msm_dp);
 
 	panel->connector = NULL;
 
@@ -409,7 +427,7 @@ int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 	if (!conn_state->crtc)
 		return 0;
 
-	if (!drm_atomic_crtc_needs_modeset(crtc_state) || !crtc_state->active)
+	if (!drm_atomic_crtc_needs_modeset(crtc_state))
 		return 0;
 
 	mst_state = drm_atomic_get_mst_topology_state(crtc_state->state, &mst->mst_mgr);

@@ -2081,8 +2081,9 @@ void msm_dp_display_unprepare(struct msm_dp *msm_dp_display)
 			dp->stream_link_attempted = false;
 			msm_dp_display->link_ready = false;
 
-			if (dp->link->sink_count == 0 && dp->plugged && !msm_dp_display->is_edp)
-				/* re-init PHY to listen for Dongle disconnect */
+			/* Keep AUX available for an attached branch with no streams. */
+			if (dp->plugged && !msm_dp_display->is_edp &&
+			    (!dp->link->sink_count || msm_dp_display->mst_active))
 				msm_dp_ctrl_reinit_phy(dp->ctrl);
 			else
 				msm_dp_display_host_phy_exit(dp);

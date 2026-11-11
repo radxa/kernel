@@ -203,6 +203,29 @@ int msm_atomic_check(struct drm_device *dev, struct drm_atomic_commit *state)
 	return 0;
 }
 
+static void msm_atomic_mst_cleanup(struct drm_atomic_commit *state)
+{
+	struct drm_dp_mst_topology_mgr *mgr;
+	struct drm_dp_mst_topology_state *old_state, *new_state;
+	struct drm_dp_mst_atomic_payload *payload, *old_payload;
+	int i;
+
+	if (!IS_ENABLED(CONFIG_DRM_MSM_DP))
+		return;
+
+	/* Inactive CRTCs have payload state but no encoder disable callback. */
+	for_each_oldnew_mst_mgr_in_state(state, mgr, old_state, new_state, i) {
+		list_for_each_entry(payload, &new_state->payloads, next) {
+			if (!payload->delete)
+				continue;
+
+			old_payload = drm_atomic_get_mst_payload_state(old_state, payload->port);
+			if (old_payload && old_payload->vc_start_slot < 0)
+				drm_dp_mst_put_port_malloc(payload->port);
+		}
+	}
+}
+
 void msm_atomic_commit_tail(struct drm_atomic_commit *state)
 {
 	struct drm_device *dev = state->dev;
@@ -241,6 +264,7 @@ void msm_atomic_commit_tail(struct drm_atomic_commit *state)
 	 * Push atomic updates down to hardware:
 	 */
 	drm_atomic_helper_commit_modeset_disables(dev, state);
+	msm_atomic_mst_cleanup(state);
 	drm_atomic_helper_commit_planes(dev, state, 0);
 	drm_atomic_helper_commit_modeset_enables(dev, state);
 
