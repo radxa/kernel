@@ -44,10 +44,22 @@
 #define MII_XGMAC_C22P_MASK		GENMASK(MII_XGMAC_MAX_C22ADDR, 0)
 #define MII_XGMAC_PA_SHIFT		16
 #define MII_XGMAC_DA_SHIFT		21
+#define MII_XGMAC_CRS			BIT(31)
 
 static int stmmac_mdio_wait(void __iomem *reg, u32 mask)
 {
 	u32 v;
+
+	if (mask == MII_XGMAC_BUSY) {
+		v = readl(reg);
+		if (!(v & mask))
+			return 0;
+
+		/* Fast XGMAC MDIO transfers usually finish within 20 us. */
+		if ((v & MII_XGMAC_CRS) &&
+		    !readl_poll_timeout_atomic(reg, v, !(v & mask), 1, 20))
+			return 0;
+	}
 
 	if (readl_poll_timeout(reg, v, !(v & mask), 100, 10000))
 		return -EBUSY;
@@ -577,6 +589,13 @@ static void stmmac_mdio_bus_config(struct stmmac_priv *priv)
 	else
 		value = stmmac_clk_csr_set(priv);
 
+	priv->gmii_address_bus_config = 0;
+	if (priv->plat->core_type == DWMAC_CORE_XGMAC &&
+	    value >= STMMAC_CSR_I_4 && value <= STMMAC_CSR_I_18) {
+		priv->gmii_address_bus_config = MII_XGMAC_CRS;
+		value -= STMMAC_CSR_I_4;
+	}
+
 	value <<= __ffs(priv->hw->mii.clk_csr_mask);
 
 	if (value & ~priv->hw->mii.clk_csr_mask)
@@ -584,7 +603,7 @@ static void stmmac_mdio_bus_config(struct stmmac_priv *priv)
 			 "clk_csr value out of range (0x%08x exceeds mask 0x%08x), truncating\n",
 			 value, priv->hw->mii.clk_csr_mask);
 
-	priv->gmii_address_bus_config = value & priv->hw->mii.clk_csr_mask;
+	priv->gmii_address_bus_config |= value & priv->hw->mii.clk_csr_mask;
 }
 
 /**
