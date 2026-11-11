@@ -42,6 +42,7 @@
 #define VEND1_LED_REG(_n)		(0x1800 + ((_n) * 0x10))
 #define   VEND1_LED_REG_A_EVENT		GENMASK(15, 11)
 #define VEND1_LED_CONF			0x1881
+#define   VEND1_LED_CONF_SUSTAIN		GENMASK(15, 13)
 #define   VEND1_LED_CONFG_BLINK		GENMASK(7, 0)
 
 #define VEND1_SPEED_STATUS		0x4002
@@ -208,6 +209,11 @@ struct as21xxx_priv {
 	bool parity_status;
 	/* Protect concurrent IPC access */
 	struct mutex ipc_lock;
+	unsigned long led_mask;
+	u16 led_events[AEON_MAX_LEDS];
+	u16 led_polarity;
+	bool copper_enabled;
+	bool leds_configured;
 };
 
 static struct as21xxx_led_pattern_info as21xxx_led_supported_pattern[] = {
@@ -607,6 +613,92 @@ out:
 	return ret < 0 ? ret : cleanup;
 }
 
+/* Firmware LED modes differ from the hardware signal_map encoding. */
+static const u8 as22xxx_led_modes[] = {
+	[VEND1_LED_REG_A_EVENT_ON_10] = 0x12,
+	[VEND1_LED_REG_A_EVENT_ON_100] = 0x11,
+	[VEND1_LED_REG_A_EVENT_ON_1000] = 0x0e,
+	[VEND1_LED_REG_A_EVENT_ON_2500] = 0x0d,
+	[VEND1_LED_REG_A_EVENT_ON_5000] = 0x0f,
+	[VEND1_LED_REG_A_EVENT_ON_10000] = 0x13,
+	[VEND1_LED_REG_A_EVENT_ON_FE_GE] = 0x07,
+	[VEND1_LED_REG_A_EVENT_ON_NG] = 0x08,
+	[VEND1_LED_REG_A_EVENT_ON_FULL_DUPLEX] = 0x09,
+	[VEND1_LED_REG_A_EVENT_ON_COLLISION] = 0x0a,
+	[VEND1_LED_REG_A_EVENT_BLINK_TX] = 0x0b,
+	[VEND1_LED_REG_A_EVENT_BLINK_RX] = 0x0c,
+	[VEND1_LED_REG_A_EVENT_BLINK_ACT] = 0x04,
+	[VEND1_LED_REG_A_EVENT_ON_LINK] = 0x03,
+	[VEND1_LED_REG_A_EVENT_ON_LINK_BLINK_ACT] = 0x05,
+	[VEND1_LED_REG_A_EVENT_ON_LINK_BLINK_RX] = 0x10,
+	[VEND1_LED_REG_A_EVENT_ON_FE_GE_BLINK_ACT] = 0x02,
+	[VEND1_LED_REG_A_EVENT_ON_NG_BLINK_ACT] = 0x01,
+	[VEND1_LED_REG_A_EVENT_ON_NG_BLINK_FE_GE] = 0x06,
+	[VEND1_LED_REG_A_EVENT_ON_FD_BLINK_COLLISION] = 0x14,
+	[VEND1_LED_REG_A_EVENT_ON] = 0x15,
+	[VEND1_LED_REG_A_EVENT_OFF] = 0x00,
+};
+
+static int as22xxx_leds_restore(struct phy_device *phydev)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	u16 cfg[AEON_MAX_LEDS + 2] = {};
+	u16 expected[AEON_MAX_LEDS];
+	unsigned int index;
+	bool changed = false;
+	int ret;
+
+	if (!priv->leds_configured)
+		return 0;
+
+	cfg[AEON_MAX_LEDS] =
+		FIELD_GET(VEND1_GLB_CPU_CTRL_LED_POLARITY_MASK, priv->led_polarity);
+	cfg[AEON_MAX_LEDS + 1] = 3; /* Approximately 4 Hz. */
+
+	for_each_set_bit(index, &priv->led_mask, AEON_MAX_LEDS) {
+		u16 event = FIELD_GET(VEND1_LED_REG_A_EVENT, priv->led_events[index]);
+
+		if (!priv->copper_enabled || !phydev->link) {
+			event = VEND1_LED_REG_A_EVENT_OFF;
+		} else if (event == VEND1_LED_REG_A_EVENT_BLINK_ACT) {
+			/* Invert link/activity for visible pulses with idle dark. */
+			cfg[AEON_MAX_LEDS] ^= BIT(index);
+			event = VEND1_LED_REG_A_EVENT_ON_LINK_BLINK_ACT;
+		}
+
+		if (event >= ARRAY_SIZE(as22xxx_led_modes))
+			return -EOPNOTSUPP;
+		cfg[index] = as22xxx_led_modes[event];
+		expected[index] = FIELD_PREP(VEND1_LED_REG_A_EVENT, event);
+	}
+
+	ret = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_GLB_REG_CPU_CTRL);
+	if (ret < 0)
+		return ret;
+	changed = FIELD_GET(VEND1_GLB_CPU_CTRL_LED_POLARITY_MASK, ret) !=
+		  cfg[AEON_MAX_LEDS];
+
+	for_each_set_bit(index, &priv->led_mask, AEON_MAX_LEDS) {
+		ret = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_LED_REG(index));
+		if (ret < 0)
+			return ret;
+		changed |= (ret & VEND1_LED_REG_A_EVENT) != expected[index];
+	}
+
+	ret = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_LED_CONF);
+	if (ret < 0)
+		return ret;
+	changed |= FIELD_GET(VEND1_LED_CONFG_BLINK, ret) != 7;
+	if (!changed)
+		return 0;
+
+	/* Firmware reinitialization can clear LEDs without a sampled link
+	 * transition. Check on the existing PHY poll and restore through IPC.
+	 */
+	ret = aeon_ipc_send_msg(phydev, IPC_CMD_SET_LED, cfg, sizeof(cfg), NULL);
+	return ret < 0 ? ret : 0;
+}
+
 static int as22xxx_enable_pause(struct phy_device *phydev)
 {
 	int ret;
@@ -972,7 +1064,12 @@ static int as22xxx_config_aneg(struct phy_device *phydev)
 	if (ret < 0)
 		return ret;
 
-	return genphy_c45_check_and_restart_aneg(phydev, changed);
+	ret = genphy_c45_check_and_restart_aneg(phydev, changed);
+	if (ret < 0)
+		return ret;
+
+	/* Restarting copper autonegotiation resets the LED event selectors. */
+	return as22xxx_leds_restore(phydev);
 }
 
 static int as22xxx_get_rate_matching(struct phy_device *phydev,
@@ -1073,7 +1170,7 @@ static int as22xxx_read_status(struct phy_device *phydev)
 		if (ret)
 			return ret;
 		if (phydev->speed == old_speed)
-			return 0;
+			return as22xxx_leds_restore(phydev);
 	}
 
 	phydev->speed = SPEED_UNKNOWN;
@@ -1103,9 +1200,41 @@ static int as22xxx_read_status(struct phy_device *phydev)
 			return ret;
 	}
 
-	if (phydev->link && (!old_link || old_speed != phydev->speed))
-		return as22xxx_enable_pause(phydev);
+	if (phydev->link && (!old_link || old_speed != phydev->speed)) {
+		ret = as22xxx_enable_pause(phydev);
+		if (ret)
+			return ret;
+	}
 
+	return as22xxx_leds_restore(phydev);
+}
+
+static int as21xxx_led_set_event(struct phy_device *phydev, u8 index, u16 event)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	u16 val = FIELD_PREP(VEND1_LED_REG_A_EVENT, event);
+	int ret;
+
+	if (index >= AEON_MAX_LEDS)
+		return -EINVAL;
+
+	if (phydev->phy_id == PHY_ID_AS22XXX) {
+		u16 old = priv->led_events[index];
+
+		priv->led_events[index] = val;
+		ret = as22xxx_leds_restore(phydev);
+		if (ret)
+			priv->led_events[index] = old;
+		return ret;
+	}
+
+	ret = phy_modify_mmd(phydev, MDIO_MMD_VEND1, VEND1_LED_REG(index),
+			     VEND1_LED_REG_A_EVENT, val);
+	if (ret)
+		return ret;
+
+	priv->led_events[index] = val;
+	set_bit(index, &priv->led_mask);
 	return 0;
 }
 
@@ -1114,16 +1243,13 @@ static int as21xxx_led_brightness_set(struct phy_device *phydev,
 {
 	u16 val = VEND1_LED_REG_A_EVENT_OFF;
 
-	if (index > AEON_MAX_LEDS)
+	if (index >= AEON_MAX_LEDS)
 		return -EINVAL;
 
 	if (value)
 		val = VEND1_LED_REG_A_EVENT_ON;
 
-	return phy_modify_mmd(phydev, MDIO_MMD_VEND1,
-			      VEND1_LED_REG(index),
-			      VEND1_LED_REG_A_EVENT,
-			      FIELD_PREP(VEND1_LED_REG_A_EVENT, val));
+	return as21xxx_led_set_event(phydev, index, val);
 }
 
 static int as21xxx_led_hw_is_supported(struct phy_device *phydev, u8 index,
@@ -1131,7 +1257,7 @@ static int as21xxx_led_hw_is_supported(struct phy_device *phydev, u8 index,
 {
 	int i;
 
-	if (index > AEON_MAX_LEDS)
+	if (index >= AEON_MAX_LEDS)
 		return -EINVAL;
 
 	for (i = 0; i < ARRAY_SIZE(as21xxx_led_supported_pattern); i++)
@@ -1144,14 +1270,19 @@ static int as21xxx_led_hw_is_supported(struct phy_device *phydev, u8 index,
 static int as21xxx_led_hw_control_get(struct phy_device *phydev, u8 index,
 				      unsigned long *rules)
 {
+	struct as21xxx_priv *priv = phydev->priv;
 	int i, val;
 
-	if (index > AEON_MAX_LEDS)
+	if (index >= AEON_MAX_LEDS)
 		return -EINVAL;
 
-	val = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_LED_REG(index));
-	if (val < 0)
-		return val;
+	if (phydev->phy_id == PHY_ID_AS22XXX) {
+		val = priv->led_events[index];
+	} else {
+		val = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_LED_REG(index));
+		if (val < 0)
+			return val;
+	}
 
 	val = FIELD_GET(VEND1_LED_REG_A_EVENT, val);
 	for (i = 0; i < ARRAY_SIZE(as21xxx_led_supported_pattern); i++)
@@ -1170,7 +1301,7 @@ static int as21xxx_led_hw_control_set(struct phy_device *phydev, u8 index,
 	u16 val = 0;
 	int i;
 
-	if (index > AEON_MAX_LEDS)
+	if (index >= AEON_MAX_LEDS)
 		return -EINVAL;
 
 	for (i = 0; i < ARRAY_SIZE(as21xxx_led_supported_pattern); i++)
@@ -1179,20 +1310,18 @@ static int as21xxx_led_hw_control_set(struct phy_device *phydev, u8 index,
 			break;
 		}
 
-	return phy_modify_mmd(phydev, MDIO_MMD_VEND1,
-			      VEND1_LED_REG(index),
-			      VEND1_LED_REG_A_EVENT,
-			      FIELD_PREP(VEND1_LED_REG_A_EVENT, val));
+	return as21xxx_led_set_event(phydev, index, val);
 }
 
 static int as21xxx_led_polarity_set(struct phy_device *phydev, int index,
 				    unsigned long modes)
 {
+	struct as21xxx_priv *priv = phydev->priv;
 	bool led_active_low = false;
 	u16 mask, val = 0;
 	u32 mode;
 
-	if (index > AEON_MAX_LEDS)
+	if (index >= AEON_MAX_LEDS)
 		return -EINVAL;
 
 	for_each_set_bit(mode, &modes, __PHY_LED_MODES_NUM) {
@@ -1211,6 +1340,17 @@ static int as21xxx_led_polarity_set(struct phy_device *phydev, int index,
 	mask = VEND1_GLB_CPU_CTRL_LED_POLARITY(index);
 	if (led_active_low)
 		val = VEND1_GLB_CPU_CTRL_LED_POLARITY(index);
+
+	if (phydev->phy_id == PHY_ID_AS22XXX) {
+		u16 old = priv->led_polarity;
+		int ret;
+
+		priv->led_polarity = (priv->led_polarity & ~mask) | val;
+		ret = as22xxx_leds_restore(phydev);
+		if (ret)
+			priv->led_polarity = old;
+		return ret;
+	}
 
 	return phy_modify_mmd(phydev, MDIO_MMD_VEND1,
 			      VEND1_GLB_REG_CPU_CTRL,
@@ -1286,30 +1426,91 @@ out:
 
 static int as22xxx_set_phy_enable(struct phy_device *phydev, bool enable)
 {
+	struct as21xxx_priv *priv = phydev->priv;
 	u16 data[] = { IPC_SYS_CPU_PHY_ENABLE, enable };
 	int ret;
 
 	ret = aeon_ipc_send_msg(phydev, IPC_CMD_SYS_CPU, data, sizeof(data), NULL);
-	return ret < 0 ? ret : 0;
+	if (ret < 0)
+		return ret;
+
+	priv->copper_enabled = enable;
+	return 0;
 }
 
 static int as22xxx_suspend(struct phy_device *phydev)
 {
-	return as22xxx_set_phy_enable(phydev, false);
+	int ret;
+
+	ret = as22xxx_set_phy_enable(phydev, false);
+	if (ret)
+		return ret;
+
+	return as22xxx_leds_restore(phydev);
 }
 
 static int as22xxx_resume(struct phy_device *phydev)
 {
+	int ret;
+
 	if (!phydev->suspended)
 		return 0;
 
-	return as22xxx_set_phy_enable(phydev, true);
+	ret = as22xxx_set_phy_enable(phydev, true);
+	if (ret)
+		return ret;
+
+	/* Enabling the copper PHY resets the LED event selectors to OFF. */
+	return as22xxx_leds_restore(phydev);
+}
+
+static int as22xxx_leds_init(struct phy_device *phydev)
+{
+	struct as21xxx_priv *priv = phydev->priv;
+	struct device_node *leds;
+	int ret;
+
+	leds = of_get_child_by_name(phydev->mdio.dev.of_node, "leds");
+	if (!leds)
+		return 0;
+	priv->leds_configured = true;
+
+	for_each_available_child_of_node_scoped(leds, led) {
+		u32 index;
+		u16 event;
+
+		ret = of_property_read_u32(led, "reg", &index);
+		if (ret)
+			goto out;
+		if (index >= AEON_MAX_LEDS) {
+			ret = -EINVAL;
+			goto out;
+		}
+
+		/* Firmware leaves the LEDs off. Use LED0 for activity and the
+		 * other outputs for link indication, independent of link speed.
+		 */
+		event = index ? VEND1_LED_REG_A_EVENT_ON_LINK :
+				VEND1_LED_REG_A_EVENT_BLINK_ACT;
+		ret = as21xxx_led_set_event(phydev, index, event);
+		if (ret)
+			goto out;
+	}
+
+	/* Sustain short activity events for 100 ms and blink at about 4 Hz. */
+	ret = phy_modify_mmd(phydev, MDIO_MMD_VEND1, VEND1_LED_CONF,
+			     VEND1_LED_CONF_SUSTAIN | VEND1_LED_CONFG_BLINK,
+			     FIELD_PREP(VEND1_LED_CONF_SUSTAIN, 3) |
+			     FIELD_PREP(VEND1_LED_CONFG_BLINK, 7));
+out:
+	of_node_put(leds);
+	return ret;
 }
 
 static int as22xxx_probe(struct phy_device *phydev)
 {
 	struct as21xxx_priv *priv;
-	int ret;
+	int index, ret;
 
 	/* Gen2 keeps its generic PHY ID before and after firmware load and may
 	 * expose only PMA/PMD initially. Force the MMD bitmap used by generic C45
@@ -1348,6 +1549,24 @@ static int as22xxx_probe(struct phy_device *phydev)
 
 	ret = phy_set_bits_mmd(phydev, MDIO_MMD_VEND1, VEND1_PTP_CLK,
 			       VEND1_PTP_CLK_EN);
+	if (ret)
+		return ret;
+
+	ret = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_GLB_REG_CPU_CTRL);
+	if (ret < 0)
+		return ret;
+	priv->led_polarity = ret & VEND1_GLB_CPU_CTRL_LED_POLARITY_MASK;
+
+	/* Preserve firmware defaults for outputs not described in DT as well. */
+	for (index = 0; index < AEON_MAX_LEDS; index++) {
+		ret = phy_read_mmd(phydev, MDIO_MMD_VEND1, VEND1_LED_REG(index));
+		if (ret < 0)
+			return ret;
+		priv->led_events[index] = ret & VEND1_LED_REG_A_EVENT;
+		set_bit(index, &priv->led_mask);
+	}
+
+	ret = as22xxx_leds_init(phydev);
 	if (ret)
 		return ret;
 
