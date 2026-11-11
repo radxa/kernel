@@ -661,6 +661,12 @@ static int xpcs_validate(struct phylink_pcs *pcs, unsigned long *supported,
 	if (!compat)
 		return -EINVAL;
 
+	/* With PHY rate matching, media link modes do not describe the PCS
+	 * speed. The MAC validation applies the interface's speed limit.
+	 */
+	if (state->rate_matching != RATE_MATCH_NONE)
+		return 0;
+
 	/* Populate the supported link modes for this PHY interface type.
 	 * FIXME: what about the port modes and autoneg bit? This masks
 	 * all those away.
