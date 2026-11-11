@@ -171,7 +171,9 @@ static void drm_bridge_connector_handle_hpd(struct drm_bridge_connector *drm_bri
 
 	mutex_lock(&dev->mode_config.mutex);
 	old_status = connector->status;
-	new_status = detect ? detect->funcs->detect(detect, connector) : status;
+	new_status = status;
+	if (detect && status != connector_status_disconnected)
+		new_status = detect->funcs->detect(detect, connector);
 	connector->status = new_status;
 	changed = new_status != old_status;
 	mutex_unlock(&dev->mode_config.mutex);
@@ -237,8 +239,14 @@ drm_bridge_connector_detect(struct drm_connector *connector, bool force)
 		if (hdmi)
 			drm_atomic_helper_connector_hdmi_hotplug(connector, status);
 
-		if (connector->connector_type != DRM_MODE_CONNECTOR_DisplayPort ||
-		    !bridge_connector->bridge_hpd)
+		/*
+		 * An SST connector reports disconnected while MST is active.
+		 * Do not turn that into a physical unplug, but keep connected
+		 * notifications so sinks present at boot can be initialized.
+		 */
+		if (detect->type != DRM_MODE_CONNECTOR_DisplayPort ||
+		    !bridge_connector->bridge_hpd ||
+		    status == connector_status_connected)
 			drm_bridge_connector_hpd_notify(connector, status,
 							DRM_CONNECTOR_NO_EXTRA_STATUS);
 	} else {
