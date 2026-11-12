@@ -617,6 +617,12 @@ static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 
 	dp->panel->video_test = false;
 
+	/* Disable MST while AUX transfers and the PHY are still available. */
+	if (dp->msm_dp_display.mst_active) {
+		msm_dp_mst_display_set_mgr_state(&dp->msm_dp_display, false);
+		dp->msm_dp_display.mst_active = false;
+	}
+
 	drm_dp_cec_unset_edid(dp->aux);
 	msm_dp_aux_enable_xfers(dp->aux, false);
 
@@ -644,11 +650,6 @@ static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 						 connector_status_disconnected,
 						 dp->panel->dpcd,
 						 dp->panel->downstream_ports);
-
-	if (dp->msm_dp_display.mst_active) {
-		msm_dp_mst_display_set_mgr_state(&dp->msm_dp_display, false);
-		dp->msm_dp_display.mst_active = false;
-	}
 
 	/* signal the disconnect event early to ensure proper teardown */
 	msm_dp_display_handle_plugged_change(&dp->msm_dp_display, false);
