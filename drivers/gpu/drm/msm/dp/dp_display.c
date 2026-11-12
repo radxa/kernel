@@ -1890,17 +1890,17 @@ static int msm_dp_pm_resume(struct device *dev)
 
 	scoped_guard(mutex, &dp->plugged_lock) {
 		ret = msm_dp_display_host_phy_init(dp);
-		if (ret >= 0)
+		if (ret >= 0) {
 			msm_dp_aux_enable_xfers(dp->aux, true);
+			ret = msm_dp_panel_read_link_caps(dp->panel, display->connector);
+		}
 	}
 
 	if (ret >= 0)
 		ret = msm_dp_mst_resume(display);
 	if (ret < 0) {
 		/* The hub may have disappeared while the system was asleep. */
-		msm_dp_mst_display_set_mgr_state(display, false);
-		scoped_guard(mutex, &dp->plugged_lock)
-			display->mst_active = false;
+		msm_dp_hpd_unplug_handle(dp);
 		drm_kms_helper_hotplug_event(display->drm_dev);
 	}
 
