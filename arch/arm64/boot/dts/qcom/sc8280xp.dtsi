@@ -677,7 +677,12 @@
 		};
 
 		reserved-region@83b00000 {
-			reg = <0 0x83b00000 0 0x1700000>;
+			reg = <0 0x83b00000 0 0xf00000>;
+			no-map;
+		};
+
+		adsp_rpc_remote_heap_mem: adsp-rpc-remote-heap@84a00000 {
+			reg = <0 0x84a00000 0 0x800000>;
 			no-map;
 		};
 
@@ -3421,6 +3426,7 @@
 					compatible = "qcom,fastrpc";
 					qcom,glink-channels = "fastrpcglink-apps-dsp";
 					label = "adsp";
+					memory-region = <&adsp_rpc_remote_heap_mem>;
 					qcom,non-secure-domain;
 					#address-cells = <1>;
 					#size-cells = <0>;
