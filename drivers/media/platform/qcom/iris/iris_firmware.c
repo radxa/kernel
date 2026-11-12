@@ -107,7 +107,64 @@ static const struct firmware *iris_detect_firmware(struct iris_core *core,
 #define WRAPPER_NONPIX_START_ADDR	(WRAPPER_TZ_BASE_OFFS + 0x1030)
 #define WRAPPER_NONPIX_END_ADDR		(WRAPPER_TZ_BASE_OFFS + 0x1034)
 
+#define WRAPPER_SEC_CSR1			(0x000B0000 + 0x1084)
+#define VCODEC_SEC_THRESHOLD_HEVC		(WRAPPER_TZ_BASE_OFFS + 0x2004)
+#define VCODEC_SEC_THRESHOLD_H264		(WRAPPER_TZ_BASE_OFFS + 0x2008)
+#define VCODEC_SEC_THRESHOLD_MP2		(WRAPPER_TZ_BASE_OFFS + 0x200C)
+#define VCODEC_SEC_THRESHOLD_NON_VCL_HEVC	(WRAPPER_TZ_BASE_OFFS + 0x2018)
+#define VCODEC_SEC_THRESHOLD_NON_VCL_H264	(WRAPPER_TZ_BASE_OFFS + 0x201C)
+#define VCODEC_SEC_THRESHOLD_NON_VCL_MP2	(WRAPPER_TZ_BASE_OFFS + 0x2020)
+#define VCODEC_SEC_DS_THRESHOLD		(WRAPPER_TZ_BASE_OFFS + 0x2024)
+#define VCODEC_SEC_SID_OVERRIDE(n)		(WRAPPER_TZ_BASE_OFFS + 0x2040 + (n) * 4)
+#define VCODEC_CP_OVERRIDE		(WRAPPER_TZ_BASE_OFFS + 0x2090)
+#define VCODEC_CP_VP8_SECURE_OVERRIDE	(WRAPPER_TZ_BASE_OFFS + 0x2098)
+#define VCODEC_CP_VP9_SECURE_OVERRIDE	(WRAPPER_TZ_BASE_OFFS + 0x209C)
+
 #define IRIS_FW_START_ADDR		0x0
+
+static void iris_sc7280_configure_non_tz_sid(struct iris_core *core)
+{
+	static const struct {
+		u32 offset;
+		u32 value;
+	} thresholds[] = {
+		{ VCODEC_SEC_DS_THRESHOLD, 3 },
+		{ VCODEC_SEC_THRESHOLD_HEVC, 0x540 },
+		{ VCODEC_SEC_THRESHOLD_H264, 0x10e },
+		{ VCODEC_SEC_THRESHOLD_MP2, 0x2e },
+		{ VCODEC_SEC_THRESHOLD_NON_VCL_HEVC, 0xed8 },
+		{ VCODEC_SEC_THRESHOLD_NON_VCL_H264, 0x3138 },
+		{ VCODEC_SEC_THRESHOLD_NON_VCL_MP2, 0x640 },
+	};
+	u32 value;
+	unsigned int i;
+
+	if (!of_device_is_compatible(core->dev->of_node, "qcom,sc7280-venus") ||
+	    core->iris_firmware_data != &iris_hfi_gen2_data)
+		return;
+
+	/*
+	 * Gen2 firmware checks the video stream security configuration when
+	 * processing the first input buffer. Normally the Qualcomm hypervisor
+	 * programs this configuration before releasing the firmware from reset.
+	 * Repeat that setup when Linux owns firmware startup without TZ/PAS.
+	 */
+	writel(1, core->reg_base + WRAPPER_SEC_CSR1);
+	writel(0, core->reg_base + VCODEC_CP_OVERRIDE);
+	for (i = 0; i <= 16; i++)
+		writel(0, core->reg_base + VCODEC_SEC_SID_OVERRIDE(i));
+
+	for (i = 0; i < ARRAY_SIZE(thresholds); i++)
+		writel(thresholds[i].value, core->reg_base + thresholds[i].offset);
+
+	value = readl(core->reg_base + VCODEC_CP_VP8_SECURE_OVERRIDE);
+	writel(value & ~BIT(0), core->reg_base + VCODEC_CP_VP8_SECURE_OVERRIDE);
+	value = readl(core->reg_base + VCODEC_CP_VP9_SECURE_OVERRIDE);
+	writel(value & ~BIT(0), core->reg_base + VCODEC_CP_VP9_SECURE_OVERRIDE);
+	writel(BIT(0), core->reg_base + VCODEC_SEC_SID_OVERRIDE(0xf));
+	writel(BIT(0), core->reg_base + VCODEC_SEC_SID_OVERRIDE(1));
+	writel(BIT(0), core->reg_base + VCODEC_SEC_SID_OVERRIDE(7));
+}
 
 static void iris_reset_cpu_no_tz(struct iris_core *core)
 {
@@ -119,6 +176,8 @@ static void iris_reset_cpu_no_tz(struct iris_core *core)
 	writel(fw_size, core->reg_base + WRAPPER_CPA_END_ADDR);
 	writel(fw_size, core->reg_base + WRAPPER_NONPIX_START_ADDR);
 	writel(fw_size, core->reg_base + WRAPPER_NONPIX_END_ADDR);
+
+	iris_sc7280_configure_non_tz_sid(core);
 
 	/* Bring XTSS out of reset */
 	writel(0, core->reg_base + WRAPPER_TZ_XTSS_SW_RESET);
