@@ -908,7 +908,9 @@ properties:
           - const: qcom,sc8280xp
 
       - items:
-          - const: radxa,dragonstation-6
+          - enum:
+              - radxa,dragonbay-4-pro
+              - radxa,dragonstation-6
           - const: radxa,rcore-q8280
           - const: qcom,sc8280xp
 
