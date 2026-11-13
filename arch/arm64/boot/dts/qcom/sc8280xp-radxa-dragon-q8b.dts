@@ -297,14 +297,12 @@
 
 		gpio = <&tlmm 159 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
-		startup-delay-us = <250000>;
+		startup-delay-us = <500000>;
 		off-on-delay-us = <150000>;
 
 		pinctrl-0 = <&vcc_5v_s_reg_en>;
 		pinctrl-names = "default";
 
-		/* CH7218A needs to be powered on for HPD logic to work */
-		regulator-always-on;
 		regulator-boot-on;
 	};
 
