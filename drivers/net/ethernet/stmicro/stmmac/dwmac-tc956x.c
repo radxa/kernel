@@ -815,7 +815,7 @@ static int tc956x_plat_dat_init(struct tc956x_data *td)
 	speed = ret;
 
 	plat->core_type = DWMAC_CORE_XGMAC;
-	plat->bus_id = td->auxbus_data->mac_id;
+	plat->bus_id = to_auxiliary_dev(dev)->id;
 	plat->phy_interface = phy_interface;
 	plat->mdio_bus_data = &td->mdio_bus_data;
 	/* Parent PCI device is used for DMA */

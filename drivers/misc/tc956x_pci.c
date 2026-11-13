@@ -46,6 +46,7 @@
 #include <linux/compiler_types.h>
 #include <linux/device.h>
 #include <linux/dev_printk.h>
+#include <linux/idr.h>
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/module.h>
@@ -159,6 +160,8 @@ struct tc956x_chip {
 	u8 rev_id;
 };
 
+static DEFINE_IDA(tc956x_adev_ida);
+
 static const struct regmap_config gpio_regmap_config = {
 	.name		= "tc956x-gpio",
 	.reg_bits	= 32,
@@ -223,6 +226,7 @@ static void adev_release(struct device *dev)
 {
 	struct auxiliary_device *adev = to_auxiliary_dev(dev);
 
+	ida_free(&tc956x_adev_ida, adev->id);
 	of_node_put(adev->dev.of_node);
 	kfree(adev);
 }
@@ -235,15 +239,22 @@ static void adev_remove(void *data)
 	auxiliary_device_uninit(adev);
 }
 
-static int adev_device_add(struct device *dev, const char *name, u32 id,
+static int adev_device_add(struct device *dev, const char *name,
 			   void *platform_data)
 {
 	struct auxiliary_device *adev;
+	int id;
 	int ret;
 
 	adev = kzalloc_obj(*adev);
 	if (!adev)
 		return -ENOMEM;
+
+	id = ida_alloc(&tc956x_adev_ida, GFP_KERNEL);
+	if (id < 0) {
+		kfree(adev);
+		return id;
+	}
 
 	adev->id = id;
 	adev->name = name;
@@ -254,6 +265,7 @@ static int adev_device_add(struct device *dev, const char *name, u32 id,
 
 	ret = auxiliary_device_init(adev);
 	if (ret) {
+		ida_free(&tc956x_adev_ida, adev->id);
 		of_node_put(adev->dev.of_node);
 		kfree(adev);
 		return ret;
@@ -282,7 +294,7 @@ static int chip_gpio_adev_add(struct tc956x_chip *chip)
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
 
-	return adev_device_add(dev, GPIO_DEVICE_NAME, 0, regmap);
+	return adev_device_add(dev, GPIO_DEVICE_NAME, regmap);
 }
 
 /* The two embedded XGMAC controllers have an auxiliary device driver */
@@ -320,7 +332,7 @@ static int function_xgmac_adev_add(struct pci_dev *pdev,
 	data->rev_id = chip->rev_id;
 	data->mac_id = mac_id;
 
-	ret = adev_device_add(dev, TC956X_XGMAC_DEV_NAME, mac_id, data);
+	ret = adev_device_add(dev, TC956X_XGMAC_DEV_NAME, data);
 	if (ret)
 		return ret;
 
