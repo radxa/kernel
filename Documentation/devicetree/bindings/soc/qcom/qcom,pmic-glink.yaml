@@ -22,6 +22,10 @@ properties:
   compatible:
     oneOf:
       - items:
+          - const: radxa,batteryless-pmic-glink
+          - const: qcom,sc8280xp-pmic-glink
+          - const: qcom,pmic-glink
+      - items:
           - enum:
               - qcom,glymur-pmic-glink
               - qcom,kaanapali-pmic-glink
