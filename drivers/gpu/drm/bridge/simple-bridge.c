@@ -11,6 +11,7 @@
 #include <linux/of.h>
 #include <linux/of_graph.h>
 #include <linux/platform_device.h>
+#include <linux/pm.h>
 #include <linux/regulator/consumer.h>
 
 #include <drm/drm_atomic_helper.h>
@@ -23,6 +24,7 @@
 struct simple_bridge_info {
 	const struct drm_bridge_timings *timings;
 	unsigned int connector_type;
+	bool needs_power_for_hpd;
 };
 
 struct simple_bridge {
@@ -33,6 +35,7 @@ struct simple_bridge {
 
 	struct regulator	*vdd;
 	struct gpio_desc	*enable;
+	bool powered;
 };
 
 static inline struct simple_bridge *
@@ -132,30 +135,75 @@ static int simple_bridge_attach(struct drm_bridge *bridge,
 	return 0;
 }
 
+static int simple_bridge_power_on(struct simple_bridge *sbridge)
+{
+	int ret;
+
+	if (sbridge->powered)
+		return 0;
+
+	if (sbridge->vdd) {
+		ret = regulator_enable(sbridge->vdd);
+		if (ret)
+			return ret;
+	}
+
+	gpiod_set_value_cansleep(sbridge->enable, 1);
+	sbridge->powered = true;
+
+	return 0;
+}
+
+static int simple_bridge_power_off(struct simple_bridge *sbridge)
+{
+	int ret;
+
+	if (!sbridge->powered)
+		return 0;
+
+	gpiod_set_value_cansleep(sbridge->enable, 0);
+
+	if (sbridge->vdd) {
+		ret = regulator_disable(sbridge->vdd);
+		if (ret) {
+			gpiod_set_value_cansleep(sbridge->enable, 1);
+			return ret;
+		}
+	}
+
+	sbridge->powered = false;
+
+	return 0;
+}
+
+static void simple_bridge_power_off_action(void *data)
+{
+	simple_bridge_power_off(data);
+}
+
 static void simple_bridge_enable(struct drm_bridge *bridge,
 				 struct drm_atomic_commit *commit)
 {
 	struct simple_bridge *sbridge = drm_bridge_to_simple_bridge(bridge);
 	int ret;
 
-	if (sbridge->vdd) {
-		ret = regulator_enable(sbridge->vdd);
-		if (ret)
-			DRM_ERROR("Failed to enable vdd regulator: %d\n", ret);
-	}
-
-	gpiod_set_value_cansleep(sbridge->enable, 1);
+	ret = simple_bridge_power_on(sbridge);
+	if (ret)
+		DRM_ERROR("Failed to power on bridge: %d\n", ret);
 }
 
 static void simple_bridge_disable(struct drm_bridge *bridge,
 				  struct drm_atomic_commit *commit)
 {
 	struct simple_bridge *sbridge = drm_bridge_to_simple_bridge(bridge);
+	int ret;
 
-	gpiod_set_value_cansleep(sbridge->enable, 0);
+	if (sbridge->info->needs_power_for_hpd)
+		return;
 
-	if (sbridge->vdd)
-		regulator_disable(sbridge->vdd);
+	ret = simple_bridge_power_off(sbridge);
+	if (ret)
+		DRM_ERROR("Failed to power off bridge: %d\n", ret);
 }
 
 static const struct drm_bridge_funcs simple_bridge_bridge_funcs = {
@@ -171,6 +219,7 @@ static int simple_bridge_probe(struct platform_device *pdev)
 {
 	struct simple_bridge *sbridge;
 	struct device_node *remote;
+	int ret;
 
 	sbridge = devm_drm_bridge_alloc(&pdev->dev, struct simple_bridge,
 					bridge, &simple_bridge_bridge_funcs);
@@ -195,9 +244,10 @@ static int simple_bridge_probe(struct platform_device *pdev)
 	/* Get the regulator and GPIO resources. */
 	sbridge->vdd = devm_regulator_get_optional(&pdev->dev, "vdd");
 	if (IS_ERR(sbridge->vdd)) {
-		int ret = PTR_ERR(sbridge->vdd);
-		if (ret == -EPROBE_DEFER)
-			return -EPROBE_DEFER;
+		ret = PTR_ERR(sbridge->vdd);
+		if (ret != -ENODEV)
+			return dev_err_probe(&pdev->dev, ret,
+					     "Unable to retrieve vdd regulator\n");
 		sbridge->vdd = NULL;
 		dev_dbg(&pdev->dev, "No vdd regulator found: %d\n", ret);
 	}
@@ -207,6 +257,21 @@ static int simple_bridge_probe(struct platform_device *pdev)
 	if (IS_ERR(sbridge->enable))
 		return dev_err_probe(&pdev->dev, PTR_ERR(sbridge->enable),
 				     "Unable to retrieve enable GPIO\n");
+
+	platform_set_drvdata(pdev, sbridge);
+
+	/* Keep HPD and AUX available even while the display is disabled. */
+	if (sbridge->info->needs_power_for_hpd) {
+		ret = simple_bridge_power_on(sbridge);
+		if (ret)
+			return dev_err_probe(&pdev->dev, ret,
+					     "Failed to power on bridge\n");
+
+		ret = devm_add_action_or_reset(&pdev->dev, simple_bridge_power_off_action,
+					       sbridge);
+		if (ret)
+			return ret;
+	}
 
 	/* Register the bridge. */
 	sbridge->bridge.of_node = pdev->dev.of_node;
@@ -279,6 +344,7 @@ static const struct of_device_id simple_bridge_match[] = {
 		.compatible = "chrontel,ch7218a",
 		.data = &(const struct simple_bridge_info) {
 			.connector_type = DRM_MODE_CONNECTOR_HDMIA,
+			.needs_power_for_hpd = true,
 		},
 	}, {
 		.compatible = "mstar,tsumu88adt3-lf-1",
@@ -322,11 +388,42 @@ static const struct of_device_id simple_bridge_match[] = {
 };
 MODULE_DEVICE_TABLE(of, simple_bridge_match);
 
+static int simple_bridge_suspend_late(struct device *dev)
+{
+	struct simple_bridge *sbridge = dev_get_drvdata(dev);
+
+	if (!sbridge->info->needs_power_for_hpd)
+		return 0;
+
+	return simple_bridge_power_off(sbridge);
+}
+
+static int simple_bridge_resume_early(struct device *dev)
+{
+	struct simple_bridge *sbridge = dev_get_drvdata(dev);
+
+	if (!sbridge->info->needs_power_for_hpd)
+		return 0;
+
+	/* regulator_enable() waits for the supply's startup delay. */
+	return simple_bridge_power_on(sbridge);
+}
+
+/*
+ * Keep the bridge powered until the display controller is quiesced, and
+ * restore power before it resumes HPD handling and AUX transfers.
+ */
+static const struct dev_pm_ops simple_bridge_pm_ops = {
+	LATE_SYSTEM_SLEEP_PM_OPS(simple_bridge_suspend_late,
+				 simple_bridge_resume_early)
+};
+
 static struct platform_driver simple_bridge_driver = {
 	.probe	= simple_bridge_probe,
 	.driver		= {
 		.name		= "simple-bridge",
 		.of_match_table	= simple_bridge_match,
+		.pm = pm_sleep_ptr(&simple_bridge_pm_ops),
 	},
 };
 module_platform_driver(simple_bridge_driver);
