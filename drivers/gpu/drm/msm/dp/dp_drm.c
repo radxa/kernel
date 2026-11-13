@@ -4,6 +4,7 @@
  */
 
 #include <linux/string_choices.h>
+#include <linux/media-bus-format.h>
 #include <linux/bits.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_atomic.h>
@@ -60,10 +61,22 @@ static int msm_dp_bridge_atomic_check(struct drm_bridge *drm_bridge,
 				      struct drm_crtc_state *crtc_state,
 				      struct drm_connector_state *conn_state)
 {
+	struct msm_dp *dp = to_dp_bridge(drm_bridge)->msm_dp_display;
 	struct drm_connector_state *old_conn_state;
+	struct drm_bridge_state *old_bridge_state;
+	u32 format;
 
 	if (!conn_state || !conn_state->crtc || !crtc_state)
 		return 0;
+
+	format = msm_dp_get_output_format(dp, conn_state->state, &crtc_state->adjusted_mode);
+	if (msm_dp_mode_valid(dp, conn_state, &crtc_state->adjusted_mode, format) != MODE_OK)
+		return -EINVAL;
+
+	old_bridge_state = drm_atomic_get_old_bridge_state(conn_state->state, drm_bridge);
+	if (old_bridge_state &&
+	    old_bridge_state->output_bus_cfg.format != bridge_state->output_bus_cfg.format)
+		crtc_state->mode_changed = true;
 
 	old_conn_state =
 		drm_atomic_get_old_connector_state(conn_state->state,
@@ -78,11 +91,39 @@ static int msm_dp_bridge_atomic_check(struct drm_bridge *drm_bridge,
 	return 0;
 }
 
+static u32 *
+msm_dp_bridge_atomic_get_input_bus_fmts(struct drm_bridge *bridge,
+					struct drm_bridge_state *bridge_state,
+					struct drm_crtc_state *crtc_state,
+					struct drm_connector_state *conn_state,
+					u32 output_fmt,
+					unsigned int *num_input_fmts)
+{
+	struct msm_dp *dp = to_dp_bridge(bridge)->msm_dp_display;
+	const struct drm_display_mode *mode = &crtc_state->adjusted_mode;
+	u32 format;
+
+	*num_input_fmts = 0;
+	if (output_fmt == MEDIA_BUS_FMT_YUYV8_1X16)
+		format = DRM_FORMAT_YUYV;
+	else
+		format = msm_dp_is_yuv_420_enabled(dp, mode) ?
+			DRM_FORMAT_YUV420 : DRM_FORMAT_RGB888;
+
+	/* Negotiate transport first; atomic_check validates requested color state. */
+	if (msm_dp_mode_valid(dp, NULL, mode, format) != MODE_OK)
+		return NULL;
+
+	return drm_atomic_helper_bridge_propagate_bus_fmt(bridge, bridge_state,
+				crtc_state, conn_state, output_fmt, num_input_fmts);
+}
+
 static const struct drm_bridge_funcs msm_dp_bridge_ops = {
 	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
 	.atomic_destroy_state   = drm_atomic_helper_bridge_destroy_state,
 	.atomic_reset           = drm_atomic_helper_bridge_reset,
 	.atomic_check           = msm_dp_bridge_atomic_check,
+	.atomic_get_input_bus_fmts = msm_dp_bridge_atomic_get_input_bus_fmts,
 	.atomic_enable          = msm_dp_bridge_atomic_enable,
 	.atomic_disable         = msm_dp_bridge_atomic_disable,
 	.atomic_post_disable    = msm_dp_bridge_atomic_post_disable,
@@ -273,7 +314,7 @@ static const struct drm_bridge_funcs msm_edp_bridge_ops = {
 };
 
 int msm_dp_bridge_init(struct msm_dp *msm_dp_display, struct drm_device *dev,
-		   struct drm_encoder *encoder, bool yuv_supported)
+		   struct drm_encoder *encoder)
 {
 	int rc;
 	struct msm_dp_bridge *msm_dp_bridge;
@@ -289,7 +330,8 @@ int msm_dp_bridge_init(struct msm_dp *msm_dp_display, struct drm_device *dev,
 
 	bridge = &msm_dp_bridge->bridge;
 	bridge->type = msm_dp_display->connector_type;
-	bridge->ycbcr_420_allowed = yuv_supported;
+	/* all platforms which support DP have a CDM block for YUV output */
+	bridge->ycbcr_420_allowed = true;
 
 	/*
 	 * Many ops only make sense for DP. Why?

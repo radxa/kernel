@@ -7,6 +7,7 @@
  */
 
 #include <linux/gpio/consumer.h>
+#include <linux/media-bus-format.h>
 #include <linux/mutex.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -30,6 +31,7 @@ struct simple_bridge_info {
 	unsigned int connector_type;
 	/* the device samples the downstream EDID while it boots */
 	bool edid_at_power_up;
+	bool ycbcr_422;
 };
 
 struct simple_bridge {
@@ -485,7 +487,41 @@ static void simple_bridge_detach(struct drm_bridge *bridge)
 	mutex_unlock(&sbridge->lock);
 }
 
+static u32 *
+simple_bridge_atomic_get_input_bus_fmts(struct drm_bridge *bridge,
+					struct drm_bridge_state *bridge_state,
+					struct drm_crtc_state *crtc_state,
+					struct drm_connector_state *conn_state,
+					u32 output_fmt,
+					unsigned int *num_input_fmts)
+{
+	struct simple_bridge *sbridge = drm_bridge_to_simple_bridge(bridge);
+	/* Keep the legacy source-selected format ahead of explicit 422. */
+	const u32 input_fmts[] = { MEDIA_BUS_FMT_FIXED, MEDIA_BUS_FMT_YUYV8_1X16 };
+
+	if (!sbridge->info->ycbcr_422)
+		return drm_atomic_helper_bridge_propagate_bus_fmt(bridge, bridge_state,
+				crtc_state, conn_state, MEDIA_BUS_FMT_FIXED, num_input_fmts);
+
+	/* A downstream connector can pass an already selected format back. */
+	if (output_fmt != MEDIA_BUS_FMT_FIXED) {
+		*num_input_fmts = 0;
+		if (output_fmt != MEDIA_BUS_FMT_YUYV8_1X16)
+			return NULL;
+
+		return drm_atomic_helper_bridge_propagate_bus_fmt(bridge, bridge_state,
+				crtc_state, conn_state, output_fmt, num_input_fmts);
+	}
+
+	*num_input_fmts = ARRAY_SIZE(input_fmts);
+	return kmemdup(input_fmts, sizeof(input_fmts), GFP_KERNEL);
+}
+
 static const struct drm_bridge_funcs simple_bridge_bridge_funcs = {
+	.atomic_reset = drm_atomic_helper_bridge_reset,
+	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
+	.atomic_destroy_state = drm_atomic_helper_bridge_destroy_state,
+	.atomic_get_input_bus_fmts = simple_bridge_atomic_get_input_bus_fmts,
 	.attach		= simple_bridge_attach,
 	.detach		= simple_bridge_detach,
 	.detect		= simple_bridge_detect,
@@ -621,6 +657,7 @@ static const struct of_device_id simple_bridge_match[] = {
 		.compatible = "radxa,ra620",
 		.data = &(const struct simple_bridge_info) {
 			.connector_type = DRM_MODE_CONNECTOR_HDMIA,
+			.ycbcr_422 = true,
 		},
 	}, {
 		.compatible = "realtek,rtd2171",
