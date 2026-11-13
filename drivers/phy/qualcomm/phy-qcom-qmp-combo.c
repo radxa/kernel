@@ -16,6 +16,7 @@
 #include <linux/of_graph.h>
 #include <linux/phy/phy.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 #include <linux/reset.h>
 #include <linux/slab.h>
@@ -2597,6 +2598,7 @@ struct qmp_combo {
 	struct phy *usb_phy;
 	enum phy_mode phy_mode;
 	unsigned int usb_init_count;
+	bool usb_powered_on;
 
 	struct phy *dp_phy;
 	unsigned int dp_aux_cfg;
@@ -2612,6 +2614,9 @@ struct qmp_combo {
 	enum typec_orientation orientation;
 
 	struct typec_mux_dev *mux;
+	enum typec_orientation requested_orientation;
+	enum qmpphy_mode requested_mode;
+	bool reconfigure_pending;
 };
 
 static void qmp_v3_dp_aux_init(struct qmp_combo *qmp);
@@ -4011,50 +4016,14 @@ static int qmp_combo_dp_calibrate(struct phy *phy)
 	return ret;
 }
 
-static int qmp_combo_com_init(struct qmp_combo *qmp, bool force)
+static void qmp_combo_com_configure(struct qmp_combo *qmp,
+				    enum qmpphy_mode mode,
+				    enum typec_orientation orientation)
 {
 	const struct qmp_phy_cfg *cfg = qmp->cfg;
 	void __iomem *com = qmp->com;
-	void __iomem *aon_toggle;
-	int ret;
+	void __iomem *aon_toggle = qmp->aon_toggle ?: qmp->pcs_aon;
 	u32 val;
-
-	if (!force && qmp->init_count++)
-		return 0;
-
-	if (qmp->aon_toggle)
-		aon_toggle = qmp->aon_toggle;
-	else
-		aon_toggle = qmp->pcs_aon;
-
-	ret = regulator_bulk_enable(cfg->num_vregs, qmp->vregs);
-	if (ret) {
-		dev_err(qmp->dev, "failed to enable regulators, err=%d\n", ret);
-		goto err_decrement_count;
-	}
-
-	ret = reset_control_bulk_assert(cfg->num_resets, qmp->resets);
-	if (ret) {
-		dev_err(qmp->dev, "reset assert failed\n");
-		goto err_disable_regulators;
-	}
-
-	ret = reset_control_bulk_deassert(cfg->num_resets, qmp->resets);
-	if (ret) {
-		dev_err(qmp->dev, "reset deassert failed\n");
-		goto err_disable_regulators;
-	}
-
-	ret = clk_bulk_prepare_enable(qmp->num_clks, qmp->clks);
-	if (ret)
-		goto err_assert_reset;
-
-	/* In DP-only mode, the pipe clk is still required for USB2 */
-	ret = clk_prepare_enable(qmp->pipe_clk);
-	if (ret) {
-		dev_err(qmp->dev, "pipe_clk enable failed err=%d\n", ret);
-		goto err_disable_clocks;
-	}
 
 	qphy_setbits(com, QPHY_V3_DP_COM_POWER_DOWN_CTRL, SW_PWRDN);
 
@@ -4071,7 +4040,7 @@ static int qmp_combo_com_init(struct qmp_combo *qmp, bool force)
 
 	/* Use software based port select and switch on typec orientation */
 	val = SW_PORTSELECT_MUX;
-	if (qmp->orientation == TYPEC_ORIENTATION_REVERSE)
+	if (orientation == TYPEC_ORIENTATION_REVERSE)
 		val |= SW_PORTSELECT_VAL;
 
 	if (cfg->invert_cc_polarity)
@@ -4079,7 +4048,7 @@ static int qmp_combo_com_init(struct qmp_combo *qmp, bool force)
 
 	writel(val, com + QPHY_V3_DP_COM_TYPEC_CTRL);
 
-	switch (qmp->qmpphy_mode) {
+	switch (mode) {
 	case QMPPHY_MODE_USB3DP:
 		writel(USB3_MODE | DP_MODE, com + QPHY_V3_DP_COM_PHY_MODE_CTRL);
 
@@ -4111,6 +4080,49 @@ static int qmp_combo_com_init(struct qmp_combo *qmp, bool force)
 
 	qphy_setbits(qmp->pcs, cfg->regs[QPHY_PCS_POWER_DOWN_CONTROL],
 			SW_PWRDN);
+}
+
+static int qmp_combo_com_init(struct qmp_combo *qmp)
+{
+	const struct qmp_phy_cfg *cfg = qmp->cfg;
+	int ret;
+
+	if (qmp->init_count) {
+		qmp->init_count++;
+		return 0;
+	}
+
+	ret = regulator_bulk_enable(cfg->num_vregs, qmp->vregs);
+	if (ret) {
+		dev_err(qmp->dev, "failed to enable regulators, err=%d\n", ret);
+		return ret;
+	}
+
+	ret = reset_control_bulk_assert(cfg->num_resets, qmp->resets);
+	if (ret) {
+		dev_err(qmp->dev, "reset assert failed\n");
+		goto err_disable_regulators;
+	}
+
+	ret = reset_control_bulk_deassert(cfg->num_resets, qmp->resets);
+	if (ret) {
+		dev_err(qmp->dev, "reset deassert failed\n");
+		goto err_disable_regulators;
+	}
+
+	ret = clk_bulk_prepare_enable(qmp->num_clks, qmp->clks);
+	if (ret)
+		goto err_assert_reset;
+
+	/* In DP-only mode, the pipe clk is still required for USB2 */
+	ret = clk_prepare_enable(qmp->pipe_clk);
+	if (ret) {
+		dev_err(qmp->dev, "pipe_clk enable failed err=%d\n", ret);
+		goto err_disable_clocks;
+	}
+
+	qmp_combo_com_configure(qmp, qmp->qmpphy_mode, qmp->orientation);
+	qmp->init_count++;
 
 	return 0;
 
@@ -4120,17 +4132,15 @@ err_assert_reset:
 	reset_control_bulk_assert(cfg->num_resets, qmp->resets);
 err_disable_regulators:
 	regulator_bulk_disable(cfg->num_vregs, qmp->vregs);
-err_decrement_count:
-	qmp->init_count--;
 
 	return ret;
 }
 
-static int qmp_combo_com_exit(struct qmp_combo *qmp, bool force)
+static int qmp_combo_com_exit(struct qmp_combo *qmp)
 {
 	const struct qmp_phy_cfg *cfg = qmp->cfg;
 
-	if (!force && --qmp->init_count)
+	if (--qmp->init_count)
 		return 0;
 
 	reset_control_bulk_assert(cfg->num_resets, qmp->resets);
@@ -4143,6 +4153,8 @@ static int qmp_combo_com_exit(struct qmp_combo *qmp, bool force)
 	return 0;
 }
 
+static int qmp_combo_apply_typec(struct qmp_combo *qmp, bool dp_power_on);
+
 static int qmp_combo_dp_init(struct phy *phy)
 {
 	struct qmp_combo *qmp = phy_get_drvdata(phy);
@@ -4151,7 +4163,11 @@ static int qmp_combo_dp_init(struct phy *phy)
 
 	mutex_lock(&qmp->phy_mutex);
 
-	ret = qmp_combo_com_init(qmp, false);
+	ret = qmp_combo_apply_typec(qmp, false);
+	if (ret)
+		goto out_unlock;
+
+	ret = qmp_combo_com_init(qmp);
 	if (ret)
 		goto out_unlock;
 
@@ -4170,9 +4186,12 @@ static int qmp_combo_dp_exit(struct phy *phy)
 
 	mutex_lock(&qmp->phy_mutex);
 
-	qmp_combo_com_exit(qmp, false);
-
 	qmp->dp_init_count--;
+	qmp_combo_com_exit(qmp);
+
+	/* Apply requests deferred while the previous DP connection was in use. */
+	if (qmp_combo_apply_typec(qmp, false))
+		dev_err(qmp->dev, "failed to apply deferred Type-C configuration\n");
 
 	mutex_unlock(&qmp->phy_mutex);
 
@@ -4185,8 +4204,20 @@ static int qmp_combo_dp_power_on(struct phy *phy)
 	const struct qmp_phy_cfg *cfg = qmp->cfg;
 	void __iomem *tx = qmp->dp_tx;
 	void __iomem *tx2 = qmp->dp_tx2;
+	int ret;
 
 	mutex_lock(&qmp->phy_mutex);
+
+	if (qmp->requested_mode == QMPPHY_MODE_USB3_ONLY ||
+	    qmp->requested_orientation == TYPEC_ORIENTATION_NONE) {
+		ret = -ENOTCONN;
+		goto out_unlock;
+	}
+
+	/* AUX discovery may have initialized the PHY before Type-C settled. */
+	ret = qmp_combo_apply_typec(qmp, true);
+	if (ret)
+		goto out_unlock;
 
 	qmp_combo_dp_serdes_init(qmp);
 
@@ -4201,9 +4232,10 @@ static int qmp_combo_dp_power_on(struct phy *phy)
 
 	qmp->dp_powered_on = true;
 
+out_unlock:
 	mutex_unlock(&qmp->phy_mutex);
 
-	return 0;
+	return ret;
 }
 
 static int qmp_combo_dp_power_off(struct phy *phy)
@@ -4267,22 +4299,23 @@ static int qmp_combo_usb_power_on(struct phy *phy)
 	ret = readl_poll_timeout(status, val, !(val & PHYSTATUS), 200,
 			PHY_INIT_COMPLETE_TIMEOUT);
 	if (ret) {
-		dev_err(qmp->dev, "phy initialization timed-out\n");
-		goto err_disable_pipe_clk;
+		dev_err(qmp->dev,
+			"USB PHY initialization timed out (mode=%u orientation=%u status=%#x)\n",
+			qmp->qmpphy_mode, qmp->orientation, val);
+		return ret;
 	}
 
+	qmp->usb_powered_on = true;
+
 	return 0;
-
-err_disable_pipe_clk:
-	clk_disable_unprepare(qmp->pipe_clk);
-
-	return ret;
 }
 
 static int qmp_combo_usb_power_off(struct phy *phy)
 {
 	struct qmp_combo *qmp = phy_get_drvdata(phy);
 	const struct qmp_phy_cfg *cfg = qmp->cfg;
+
+	qmp->usb_powered_on = false;
 
 	/* PHY reset */
 	qphy_setbits(qmp->pcs, cfg->regs[QPHY_SW_RESET], SW_RESET);
@@ -4304,14 +4337,22 @@ static int qmp_combo_usb_init(struct phy *phy)
 	int ret;
 
 	mutex_lock(&qmp->phy_mutex);
-	ret = qmp_combo_com_init(qmp, false);
+	ret = qmp_combo_apply_typec(qmp, false);
 	if (ret)
 		goto out_unlock;
 
-	ret = qmp_combo_usb_power_on(phy);
-	if (ret) {
-		qmp_combo_com_exit(qmp, false);
+	ret = qmp_combo_com_init(qmp);
+	if (ret)
 		goto out_unlock;
+
+	/* The controller needs the PIPE clock while it initializes its core. */
+	if (qmp->qmpphy_mode != QMPPHY_MODE_DP_ONLY) {
+		ret = qmp_combo_usb_power_on(phy);
+		if (ret) {
+			qmp_combo_usb_power_off(phy);
+			qmp_combo_com_exit(qmp);
+			goto out_unlock;
+		}
 	}
 
 	qmp->usb_init_count++;
@@ -4327,11 +4368,13 @@ static int qmp_combo_usb_exit(struct phy *phy)
 	int ret;
 
 	mutex_lock(&qmp->phy_mutex);
-	ret = qmp_combo_usb_power_off(phy);
-	if (ret)
-		goto out_unlock;
+	if (qmp->usb_powered_on) {
+		ret = qmp_combo_usb_power_off(phy);
+		if (ret)
+			goto out_unlock;
+	}
 
-	ret = qmp_combo_com_exit(qmp, false);
+	ret = qmp_combo_com_exit(qmp);
 	if (ret)
 		goto out_unlock;
 
@@ -4340,6 +4383,73 @@ static int qmp_combo_usb_exit(struct phy *phy)
 out_unlock:
 	mutex_unlock(&qmp->phy_mutex);
 	return ret;
+}
+
+/* Caller holds phy_mutex and an active runtime PM reference. */
+static int qmp_combo_apply_typec(struct qmp_combo *qmp, bool dp_power_on)
+{
+	const struct qmp_phy_cfg *cfg = qmp->cfg;
+	enum typec_orientation orientation = qmp->requested_orientation;
+	int ret;
+
+	if (!qmp->reconfigure_pending)
+		return 0;
+
+	/* DP itself may finish a pending switch before starting the main link. */
+	if (qmp->dp_powered_on || (qmp->dp_init_count && !dp_power_on))
+		return 0;
+
+	/* A disconnect does not select a new set of lanes. */
+	if (orientation == TYPEC_ORIENTATION_NONE)
+		orientation = qmp->orientation;
+
+	if (!qmp->init_count) {
+		qmp->qmpphy_mode = qmp->requested_mode;
+		qmp->orientation = orientation;
+		qmp->reconfigure_pending = false;
+		return 0;
+	}
+
+	if (qmp->usb_powered_on)
+		qmp_combo_usb_power_off(qmp->usb_phy);
+
+	if (qmp->dp_init_count)
+		writel(DP_PHY_PD_CTL_PSR_PWRDN, qmp->dp_dp_phy + QSERDES_DP_PHY_PD_CTL);
+
+	/*
+	 * Reconfigure the shared block without dropping the clocks and supplies
+	 * held by PHY consumers. A failed reset must not invalidate their refs.
+	 */
+	ret = reset_control_bulk_assert(cfg->num_resets, qmp->resets);
+	if (ret)
+		return ret;
+
+	ret = reset_control_bulk_deassert(cfg->num_resets, qmp->resets);
+	if (ret)
+		return ret;
+
+	qmp_combo_com_configure(qmp, qmp->requested_mode, orientation);
+	qmp->qmpphy_mode = qmp->requested_mode;
+	qmp->orientation = orientation;
+
+	if (qmp->dp_init_count)
+		cfg->dp_aux_init(qmp);
+
+	if (qmp->usb_init_count && qmp->qmpphy_mode != QMPPHY_MODE_DP_ONLY &&
+	    qmp->requested_orientation != TYPEC_ORIENTATION_NONE) {
+		ret = qmp_combo_usb_power_on(qmp->usb_phy);
+		if (ret) {
+			qmp_combo_usb_power_off(qmp->usb_phy);
+			return ret;
+		}
+	}
+
+	qmp->reconfigure_pending = false;
+
+	dev_dbg(qmp->dev, "applied Type-C mode=%u orientation=%u USB active=%u\n",
+		qmp->qmpphy_mode, qmp->orientation, qmp->usb_powered_on);
+
+	return 0;
 }
 
 static int qmp_combo_usb_set_mode(struct phy *phy, enum phy_mode mode, int submode)
@@ -4439,7 +4549,8 @@ static int __maybe_unused qmp_combo_runtime_suspend(struct device *dev)
 		return 0;
 	}
 
-	qmp_combo_enable_autonomous_mode(qmp);
+	if (qmp->usb_powered_on)
+		qmp_combo_enable_autonomous_mode(qmp);
 
 	clk_disable_unprepare(qmp->pipe_clk);
 	clk_bulk_disable_unprepare(qmp->num_clks, qmp->clks);
@@ -4470,7 +4581,8 @@ static int __maybe_unused qmp_combo_runtime_resume(struct device *dev)
 		return ret;
 	}
 
-	qmp_combo_disable_autonomous_mode(qmp);
+	if (qmp->usb_powered_on)
+		qmp_combo_disable_autonomous_mode(qmp);
 
 	return 0;
 }
@@ -4789,123 +4901,64 @@ static int qmp_combo_typec_switch_set(struct typec_switch_dev *sw,
 				      enum typec_orientation orientation)
 {
 	struct qmp_combo *qmp = typec_switch_get_drvdata(sw);
-	const struct qmp_phy_cfg *cfg = qmp->cfg;
+	int ret;
 
-	if (orientation == TYPEC_ORIENTATION_NONE)
-		return 0;
+	ret = pm_runtime_resume_and_get(qmp->dev);
+	if (ret < 0)
+		return ret;
 
 	mutex_lock(&qmp->phy_mutex);
 
-	/*
-	 * Changing orientation force-cycles the common USB/DP PHY block.
-	 * Defer it until the active DP stream/PHY has been powered off.
-	 */
-	if (orientation == qmp->orientation ||
-	    qmp->dp_powered_on || qmp->dp_init_count)
-		goto out_unlock;
+	/* A reconnect must restart USB even when the plug was not flipped. */
+	if (orientation != qmp->requested_orientation)
+		qmp->reconfigure_pending = true;
+	qmp->requested_orientation = orientation;
 
-	qmp->orientation = orientation;
+	ret = qmp_combo_apply_typec(qmp, false);
 
-	if (qmp->init_count) {
-		if (qmp->usb_init_count)
-			qmp_combo_usb_power_off(qmp->usb_phy);
-		qmp_combo_com_exit(qmp, true);
-
-		qmp_combo_com_init(qmp, true);
-		if (qmp->usb_init_count)
-			qmp_combo_usb_power_on(qmp->usb_phy);
-		if (qmp->dp_init_count)
-			cfg->dp_aux_init(qmp);
-	}
-
-out_unlock:
 	mutex_unlock(&qmp->phy_mutex);
+	pm_runtime_put(qmp->dev);
 
-	return 0;
+	return ret;
 }
 
 static int qmp_combo_typec_mux_set(struct typec_mux_dev *mux, struct typec_mux_state *state)
 {
 	struct qmp_combo *qmp = typec_mux_get_drvdata(mux);
-	const struct qmp_phy_cfg *cfg = qmp->cfg;
 	enum qmpphy_mode new_mode;
-	unsigned int svid;
+	int ret;
 
-	guard(mutex)(&qmp->phy_mutex);
-
-	if (state->alt)
-		svid = state->alt->svid;
-	else
-		svid = 0;
-
-	if (svid == USB_TYPEC_DP_SID) {
+	if (state->alt && state->alt->svid == USB_TYPEC_DP_SID &&
+	    state->mode >= TYPEC_STATE_MODAL) {
 		switch (state->mode) {
-		/* DP Only */
 		case TYPEC_DP_STATE_C:
 		case TYPEC_DP_STATE_E:
 			new_mode = QMPPHY_MODE_DP_ONLY;
 			break;
-
-		/* DP + USB */
-		case TYPEC_DP_STATE_D:
-		case TYPEC_DP_STATE_F:
-
-		/* Safe fallback...*/
 		default:
 			new_mode = QMPPHY_MODE_USB3DP;
 			break;
 		}
 	} else {
-		/* No DP SVID => don't care, assume it's just USB3 */
 		new_mode = QMPPHY_MODE_USB3_ONLY;
 	}
 
-	if (new_mode == qmp->qmpphy_mode) {
-		dev_dbg(qmp->dev, "typec_mux_set: same qmpphy mode, bail out\n");
-		return 0;
-	}
+	ret = pm_runtime_resume_and_get(qmp->dev);
+	if (ret < 0)
+		return ret;
 
-	if (qmp->qmpphy_mode != QMPPHY_MODE_USB3_ONLY &&
-	    (qmp->dp_powered_on || qmp->dp_init_count)) {
-		dev_dbg(qmp->dev, "typec_mux_set: DP PHY is still in use, delaying switch\n");
-		return 0;
-	}
+	mutex_lock(&qmp->phy_mutex);
 
-	dev_dbg(qmp->dev, "typec_mux_set: switching from qmpphy mode %d to %d\n",
-		qmp->qmpphy_mode, new_mode);
+	qmp->requested_mode = new_mode;
+	if (new_mode != qmp->qmpphy_mode)
+		qmp->reconfigure_pending = true;
 
-	qmp->qmpphy_mode = new_mode;
+	ret = qmp_combo_apply_typec(qmp, false);
 
-	if (qmp->init_count) {
-		if (qmp->usb_init_count)
-			qmp_combo_usb_power_off(qmp->usb_phy);
+	mutex_unlock(&qmp->phy_mutex);
+	pm_runtime_put(qmp->dev);
 
-		if (qmp->dp_init_count)
-			writel(DP_PHY_PD_CTL_PSR_PWRDN, qmp->dp_dp_phy + QSERDES_DP_PHY_PD_CTL);
-
-		qmp_combo_com_exit(qmp, true);
-
-		/* Now everything's powered down, power up the right PHYs */
-		qmp_combo_com_init(qmp, true);
-
-		if (new_mode == QMPPHY_MODE_DP_ONLY) {
-			if (qmp->usb_init_count)
-				qmp->usb_init_count--;
-		}
-
-		if (new_mode == QMPPHY_MODE_USB3DP || new_mode == QMPPHY_MODE_USB3_ONLY) {
-			qmp_combo_usb_power_on(qmp->usb_phy);
-			if (!qmp->usb_init_count)
-				qmp->usb_init_count++;
-		}
-
-		if (new_mode == QMPPHY_MODE_DP_ONLY || new_mode == QMPPHY_MODE_USB3DP) {
-			if (qmp->dp_init_count)
-				cfg->dp_aux_init(qmp);
-		}
-	}
-
-	return 0;
+	return ret;
 }
 
 static void qmp_combo_typec_switch_unregister(void *data)
@@ -5226,6 +5279,7 @@ static int qmp_combo_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *dp_np, *usb_np;
 	struct phy_provider *phy_provider;
+	bool typec_switch;
 	int ret;
 
 	qmp = devm_kzalloc(dev, sizeof(*qmp), GFP_KERNEL);
@@ -5236,6 +5290,7 @@ static int qmp_combo_probe(struct platform_device *pdev)
 	dev_set_drvdata(dev, qmp);
 
 	qmp->orientation = TYPEC_ORIENTATION_NORMAL;
+	qmp->requested_orientation = qmp->orientation;
 
 	qmp->cfg = of_device_get_match_data(dev);
 	if (!qmp->cfg)
@@ -5272,13 +5327,11 @@ static int qmp_combo_probe(struct platform_device *pdev)
 		goto err_node_put;
 
 	qmp->qmpphy_mode = QMPPHY_MODE_USB3DP;
+	qmp->requested_mode = qmp->qmpphy_mode;
 
-	if (of_property_present(dev->of_node, "mode-switch") ||
-	    of_property_present(dev->of_node, "orientation-switch")) {
-		ret = qmp_combo_typec_register(qmp);
-		if (ret)
-			goto err_node_put;
-	} else {
+	typec_switch = of_property_present(dev->of_node, "mode-switch") ||
+		       of_property_present(dev->of_node, "orientation-switch");
+	if (!typec_switch) {
 		enum typec_orientation dp_orientation = TYPEC_ORIENTATION_NONE;
 		enum typec_orientation usb3_orientation = TYPEC_ORIENTATION_NONE;
 
@@ -5305,6 +5358,8 @@ static int qmp_combo_probe(struct platform_device *pdev)
 		} else {
 			dev_warn(dev, "unable to determine orientation & mode from data-lanes");
 		}
+		qmp->requested_mode = qmp->qmpphy_mode;
+		qmp->requested_orientation = qmp->orientation;
 	}
 
 	ret = drm_aux_bridge_register(dev);
@@ -5348,6 +5403,12 @@ static int qmp_combo_probe(struct platform_device *pdev)
 	}
 
 	phy_set_drvdata(qmp->dp_phy, qmp);
+
+	if (typec_switch) {
+		ret = qmp_combo_typec_register(qmp);
+		if (ret)
+			goto err_pm_put;
+	}
 
 	if (usb_np == dev->of_node)
 		phy_provider = devm_of_phy_provider_register(dev, qmp_combo_phy_xlate);
