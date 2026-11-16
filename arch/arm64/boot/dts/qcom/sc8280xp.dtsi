@@ -3875,49 +3875,49 @@
 				opp-270000000 {
 					opp-hz = /bits/ 64 <270000000>;
 					opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS>;
-					opp-peak-kBps = <451000>;
+					opp-peak-kBps = <1804000>;
 				};
 
 				opp-410000000 {
 					opp-hz = /bits/ 64 <410000000>;
 					opp-level = <RPMH_REGULATOR_LEVEL_SVS>;
-					opp-peak-kBps = <1555000>;
+					opp-peak-kBps = <6220000>;
 				};
 
 				opp-500000000 {
 					opp-hz = /bits/ 64 <500000000>;
 					opp-level = <RPMH_REGULATOR_LEVEL_SVS_L1>;
-					opp-peak-kBps = <1555000>;
+					opp-peak-kBps = <6220000>;
 				};
 
 				opp-547000000 {
 					opp-hz = /bits/ 64 <547000000>;
 					opp-level = <RPMH_REGULATOR_LEVEL_SVS_L2>;
-					opp-peak-kBps = <1555000>;
+					opp-peak-kBps = <6220000>;
 				};
 
 				opp-606000000 {
 					opp-hz = /bits/ 64 <606000000>;
 					opp-level = <RPMH_REGULATOR_LEVEL_NOM>;
-					opp-peak-kBps = <2736000>;
+					opp-peak-kBps = <10944000>;
 				};
 
 				opp-640000000 {
 					opp-hz = /bits/ 64 <640000000>;
 					opp-level = <RPMH_REGULATOR_LEVEL_NOM_L1>;
-					opp-peak-kBps = <2736000>;
+					opp-peak-kBps = <10944000>;
 				};
 
 				opp-655000000 {
 					opp-hz = /bits/ 64 <655000000>;
 					opp-level = <RPMH_REGULATOR_LEVEL_TURBO>;
-					opp-peak-kBps = <2736000>;
+					opp-peak-kBps = <10944000>;
 				};
 
 				opp-690000000 {
 					opp-hz = /bits/ 64 <690000000>;
 					opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L1>;
-					opp-peak-kBps = <2736000>;
+					opp-peak-kBps = <10944000>;
 				};
 			};
 		};
