@@ -1011,6 +1011,7 @@
 &pcie2a_phy {
 	vdda-phy-supply = <&vreg_l6d>;
 	vdda-pll-supply = <&vreg_l4d>;
+	vdda-qref-supply = <&vreg_l9d>;
 
 	status = "okay";
 };
@@ -1028,6 +1029,7 @@
 &pcie3a_phy {
 	vdda-phy-supply = <&vreg_l6d>;
 	vdda-pll-supply = <&vreg_l4d>;
+	vdda-qref-supply = <&vreg_l9d>;
 
 	status = "okay";
 };
@@ -1227,6 +1229,7 @@
 &pcie3b_phy {
 	vdda-phy-supply = <&vreg_l6d>;
 	vdda-pll-supply = <&vreg_l4d>;
+	vdda-qref-supply = <&vreg_l9d>;
 
 	status = "okay";
 };
@@ -1257,6 +1260,7 @@
 &pcie4_phy {
 	vdda-phy-supply = <&vreg_l6d>;
 	vdda-pll-supply = <&vreg_l4d>;
+	vdda-qref-supply = <&vreg_l9d>;
 
 	status = "okay";
 };
