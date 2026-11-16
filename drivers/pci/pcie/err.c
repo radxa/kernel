@@ -217,6 +217,19 @@ pci_ers_result_t pcie_do_recovery(struct pci_dev *dev,
 	struct pci_host_bridge *host = pci_find_host_bridge(dev->bus);
 
 	/*
+	 * Once the system is going down, device_shutdown() holds the device
+	 * lock of the device being shut down while its driver tears down,
+	 * e.g. a Port synchronously freeing the IRQ this recovery runs from.
+	 * Recovery takes the same locks, so it would deadlock, and there is
+	 * nothing left worth recovering anyway.
+	 */
+	if (system_state == SYSTEM_HALT || system_state == SYSTEM_POWER_OFF ||
+	    system_state == SYSTEM_RESTART) {
+		pci_info(dev, "skipping error recovery during system shutdown\n");
+		return PCI_ERS_RESULT_DISCONNECT;
+	}
+
+	/*
 	 * If the error was detected by a Root Port, Downstream Port, RCEC,
 	 * or RCiEP, recovery runs on the device itself.  For Ports, that
 	 * also includes any subordinate devices.
