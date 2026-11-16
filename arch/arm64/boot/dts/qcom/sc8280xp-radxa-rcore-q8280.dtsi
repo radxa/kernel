@@ -438,26 +438,31 @@
 &pcie2a_phy {
 	vdda-phy-supply = <&vreg_l6d>;
 	vdda-pll-supply = <&vreg_l4d>;
+	vdda-qref-supply = <&vreg_l9d>;
 };
 
 &pcie2b_phy {
 	vdda-phy-supply = <&vreg_l6d>;
 	vdda-pll-supply = <&vreg_l4d>;
+	vdda-qref-supply = <&vreg_l9d>;
 };
 
 &pcie3a_phy {
 	vdda-phy-supply = <&vreg_l6d>;
 	vdda-pll-supply = <&vreg_l4d>;
+	vdda-qref-supply = <&vreg_l9d>;
 };
 
 &pcie3b_phy {
 	vdda-phy-supply = <&vreg_l6d>;
 	vdda-pll-supply = <&vreg_l4d>;
+	vdda-qref-supply = <&vreg_l9d>;
 };
 
 &pcie4_phy {
 	vdda-phy-supply = <&vreg_l6d>;
 	vdda-pll-supply = <&vreg_l4d>;
+	vdda-qref-supply = <&vreg_l9d>;
 };
 
 &pmk8280_adc_tm {
