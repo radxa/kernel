@@ -2134,6 +2134,7 @@ struct rtw_dev {
 	bool ap_active;
 
 	bool led_registered;
+	bool led_stopped;
 	char led_name[32];
 	struct led_classdev led_cdev;
 

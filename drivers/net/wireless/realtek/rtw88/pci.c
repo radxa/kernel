@@ -14,6 +14,7 @@
 #include "ps.h"
 #include "debug.h"
 #include "mac.h"
+#include "led.h"
 
 static bool rtw_disable_msi;
 static bool rtw_pci_disable_aspm;
@@ -1927,6 +1928,8 @@ void rtw_pci_shutdown(struct pci_dev *pdev)
 
 	rtwdev = hw->priv;
 	chip = rtwdev->chip;
+
+	rtw_led_stop(rtwdev);
 
 	if (chip->ops->shutdown)
 		chip->ops->shutdown(rtwdev);

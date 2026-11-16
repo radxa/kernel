@@ -13,7 +13,8 @@ static int rtw_led_set(struct led_classdev *led,
 
 	mutex_lock(&rtwdev->mutex);
 
-	rtwdev->chip->ops->led_set(led, brightness);
+	if (!rtwdev->led_stopped)
+		rtwdev->chip->ops->led_set(led, brightness);
 
 	mutex_unlock(&rtwdev->mutex);
 
@@ -61,6 +62,25 @@ void rtw_led_init(struct rtw_dev *rtwdev)
 
 	rtwdev->led_registered = true;
 }
+
+/*
+ * Turn the LED off and keep it from touching the hardware again, e.g. before
+ * the chip is powered down for shutdown. LED triggers stay active until the
+ * LED is unregistered, so without this they keep scheduling register accesses
+ * to a device that no longer responds.
+ */
+void rtw_led_stop(struct rtw_dev *rtwdev)
+{
+	if (!rtwdev->led_registered)
+		return;
+
+	led_classdev_suspend(&rtwdev->led_cdev);
+
+	mutex_lock(&rtwdev->mutex);
+	rtwdev->led_stopped = true;
+	mutex_unlock(&rtwdev->mutex);
+}
+EXPORT_SYMBOL(rtw_led_stop);
 
 void rtw_led_deinit(struct rtw_dev *rtwdev)
 {
