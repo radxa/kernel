@@ -1941,24 +1941,23 @@ mpp_task_attach_fd(struct mpp_task *task, int fd)
 }
 
 int mpp_translate_reg_address(struct mpp_session *session,
-			      struct mpp_task *task, int fmt,
+			      struct mpp_task *task,
+			      struct mpp_trans_info *trans,
 			      u32 *reg, struct reg_offset_info *off_inf)
 {
 	int i;
 	int cnt;
 	const u16 *tbl;
-	struct mpp_trans_info *trans_info;
-	struct mpp_dev *mpp;
 
 	mpp_debug_enter();
 
-	mpp = mpp_get_task_used_device(task, session);
-	if (!mpp)
+	if (!trans)
 		return -EINVAL;
 
-	trans_info = mpp->var->trans_info;
-	cnt = trans_info[fmt].count;
-	tbl = trans_info[fmt].table;
+	cnt = trans->count;
+	tbl = trans->table;
+	if (!tbl || !cnt)
+		return -EINVAL;
 
 	for (i = 0; i < cnt; i++) {
 		int usr_fd;

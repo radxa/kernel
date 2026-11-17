@@ -80,6 +80,7 @@
 #define	VDPU1_FMT_VP7D			9
 #define	VDPU1_FMT_VP8D			10
 #define	VDPU1_FMT_AVSD			11
+#define	VDPU1_FMT_BUTT			12
 
 #define VDPU1_REG_STREAM_RLC_BASE	0x030
 #define VDPU1_REG_STREAM_RLC_BASE_INDEX	(12)
@@ -177,7 +178,7 @@ static const u16 trans_tbl_vp8d[] = {
 	10, 12, 13, 14, 18, 19, 22, 23, 24, 25, 26, 27, 28, 29, 40
 };
 
-static struct mpp_trans_info vdpu_v1_trans[] = {
+static struct mpp_trans_info vdpu_v1_trans[VDPU1_FMT_BUTT] = {
 	[VDPU1_FMT_H264D] = {
 		.count = ARRAY_SIZE(trans_tbl_h264d),
 		.table = trans_tbl_h264d,
@@ -233,10 +234,15 @@ static int vdpu_process_reg_fd(struct mpp_session *session,
 			       struct mpp_task_msgs *msgs)
 {
 	int ret = 0;
+	struct mpp_dev *mpp = mpp_get_task_used_device(&task->mpp_task, session);
 	int fmt = VDPU1_GET_FORMAT(task->reg[VDPU1_REG_SYS_CTRL_INDEX]);
 
+	if (!mpp || fmt >= VDPU1_FMT_BUTT)
+		return -EINVAL;
+
 	ret = mpp_translate_reg_address(session, &task->mpp_task,
-					fmt, task->reg, &task->off_inf);
+					&mpp->var->trans_info[fmt],
+					task->reg, &task->off_inf);
 	if (ret)
 		return ret;
 	/*

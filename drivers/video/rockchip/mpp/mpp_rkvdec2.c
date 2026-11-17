@@ -105,7 +105,7 @@ static const u16 trans_tbl_avs2d[] = {
 	192, 193, 194, 195, 196, 197, 198, 199
 };
 
-static struct mpp_trans_info rkvdec_v2_trans[] = {
+static struct mpp_trans_info rkvdec_v2_trans[RKVDEC_FMT_BUTT] = {
 	[RKVDEC_FMT_H265D] = {
 		.count = ARRAY_SIZE(trans_tbl_h265d),
 		.table = trans_tbl_h265d,
@@ -167,7 +167,7 @@ static const u16 trans_vdpu383_tbl_av1d[] = {
 	222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232
 };
 
-static struct mpp_trans_info rkvdec_vdpu383_trans[] = {
+static struct mpp_trans_info rkvdec_vdpu383_trans[RKVDEC_FMT_BUTT] = {
 	[RKVDEC_FMT_H265D] = {
 		.count = ARRAY_SIZE(trans_vdpu383_tbl_h265d),
 		.table = trans_vdpu383_tbl_h265d,
@@ -360,8 +360,14 @@ int rkvdec2_task_init(struct mpp_dev *mpp, struct mpp_session *session,
 		int reg_fmt = mpp_task->hw_info->reg_fmt;
 		u32 fmt = RKVDEC_GET_FORMAT(task->reg[reg_fmt]);
 
+		if (fmt >= RKVDEC_FMT_BUTT) {
+			mpp_err("invalid fmt %u\n", fmt);
+			ret = -EINVAL;
+			goto fail;
+		}
 		ret = mpp_translate_reg_address(session, mpp_task,
-						fmt, task->reg, &task->off_inf);
+						&mpp->var->trans_info[fmt],
+						task->reg, &task->off_inf);
 		if (ret)
 			goto fail;
 	}

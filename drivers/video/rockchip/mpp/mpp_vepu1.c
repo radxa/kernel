@@ -60,6 +60,7 @@
 #define VEPU1_FMT_VP8E			(1)
 #define VEPU1_FMT_JPEGE			(2)
 #define VEPU1_FMT_H264E			(3)
+#define VEPU1_FMT_BUTT			(4)
 
 #define VEPU1_REG_CLR_CACHE_BASE	0xc10
 
@@ -125,7 +126,7 @@ static const u16 trans_tbl_vp8e[] = {
 	5, 6, 7, 8, 9, 10, 11, 12, 13, 16, 17, 26, 51, 52, 58, 59, 71
 };
 
-static struct mpp_trans_info trans_rk_vepu1[] = {
+static struct mpp_trans_info trans_rk_vepu1[VEPU1_FMT_BUTT] = {
 	[VEPU1_FMT_RESERVED] = {
 		.count = 0,
 		.table = NULL,
@@ -148,10 +149,15 @@ static int vepu_process_reg_fd(struct mpp_session *session,
 			       struct vepu_task *task,
 			       struct mpp_task_msgs *msgs)
 {
+	struct mpp_dev *mpp = mpp_get_task_used_device(&task->mpp_task, session);
 	int fmt = VEPU1_GET_FORMAT(task->reg[VEPU1_REG_ENC_EN_INDEX]);
 
+	if (!mpp || fmt >= VEPU1_FMT_BUTT)
+		return -EINVAL;
+
 	return mpp_translate_reg_address(session, &task->mpp_task,
-					fmt, task->reg, &task->off_inf);
+					&mpp->var->trans_info[fmt],
+					task->reg, &task->off_inf);
 }
 
 static int vepu_extract_task_msg(struct vepu_task *task,

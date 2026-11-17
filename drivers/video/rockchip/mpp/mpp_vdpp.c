@@ -173,9 +173,14 @@ static int vdpp_process_reg_fd(struct mpp_session *session,
 				 struct vdpp_task *task,
 				 struct mpp_task_msgs *msgs)
 {
+	struct mpp_dev *mpp = mpp_get_task_used_device(&task->mpp_task, session);
+
+	if (!mpp)
+		return -EINVAL;
 
 	return mpp_translate_reg_address(session, &task->mpp_task,
-					VDPP_FMT_DEFAULT, task->reg, &task->off_inf);
+					&mpp->var->trans_info[VDPP_FMT_DEFAULT],
+					task->reg, &task->off_inf);
 }
 
 static int vdpp_extract_task_msg(struct vdpp_task *task,
