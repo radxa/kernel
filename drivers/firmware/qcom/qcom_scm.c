@@ -2408,6 +2408,7 @@ static const struct of_device_id qcom_scm_qseecom_allowlist[] __maybe_unused = {
 	{ .compatible = "radxa,dragon-q6a" },
 	{ .compatible = "radxa,dragon-q6b" },
 	{ .compatible = "radxa,dragon-q8b" },
+	{ .compatible = "radxa,rcore-q8280" },
 	{ }
 };
 
