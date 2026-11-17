@@ -2716,6 +2716,7 @@ static const struct of_device_id qcom_scm_storage_allowlist[] = {
 	{ .compatible = "radxa,dragon-q6a" },
 	{ .compatible = "radxa,dragon-q6b" },
 	{ .compatible = "radxa,dragon-q8b" },
+	{ .compatible = "radxa,rcore-q8280" },
 	{ }
 };
 
