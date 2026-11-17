@@ -60,7 +60,8 @@ enum RKVENC_FORMAT_TYPE {
 	RKVENC_FMT_H265E	= RKVENC_FMT_BASE + 1,
 	RKVENC_FMT_JPEGE	= RKVENC_FMT_BASE + 2,
 
-	RKVENC_FMT_OSD_BASE	= 0x1000,
+	/* flag bit for the OSD variants, keeps the id layout dense */
+	RKVENC_FMT_OSD_BASE	= 0x0004,
 	RKVENC_FMT_H264E_OSD	= RKVENC_FMT_OSD_BASE + 0,
 	RKVENC_FMT_H265E_OSD	= RKVENC_FMT_OSD_BASE + 1,
 	RKVENC_FMT_JPEGE_OSD	= RKVENC_FMT_OSD_BASE + 2,
@@ -629,7 +630,7 @@ static const u32 rkvenc2_timeout_thd_by_rsl[5][2] = {
 	{15360*8640,	800}
 };
 
-static struct mpp_trans_info trans_rkvenc_v2[] = {
+static struct mpp_trans_info trans_rkvenc_v2[RKVENC_FMT_BUTT] = {
 	[RKVENC_FMT_H264E] = {
 		.count = ARRAY_SIZE(trans_tbl_h264e_v2),
 		.table = trans_tbl_h264e_v2,
@@ -648,7 +649,7 @@ static struct mpp_trans_info trans_rkvenc_v2[] = {
 	},
 };
 
-static struct mpp_trans_info trans_rkvenc_540c[] = {
+static struct mpp_trans_info trans_rkvenc_540c[RKVENC_FMT_BUTT] = {
 	[RKVENC_FMT_H264E] = {
 		.count = ARRAY_SIZE(trans_tbl_h264e_540c),
 		.table = trans_tbl_h264e_540c,
@@ -960,8 +961,18 @@ static int rkvenc_task_get_format(struct mpp_dev *mpp,
 		return -EINVAL;
 
 	offset = hw->fmt_reg.base - class_base;
+	if ((size_t)offset + sizeof(u32) > class_size) {
+		mpp_err("fmt reg offset %u over class size %u\n",
+			offset, class_size);
+		return -EINVAL;
+	}
+	if (bitpos >= sizeof(u32) * 8 || bitlen >= sizeof(u32) * 8 ||
+	    bitlen > sizeof(u32) * 8 - bitpos) {
+		mpp_err("invalid fmt reg bitpos %u bitlen %u\n", bitpos, bitlen);
+		return -EINVAL;
+	}
 	val = class_reg[offset/sizeof(u32)];
-	task->fmt = (val >> bitpos) & ((1 << bitlen) - 1);
+	task->fmt = (val >> bitpos) & ((1u << bitlen) - 1);
 
 	return 0;
 }
@@ -1100,7 +1111,7 @@ static void *rkvenc_alloc_task(struct mpp_session *session,
 	/* get format */
 	ret = rkvenc_task_get_format(mpp, task);
 	if (ret)
-		goto free_task;
+		goto fail;
 	/* process fd in register */
 	if (!(msgs->flags & MPP_FLAGS_REG_FD_NO_TRANS)) {
 		u32 i, j;
@@ -1111,14 +1122,25 @@ static void *rkvenc_alloc_task(struct mpp_session *session,
 		struct rkvenc_hw_info *hw = task->hw_info;
 		int fd_bs = -1;
 
+		if (task->fmt >= RKVENC_FMT_OSD_BASE) {
+			mpp_err("invalid task fmt %u\n", task->fmt);
+			goto fail;
+		}
+
 		for (i = 0; i < hw->fd_class; i++) {
 			u32 class = hw->fd_reg[i].class;
-			u32 fmt = hw->fd_reg[i].base_fmt + task->fmt;
+			u32 fmt = hw->fd_reg[i].base_fmt | task->fmt;
 			u32 *reg = task->reg[class].data;
 			u32 ss = hw->reg_msg[class].base_s / sizeof(u32);
 
 			if (!reg)
 				continue;
+
+			if (fmt >= RKVENC_FMT_BUTT ||
+			    !mpp->var->trans_info[fmt].table) {
+				mpp_err("invalid fmt %u on class %u\n", fmt, class);
+				goto fail;
+			}
 
 			if (fmt == RKVENC_FMT_JPEGE && class == RKVENC_CLASS_PIC && fd_bs == -1) {
 				int bs_index;
@@ -1130,7 +1152,9 @@ static void *rkvenc_alloc_task(struct mpp_session *session,
 			}
 
 			region_from = mpp_task->mem_count;
-			ret = mpp_translate_reg_address(session, mpp_task, fmt, reg, NULL);
+			ret = mpp_translate_reg_address(session, mpp_task,
+							&mpp->var->trans_info[fmt],
+							reg, NULL);
 			if (ret)
 				goto fail;
 

@@ -623,7 +623,8 @@ struct mpp_taskqueue *mpp_taskqueue_init(struct device *dev);
 struct mpp_mem_region *
 mpp_task_attach_fd(struct mpp_task *task, int fd);
 int mpp_translate_reg_address(struct mpp_session *session,
-			      struct mpp_task *task, int fmt,
+			      struct mpp_task *task,
+			      struct mpp_trans_info *trans,
 			      u32 *reg, struct reg_offset_info *off_inf);
 
 struct mpp_mem_region *

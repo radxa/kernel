@@ -132,9 +132,14 @@ static int jpgdec_process_reg_fd(struct mpp_session *session,
 				 struct jpgdec_task *task,
 				 struct mpp_task_msgs *msgs)
 {
+	struct mpp_dev *mpp = mpp_get_task_used_device(&task->mpp_task, session);
+
+	if (!mpp)
+		return -EINVAL;
 
 	return mpp_translate_reg_address(session, &task->mpp_task,
-					JPEGDEC_FMT_DEFAULT, task->reg, &task->off_inf);
+					&mpp->var->trans_info[JPEGDEC_FMT_DEFAULT],
+					task->reg, &task->off_inf);
 }
 
 static int jpgdec_extract_task_msg(struct jpgdec_task *task,

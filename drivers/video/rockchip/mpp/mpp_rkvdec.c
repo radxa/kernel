@@ -87,6 +87,7 @@
 #define RKVDEC_FMT_H265D		(0)
 #define RKVDEC_FMT_H264D		(1)
 #define RKVDEC_FMT_VP9D			(2)
+#define RKVDEC_V1_FMT_BUTT		(3)
 
 #define RKVDEC_REG_RLC_BASE		0x010
 #define RKVDEC_REG_RLC_BASE_INDEX	(4)
@@ -232,14 +233,14 @@ static const u16 trans_tbl_vp9d[] = {
 	4, 6, 7, 11, 12, 13, 14, 15, 16
 };
 
-static struct mpp_trans_info rk_hevcdec_trans[] = {
+static struct mpp_trans_info rk_hevcdec_trans[RKVDEC_V1_FMT_BUTT] = {
 	[RKVDEC_FMT_H265D] = {
 		.count = ARRAY_SIZE(trans_tbl_h265d),
 		.table = trans_tbl_h265d,
 	},
 };
 
-static struct mpp_trans_info rkvdec_v1_trans[] = {
+static struct mpp_trans_info rkvdec_v1_trans[RKVDEC_V1_FMT_BUTT] = {
 	[RKVDEC_FMT_H265D] = {
 		.count = ARRAY_SIZE(trans_tbl_h265d),
 		.table = trans_tbl_h265d,
@@ -613,7 +614,11 @@ static int rkvdec_process_reg_fd(struct mpp_session *session,
 				 struct rkvdec_task *task,
 				 struct mpp_task_msgs *msgs)
 {
+	struct mpp_dev *mpp = mpp_get_task_used_device(&task->mpp_task, session);
 	u32 fmt = RKVDEC_GET_FORMAT(task->reg[RKVDEC_REG_SYS_CTRL_INDEX]);
+
+	if (!mpp || fmt >= RKVDEC_V1_FMT_BUTT)
+		return -EINVAL;
 
 	/*
 	 * special offset scale case
@@ -660,7 +665,8 @@ static int rkvdec_process_reg_fd(struct mpp_session *session,
 	}
 
 	return mpp_translate_reg_address(session, &task->mpp_task,
-					fmt, task->reg, &task->off_inf);
+					&mpp->var->trans_info[fmt],
+					task->reg, &task->off_inf);
 }
 
 static int rkvdec_extract_task_msg(struct rkvdec_task *task,

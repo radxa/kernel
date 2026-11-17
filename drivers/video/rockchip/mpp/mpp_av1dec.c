@@ -463,7 +463,9 @@ static void *av1dec_alloc_task(struct mpp_session *session,
 					continue;
 
 				region_from = mpp_task->mem_count;
-				ret = mpp_translate_reg_address(session, mpp_task, fmt, reg, NULL);
+				ret = mpp_translate_reg_address(session, mpp_task,
+								&mpp->var->trans_info[fmt],
+								reg, NULL);
 				if (ret)
 					goto fail;
 

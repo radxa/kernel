@@ -53,6 +53,7 @@
 #define VEPU2_FMT_VP8E				(1)
 #define VEPU2_FMT_JPEGE				(2)
 #define VEPU2_FMT_H264E				(3)
+#define VEPU2_FMT_BUTT				(4)
 
 #define VEPU2_REG_MB_CTRL			0x1a0
 #define VEPU2_REG_MB_CTRL_INDEX			(104)
@@ -160,7 +161,7 @@ static const u16 trans_tbl_vp8e[] = {
 	76, 77, 78, 80, 81, 106, 108,
 };
 
-static struct mpp_trans_info trans_rk_vepu2[] = {
+static struct mpp_trans_info trans_rk_vepu2[VEPU2_FMT_BUTT] = {
 	[VEPU2_FMT_RESERVED] = {
 		.count = 0,
 		.table = NULL,
@@ -185,7 +186,11 @@ static int vepu_process_reg_fd(struct mpp_session *session,
 {
 	int ret;
 	int fd_bs;
+	struct mpp_dev *mpp = mpp_get_task_used_device(&task->mpp_task, session);
 	int fmt = VEPU2_GET_FORMAT(task->reg[VEPU2_REG_ENC_EN_INDEX]);
+
+	if (!mpp || fmt >= VEPU2_FMT_BUTT)
+		return -EINVAL;
 
 	if (session->msg_flags & MPP_FLAGS_REG_NO_OFFSET)
 		fd_bs = task->reg[VEPU2_REG_OUT_INDEX];
@@ -193,7 +198,8 @@ static int vepu_process_reg_fd(struct mpp_session *session,
 		fd_bs = task->reg[VEPU2_REG_OUT_INDEX] & 0x3ff;
 
 	ret = mpp_translate_reg_address(session, &task->mpp_task,
-					fmt, task->reg, &task->off_inf);
+					&mpp->var->trans_info[fmt],
+					task->reg, &task->off_inf);
 	if (ret)
 		return ret;
 

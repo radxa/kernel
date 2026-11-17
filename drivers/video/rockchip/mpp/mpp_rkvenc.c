@@ -238,7 +238,7 @@ static const u16 trans_tbl_h265e[] = {
 	126, 127, 128, 129, 130, 131, 95, 96
 };
 
-static struct mpp_trans_info trans_rk_rkvenc[] = {
+static struct mpp_trans_info trans_rk_rkvenc[RKVENC_FMT_BUTT] = {
 	[RKVENC_FMT_H264E] = {
 		.count = ARRAY_SIZE(trans_tbl_h264e),
 		.table = trans_tbl_h264e,
@@ -348,10 +348,12 @@ static void *rkvenc_alloc_task(struct mpp_session *session,
 	if (ret)
 		goto fail;
 	task->fmt = RKVENC_GET_FORMAT(task->reg[RKVENC_ENC_PIC_INDEX]);
+	if (task->fmt >= RKVENC_FMT_BUTT)
+		goto fail;
 	/* process fd in register */
 	if (!(msgs->flags & MPP_FLAGS_REG_FD_NO_TRANS)) {
-		ret = mpp_translate_reg_address(session,
-						mpp_task, task->fmt,
+		ret = mpp_translate_reg_address(session, mpp_task,
+						&mpp->var->trans_info[task->fmt],
 						task->reg, &task->off_inf);
 		if (ret)
 			goto fail;
