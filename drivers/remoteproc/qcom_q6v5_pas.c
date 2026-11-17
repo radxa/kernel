@@ -1300,6 +1300,8 @@ static const struct qcom_pas_data sc8280xp_nsp0_resource = {
 	.auto_boot = true,
 	.proxy_pd_names = (char*[]){
 		"nsp",
+		"mxc",
+		"cx",
 		NULL
 	},
 	.ssr_name = "cdsp0",
@@ -1314,6 +1316,8 @@ static const struct qcom_pas_data sc8280xp_nsp1_resource = {
 	.auto_boot = true,
 	.proxy_pd_names = (char*[]){
 		"nsp",
+		"mxc",
+		"cx",
 		NULL
 	},
 	.ssr_name = "cdsp1",
