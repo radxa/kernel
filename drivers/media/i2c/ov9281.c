@@ -1355,7 +1355,17 @@ static int ov9281_probe(struct i2c_client *client,
 	snprintf(sd->name, sizeof(sd->name), "m%02d_%s_%s %s",
 		 ov9281->module_index, facing,
 		 OV9281_NAME, dev_name(sd->dev));
-	ret = v4l2_async_register_subdev_sensor(sd);
+	{
+                struct fwnode_handle *ep;
+                ep = fwnode_graph_get_next_endpoint(dev_fwnode(dev), NULL);
+                if (ep) {
+                        dev_info(dev, "Manually found endpoint: %px\n", ep);
+                        sd->fwnode = ep;
+                }else{
+                        dev_err(dev, "Could not find ep!\n");
+                }
+        }
+        ret = v4l2_async_register_subdev(sd);
 	if (ret) {
 		dev_err(dev, "v4l2 async register subdev failed\n");
 		goto err_clean_entity;
