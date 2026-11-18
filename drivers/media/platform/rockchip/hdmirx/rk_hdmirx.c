@@ -5,6 +5,7 @@
  * Author: Dingxian Wen <shawn.wen@rock-chips.com>
  */
 
+#include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/cpufreq.h>
 #include <linux/debugfs.h>
@@ -3618,8 +3619,34 @@ static const char *audio_fifo_err(u32 fifo_status)
 static void hdmirx_enable_audio_output(struct rk_hdmirx_dev *hdmirx_dev,
 				      int ch_audio, int fs_audio, int spdif)
 {
+	u32 lanes, slots = 0;
+	int i;
+
 	if (spdif) {
 		dev_warn(hdmirx_dev->dev, "We don't recommend using spdif\n");
+		return;
+	}
+
+	/*
+	 * Without the override the speaker allocation follows the CA in
+	 * the Audio InfoFrame. If the CA leaves a whole lane unused while
+	 * the source still sends samples on it (e.g. CA 0x04 FL/FR/RC or
+	 * CA 0x08 FL/FR/RL/RR, where channels 3/4 are empty), the audio
+	 * FIFO under- and overflows continuously. Forcing all slots
+	 * (0xffffffff) instead starves the FIFO when fewer than four lanes
+	 * are sent (e.g. 5.1). So mark both slots of every lane that is
+	 * actually present.
+	 */
+	lanes = FIELD_GET(AUD_SAMPLE_PRESENT,
+			  hdmirx_readl(hdmirx_dev, AUDIO_PROC_STATUS1));
+	if (ch_audio > 2 && lanes) {
+		for (i = 0; i < 4; i++)
+			if (lanes & BIT(i))
+				slots |= 0x3 << (2 * i);
+		hdmirx_update_bits(hdmirx_dev, AUDIO_PROC_CONFIG0,
+				   SPEAKER_ALLOC_OVR_EN | I2S_EN,
+				   SPEAKER_ALLOC_OVR_EN | I2S_EN);
+		hdmirx_writel(hdmirx_dev, AUDIO_PROC_CONFIG3, slots);
 	} else {
 		hdmirx_update_bits(hdmirx_dev, AUDIO_PROC_CONFIG0,
 				   SPEAKER_ALLOC_OVR_EN | I2S_EN, I2S_EN);
