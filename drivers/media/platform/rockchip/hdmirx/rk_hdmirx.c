@@ -95,11 +95,17 @@ MODULE_PARM_DESC(low_latency, "low_latency en(0-1)");
 			x == 192000 || \
 			x == 768000)
 
+struct hdmirx_audio_route {
+	u8 active_mask;
+	u8 pending_mask;
+};
+
 struct hdmirx_audiostate {
 	struct platform_device *pdev;
 	u32 hdmirx_aud_clkrate;
 	u32 fs_audio;
 	u32 ch_audio;
+	struct hdmirx_audio_route route;
 	u32 ctsn_flag;
 	u32 fifo_flag;
 	int init_state;
@@ -303,7 +309,7 @@ static void hdmirx_set_fmt(struct hdmirx_stream *stream,
 static void hdmirx_audio_set_state(struct rk_hdmirx_dev *hdmirx_dev, enum audio_stat stat);
 static void hdmirx_audio_setup(struct rk_hdmirx_dev *hdmirx_dev);
 static u32 hdmirx_audio_fs(struct rk_hdmirx_dev *hdmirx_dev);
-static u32 hdmirx_audio_ch(struct rk_hdmirx_dev *hdmirx_dev);
+static u32 hdmirx_audio_ch(struct rk_hdmirx_dev *hdmirx_dev, u32 *ca);
 static void hdmirx_audio_fifo_init(struct rk_hdmirx_dev *hdmirx_dev);
 static void hdmirx_audio_handle_plugged_change(struct rk_hdmirx_dev *hdmirx_dev, bool plugged);
 static void hdmirx_audio_interrupts_setup(struct rk_hdmirx_dev *hdmirx_dev, bool en);
@@ -3380,18 +3386,65 @@ static void hdmirx_delayed_work_hotplug(struct work_struct *work)
 	mutex_unlock(&hdmirx_dev->work_lock);
 }
 
-static u32 hdmirx_audio_ch(struct rk_hdmirx_dev *hdmirx_dev)
+static u32 hdmirx_audio_ch(struct rk_hdmirx_dev *hdmirx_dev, u32 *ca)
 {
-	u32 acr_pb3_0, acr_pb7_4, ch, ca;
+	u32 acr_pb3_0, acr_pb7_4, ch;
 
 	hdmirx_readl(hdmirx_dev, PKTDEC_AUDIF_PH2_1);
 	acr_pb3_0 = hdmirx_readl(hdmirx_dev, PKTDEC_AUDIF_PB3_0);
-	acr_pb7_4 =  hdmirx_readl(hdmirx_dev, PKTDEC_AUDIF_PB7_4);
-	ca = acr_pb7_4 & 0xff;
-	ch = ((acr_pb3_0>>8) & 0x07) + 1;
+	acr_pb7_4 = hdmirx_readl(hdmirx_dev, PKTDEC_AUDIF_PB7_4);
+	*ca = acr_pb7_4 & 0xff;
+	ch = ((acr_pb3_0 >> 8) & 0x07) + 1;
 	dev_dbg(hdmirx_dev->dev, "%s: acr_pb3_0=%#x; ch=%u; ca=%#x\n",
-		__func__, acr_pb3_0, ch, ca);
+		__func__, acr_pb3_0, ch, *ca);
 	return ch;
+}
+
+static bool hdmirx_audio_update_route(struct hdmirx_audio_route *route,
+				      u32 ca, u32 status, bool valid_fs)
+{
+	u32 present = (status & AUD_SAMPLE_PRESENT) >> 17;
+	u8 mask = 0;
+	unsigned int i;
+
+	if ((ca == 0x03 || ca == 0x04 || ca == 0x06 || ca == 0x07 ||
+	     ca == 0x08 || ca == 0x10) &&
+	    (status & AUD_LAYOUT) && !(status & AUD_FMT_ST)) {
+		if (!valid_fs || !present || (status & AUD_SAMPLE_FLAT)) {
+			route->pending_mask = 0;
+			return false;
+		}
+
+		if (ca == 0x04 || ca == 0x08 || present == 0xf)
+			for (i = 0; i < 4; i++)
+				if (present & BIT(i))
+					mask |= 3 << (2 * i);
+	}
+
+	if (mask == route->active_mask) {
+		route->pending_mask = 0;
+		return false;
+	}
+
+	if (mask && mask != route->pending_mask) {
+		route->pending_mask = mask;
+		return false;
+	}
+
+	route->active_mask = mask;
+	route->pending_mask = 0;
+	return true;
+}
+
+static void hdmirx_audio_reset_route(struct rk_hdmirx_dev *hdmirx_dev)
+{
+	struct hdmirx_audio_route *route = &hdmirx_dev->audio_state.route;
+
+	route->active_mask = 0;
+	route->pending_mask = 0;
+	hdmirx_update_bits(hdmirx_dev, AUDIO_PROC_CONFIG0,
+			   SPEAKER_ALLOC_OVR_EN, 0);
+	hdmirx_writel(hdmirx_dev, AUDIO_PROC_CONFIG3, 0);
 }
 
 static u32 hdmirx_audio_fs(struct rk_hdmirx_dev *hdmirx_dev)
@@ -3468,6 +3521,7 @@ static void hdmirx_audio_set_state(struct rk_hdmirx_dev *hdmirx_dev, enum audio_
 	case AUDIO_OFF:
 		cancel_delayed_work_sync(&hdmirx_dev->delayed_work_audio);
 		hdmirx_update_bits(hdmirx_dev, GLOBAL_SWENABLE, AUDIO_ENABLE, 0);
+		hdmirx_audio_reset_route(hdmirx_dev);
 		break;
 	case AUDIO_ON:
 		schedule_delayed_work_on(hdmirx_dev->bound_cpu,
@@ -3489,6 +3543,7 @@ static void hdmirx_audio_setup(struct rk_hdmirx_dev *hdmirx_dev)
 	as->init_state = INIT_FIFO_STATE*4;
 	as->fifo_int = false;
 	as->audio_enabled = false;
+	hdmirx_audio_reset_route(hdmirx_dev);
 	hdmirx_audio_set_fs(hdmirx_dev, 44100);
 	/* Disable audio domain */
 	hdmirx_update_bits(hdmirx_dev, GLOBAL_SWENABLE, AUDIO_ENABLE, 0);
@@ -3616,13 +3671,22 @@ static const char *audio_fifo_err(u32 fifo_status)
 }
 
 static void hdmirx_enable_audio_output(struct rk_hdmirx_dev *hdmirx_dev,
-				      int ch_audio, int fs_audio, int spdif)
+				      int ch_audio, int fs_audio, int spdif,
+				      u32 status)
 {
+	u8 mask = hdmirx_dev->audio_state.route.active_mask;
+	u32 value = (status & AUD_SAMPLE_FLAT) ? 0 : I2S_EN;
+
 	if (spdif) {
 		dev_warn(hdmirx_dev->dev, "We don't recommend using spdif\n");
 	} else {
 		hdmirx_update_bits(hdmirx_dev, AUDIO_PROC_CONFIG0,
-				   SPEAKER_ALLOC_OVR_EN | I2S_EN, I2S_EN);
+				   SPEAKER_ALLOC_OVR_EN, 0);
+		hdmirx_writel(hdmirx_dev, AUDIO_PROC_CONFIG3, mask);
+		if (mask)
+			value |= SPEAKER_ALLOC_OVR_EN;
+		hdmirx_update_bits(hdmirx_dev, AUDIO_PROC_CONFIG0,
+				   SPEAKER_ALLOC_OVR_EN | I2S_EN, value);
 	}
 }
 
@@ -3633,7 +3697,8 @@ static void hdmirx_delayed_work_audio(struct work_struct *work)
 							struct rk_hdmirx_dev,
 							delayed_work_audio);
 	struct hdmirx_audiostate *as = &hdmirx_dev->audio_state;
-	u32 fs_audio, ch_audio, sample_flat;
+	u32 fs_audio, ch_audio, ca_audio, audio_status, sample_flat;
+	bool route_changed;
 	int cur_state, init_state, pre_state, fifo_status2;
 	unsigned long delay = 200;
 
@@ -3644,8 +3709,19 @@ static void hdmirx_delayed_work_audio(struct work_struct *work)
 		as->audio_enabled = true;
 	}
 	fs_audio = hdmirx_audio_fs(hdmirx_dev);
-	ch_audio = hdmirx_audio_ch(hdmirx_dev);
-	fifo_status2 =  hdmirx_readl(hdmirx_dev, AUDIO_FIFO_STATUS2);
+	ch_audio = hdmirx_audio_ch(hdmirx_dev, &ca_audio);
+	audio_status = hdmirx_readl(hdmirx_dev, AUDIO_PROC_STATUS1);
+	route_changed = hdmirx_audio_update_route(&as->route, ca_audio,
+						 audio_status, is_validfs(fs_audio));
+	if (route_changed) {
+		dev_info(hdmirx_dev->dev,
+			 "audio route ca=%#x present=%#x mask=%#x\n",
+			 ca_audio, (u32)(audio_status & AUD_SAMPLE_PRESENT) >> 17,
+			 as->route.active_mask);
+		if (!as->route.active_mask)
+			hdmirx_audio_reset_route(hdmirx_dev);
+	}
+	fifo_status2 = hdmirx_readl(hdmirx_dev, AUDIO_FIFO_STATUS2);
 	if (fifo_status2 & (AFIFO_UNDERFLOW_ST | AFIFO_OVERFLOW_ST)) {
 		dev_warn(hdmirx_dev->dev, "%s: audio %s %#x, with fs %svalid %d\n",
 			 __func__, audio_fifo_err(fifo_status2), fifo_status2,
@@ -3653,7 +3729,8 @@ static void hdmirx_delayed_work_audio(struct work_struct *work)
 		if (is_validfs(fs_audio)) {
 			hdmirx_audio_set_fs(hdmirx_dev, fs_audio);
 			hdmirx_audio_set_ch(hdmirx_dev, ch_audio);
-			hdmirx_enable_audio_output(hdmirx_dev, ch_audio, fs_audio, 0);
+			hdmirx_enable_audio_output(hdmirx_dev, ch_audio, fs_audio, 0,
+						   audio_status);
 		}
 		hdmirx_audio_fifo_init(hdmirx_dev);
 		as->pre_state = 0;
@@ -3669,12 +3746,14 @@ static void hdmirx_delayed_work_audio(struct work_struct *work)
 			 "%s: no supported fs(%u), cur_state %d\n",
 			 __func__, fs_audio, cur_state);
 		delay = 1000;
-	} else if (abs(fs_audio - as->fs_audio) > 1000 || ch_audio != as->ch_audio) {
+	} else if (abs(fs_audio - as->fs_audio) > 1000 ||
+		   ch_audio != as->ch_audio || route_changed) {
 		dev_info(hdmirx_dev->dev, "%s: restart audio fs(%d -> %d) ch(%d -> %d)\n",
 			 __func__, as->fs_audio, fs_audio, as->ch_audio, ch_audio);
 		hdmirx_audio_set_fs(hdmirx_dev, fs_audio);
 		hdmirx_audio_set_ch(hdmirx_dev, ch_audio);
-		hdmirx_enable_audio_output(hdmirx_dev, ch_audio, fs_audio, 0);
+		hdmirx_enable_audio_output(hdmirx_dev, ch_audio, fs_audio, 0,
+						   audio_status);
 		hdmirx_audio_fifo_init(hdmirx_dev);
 		as->pre_state = 0;
 		goto exit;
