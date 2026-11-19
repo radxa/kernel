@@ -493,6 +493,32 @@ int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 	return 0;
 }
 
+/**
+ * msm_dp_mst_get_dsc_config() - get the DSC configuration of an MST stream
+ * @enc: the encoder of the stream
+ * @state: the atomic commit
+ *
+ * Returns: the DSC configuration computed for the stream of @enc in @state,
+ * or NULL if the stream is not compressed. The configuration is part of the
+ * connector state and is only valid for the lifetime of @state.
+ */
+struct drm_dsc_config *msm_dp_mst_get_dsc_config(struct drm_encoder *enc,
+						 struct drm_atomic_commit *state)
+{
+	struct drm_connector *connector =
+		drm_atomic_get_new_connector_for_encoder(state, enc);
+	struct drm_connector_state *conn_state;
+	struct msm_dp_bridge_state *dp_state;
+
+	if (!connector || connector->funcs != &msm_dp_drm_mst_connector_funcs)
+		return NULL;
+
+	conn_state = drm_atomic_get_new_connector_state(state, connector);
+	dp_state = &to_msm_dp_mst_connector_state(conn_state)->dp_state;
+
+	return dp_state->dsc_enabled ? &dp_state->dsc : NULL;
+}
+
 int msm_dp_mst_attach_encoder(struct msm_dp *dp_display, unsigned int stream_id,
 			      struct drm_encoder *encoder)
 {

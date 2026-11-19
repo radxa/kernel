@@ -377,6 +377,8 @@ void msm_dp_mst_stream_post_disable(struct drm_encoder *enc, struct drm_atomic_c
 int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 				   struct drm_crtc_state *crtc_state,
 				   struct drm_connector_state *conn_state);
+struct drm_dsc_config *msm_dp_mst_get_dsc_config(struct drm_encoder *enc,
+						 struct drm_atomic_commit *state);
 
 #else
 static inline int __init msm_dp_register(void)
@@ -461,6 +463,12 @@ static inline int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 						 struct drm_connector_state *cos)
 {
 	return -EINVAL;
+}
+
+static inline struct drm_dsc_config *
+msm_dp_mst_get_dsc_config(struct drm_encoder *enc, struct drm_atomic_commit *state)
+{
+	return NULL;
 }
 
 #endif
