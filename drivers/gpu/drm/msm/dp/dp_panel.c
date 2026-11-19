@@ -645,7 +645,7 @@ void msm_dp_panel_tpg_config(struct msm_dp_panel *msm_dp_panel, bool enable)
 
 /**
  * msm_dp_panel_dsc_compute_config() - compute the DSC configuration of a mode
- * @msm_dp_panel: the panel driving the stream
+ * @dsc_dpcd: the DSC capabilities of the device decompressing the stream
  * @mode: the mode to compress
  * @bpc: the uncompressed component depth
  * @is_edp: whether the sink is an eDP panel
@@ -658,7 +658,7 @@ void msm_dp_panel_tpg_config(struct msm_dp_panel *msm_dp_panel, bool enable)
  * Returns: 0 on success, or a negative error code if the sink cannot
  * decompress the stream.
  */
-int msm_dp_panel_dsc_compute_config(struct msm_dp_panel *msm_dp_panel,
+int msm_dp_panel_dsc_compute_config(const u8 dsc_dpcd[DP_DSC_RECEIVER_CAP_SIZE],
 				    const struct drm_display_mode *mode,
 				    unsigned int bpc, bool is_edp,
 				    struct drm_dsc_config *dsc)
@@ -669,7 +669,6 @@ int msm_dp_panel_dsc_compute_config(struct msm_dp_panel *msm_dp_panel,
 	 */
 	static const unsigned int slice_counts[] = { 2, 4 };
 	static const unsigned int slice_heights[] = { 108, 16, 12, 15, 8 };
-	const u8 *dsc_dpcd = msm_dp_panel->dsc_dpcd;
 	unsigned int major, minor, max_slice_width, throughput, i;
 	u8 rev, input_bpcs[3];
 	int num_bpcs, max_bpp_x16, ret;

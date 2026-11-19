@@ -860,12 +860,15 @@ static int msm_dp_display_set_mode(struct msm_dp *msm_dp_display,
 	return 0;
 }
 
+/*
+ * Check whether a mode can be compressed for a device with the DSC
+ * capabilities @dsc_dpcd, reached through a link that carries FEC if @fec.
+ */
 static bool msm_dp_display_dsc_supported(struct msm_dp_display_private *dp,
 					 const struct drm_display_info *info,
-					 const struct drm_display_mode *mode)
+					 const struct drm_display_mode *mode,
+					 const u8 *dsc_dpcd, bool fec)
 {
-	struct msm_dp_panel *panel = dp->panel;
-
 	lockdep_assert_held(&dp->plugged_lock);
 
 	/*
@@ -873,34 +876,31 @@ static bool msm_dp_display_dsc_supported(struct msm_dp_display_private *dp,
 	 * compressed stream transferred on a wide bus.
 	 */
 	if (!dp->dsc_max_width || !dp->wide_bus_supported ||
-	    panel->hw_revision < DP_HW_VERSION_1_2)
+	    dp->panel->hw_revision < DP_HW_VERSION_1_2)
 		return false;
 
-	if (dp->msm_dp_display.mst_active || panel->video_test ||
-	    mode->hdisplay > dp->dsc_max_width ||
+	if (dp->panel->video_test || mode->hdisplay > dp->dsc_max_width ||
 	    drm_mode_is_420_only(info, mode))
 		return false;
 
-	if (!drm_dp_sink_supports_dsc(panel->dsc_dpcd))
+	if (!drm_dp_sink_supports_dsc(dsc_dpcd))
 		return false;
 
 	/* FEC is mandatory to transfer a compressed stream over DP. */
-	return dp->msm_dp_display.is_edp || drm_dp_sink_supports_fec(panel->fec_cap);
+	return dp->msm_dp_display.is_edp || fec;
 }
 
+/* Use the deepest component depth that the decompressing device supports. */
 static int msm_dp_display_compute_dsc(struct msm_dp_display_private *dp,
-				      struct msm_dp_bridge_state *state,
+				      struct drm_dsc_config *dsc,
 				      const struct drm_display_info *info,
 				      const struct drm_display_mode *mode,
-				      unsigned int max_bpc, bool hdr)
+				      const u8 *dsc_dpcd, unsigned int max_bpc,
+				      bool hdr)
 {
 	static const unsigned int bpcs[] = { 10, 8 };
-	bool is_edp = dp->msm_dp_display.is_edp;
 	unsigned int i;
 	int ret = -EOPNOTSUPP;
-
-	if (!msm_dp_display_dsc_supported(dp, info, mode))
-		return ret;
 
 	max_bpc = min(info->bpc ? info->bpc : 8, max_bpc);
 
@@ -908,33 +908,62 @@ static int msm_dp_display_compute_dsc(struct msm_dp_display_private *dp,
 		if (bpcs[i] > max_bpc || (hdr && bpcs[i] < 10))
 			continue;
 
-		ret = msm_dp_panel_dsc_compute_config(dp->panel, mode, bpcs[i],
-						      is_edp, &state->dsc);
+		ret = msm_dp_panel_dsc_compute_config(dsc_dpcd, mode, bpcs[i],
+						      dp->msm_dp_display.is_edp,
+						      dsc);
 		if (ret)
 			continue;
-
-		if (!msm_dp_utils_dsc_link_fits(mode->clock, mode->hdisplay,
-						state->dsc.slice_count,
-						state->dsc.bits_per_pixel,
-						state->link_rate, state->num_lanes,
-						!is_edp)) {
-			ret = -ENOSPC;
-			continue;
-		}
-
-		state->dsc_enabled = true;
-		state->fec_enabled = !is_edp;
 
 		drm_dbg_dp(dp->drm_dev,
 			   "DSC: %ux%u %u bpc, %u slices of %ux%u, DSC v1.%u\n",
 			   mode->hdisplay, mode->vdisplay, bpcs[i],
-			   state->dsc.slice_count, state->dsc.slice_width,
-			   state->dsc.slice_height, state->dsc.dsc_version_minor);
-
+			   dsc->slice_count, dsc->slice_width,
+			   dsc->slice_height, dsc->dsc_version_minor);
 		return 0;
 	}
 
 	return ret;
+}
+
+static bool msm_dp_display_sst_dsc_supported(struct msm_dp_display_private *dp,
+					     const struct drm_display_info *info,
+					     const struct drm_display_mode *mode)
+{
+	const struct msm_dp_panel *panel = dp->panel;
+
+	return !dp->msm_dp_display.mst_active &&
+	       msm_dp_display_dsc_supported(dp, info, mode, panel->dsc_dpcd,
+					    drm_dp_sink_supports_fec(panel->fec_cap));
+}
+
+static int msm_dp_display_compute_sst_dsc(struct msm_dp_display_private *dp,
+					  struct msm_dp_bridge_state *state,
+					  const struct drm_display_info *info,
+					  const struct drm_display_mode *mode,
+					  unsigned int max_bpc, bool hdr)
+{
+	bool is_edp = dp->msm_dp_display.is_edp;
+	int ret;
+
+	if (!msm_dp_display_sst_dsc_supported(dp, info, mode))
+		return -EOPNOTSUPP;
+
+	ret = msm_dp_display_compute_dsc(dp, &state->dsc, info, mode,
+					 dp->panel->dsc_dpcd, max_bpc, hdr);
+	if (ret)
+		return ret;
+
+	if (!msm_dp_utils_dsc_link_fits(mode->clock, mode->hdisplay,
+					state->dsc.slice_count,
+					state->dsc.bits_per_pixel,
+					state->link_rate, state->num_lanes,
+					!is_edp))
+		return -ENOSPC;
+
+	state->dsc_enabled = true;
+	state->fec_enabled = !is_edp;
+
+	return 0;
 }
 
 int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
@@ -984,7 +1013,7 @@ int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
 	 * but prefer compression to a reduced component depth.
 	 */
 	if (allow_dsc && bpp < 24 &&
-	    !msm_dp_display_compute_dsc(dp, state, info, mode, max_bpc, hdr))
+	    !msm_dp_display_compute_sst_dsc(dp, state, info, mode, max_bpc, hdr))
 		bpp = state->dsc.bits_per_component * 3;
 
 	if (bpp < 0)
@@ -1216,11 +1245,11 @@ static bool msm_dp_display_dsc_mode_valid(struct msm_dp_display_private *dp,
 	const struct msm_dp_link_info *link_info = &dp->link->link_caps;
 	struct drm_dsc_config dsc;
 
-	if (!msm_dp_display_dsc_supported(dp, info, mode))
+	if (!msm_dp_display_sst_dsc_supported(dp, info, mode))
 		return false;
 
 	/* Every DSC sink supports 8 bpc input. */
-	if (msm_dp_panel_dsc_compute_config(dp->panel, mode, 8,
+	if (msm_dp_panel_dsc_compute_config(dp->panel->dsc_dpcd, mode, 8,
 					    dp->msm_dp_display.is_edp, &dsc))
 		return false;
 
