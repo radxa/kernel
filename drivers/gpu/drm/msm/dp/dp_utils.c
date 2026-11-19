@@ -54,7 +54,17 @@ u8 msm_dp_utils_get_g1_value(u8 data)
 	return ret_data;
 }
 
-u8 msm_dp_utils_calculate_parity(u32 data)
+/**
+ * msm_dp_utils_calculate_parity() - calculate the SDP parity byte
+ * @data: data word, least significant byte first
+ * @num_bytes: number of valid bytes in @data (1 to 4)
+ *
+ * Calculate the Reed-Solomon parity byte that protects @num_bytes bytes of
+ * SDP header or payload data.
+ *
+ * Returns: the parity byte.
+ */
+u8 msm_dp_utils_calculate_parity(u32 data, unsigned int num_bytes)
 {
 	u8 x0 = 0;
 	u8 x1 = 0;
@@ -62,9 +72,9 @@ u8 msm_dp_utils_calculate_parity(u32 data)
 	u8 iData = 0;
 	u8 i = 0;
 	u8 parity_byte;
-	u8 num_byte = data > 0xFF ? 8 : 2;
+	u8 num_nibbles = num_bytes * 2;
 
-	for (i = 0; i < num_byte; i++) {
+	for (i = 0; i < num_nibbles; i++) {
 		iData = (data >> i * 4) & 0xF;
 
 		ci = iData ^ x1;
@@ -81,14 +91,14 @@ void msm_dp_utils_pack_sdp_header(const struct dp_sdp_header *sdp_header,
 				  u32 header_buff[2])
 {
 	header_buff[0] = FIELD_PREP(HEADER_0_MASK, sdp_header->HB0) |
-		FIELD_PREP(PARITY_0_MASK, msm_dp_utils_calculate_parity(sdp_header->HB0)) |
+		FIELD_PREP(PARITY_0_MASK, msm_dp_utils_calculate_parity(sdp_header->HB0, 1)) |
 		FIELD_PREP(HEADER_1_MASK, sdp_header->HB1) |
-		FIELD_PREP(PARITY_1_MASK, msm_dp_utils_calculate_parity(sdp_header->HB1));
+		FIELD_PREP(PARITY_1_MASK, msm_dp_utils_calculate_parity(sdp_header->HB1, 1));
 
 	header_buff[1] = FIELD_PREP(HEADER_2_MASK, sdp_header->HB2) |
-		FIELD_PREP(PARITY_2_MASK, msm_dp_utils_calculate_parity(sdp_header->HB2)) |
+		FIELD_PREP(PARITY_2_MASK, msm_dp_utils_calculate_parity(sdp_header->HB2, 1)) |
 		FIELD_PREP(HEADER_3_MASK, sdp_header->HB3) |
-		FIELD_PREP(PARITY_3_MASK, msm_dp_utils_calculate_parity(sdp_header->HB3));
+		FIELD_PREP(PARITY_3_MASK, msm_dp_utils_calculate_parity(sdp_header->HB3, 1));
 }
 
 bool msm_dp_utils_link_fits(unsigned int clock, unsigned int bpp,
