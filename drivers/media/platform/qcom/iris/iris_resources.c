@@ -6,6 +6,7 @@
 #include <linux/clk.h>
 #include <linux/devfreq.h>
 #include <linux/interconnect.h>
+#include <linux/of.h>
 #include <linux/pm_domain.h>
 #include <linux/pm_opp.h>
 #include <linux/pm_runtime.h>
@@ -36,6 +37,9 @@ int iris_set_icc_bw(struct iris_core *core, unsigned long icc_bw)
 				return ret;
 
 			core->icc_tbl[i].avg_bw = bw_kbps;
+			/* Cleared by iris_unset_icc_bw() at VPU power-off. */
+			if (of_machine_is_compatible("qcom,sc8280xp"))
+				core->icc_tbl[i].peak_bw = GBps_to_icc(9U);
 
 			core->power.icc_bw = bw_kbps;
 			break;
