@@ -362,6 +362,8 @@ bool msm_dp_needs_periph_flush(const struct msm_dp *dp_display,
 			       unsigned int stream_id, bool mst);
 bool msm_dp_wide_bus_available(const struct msm_dp *dp_display,
 			       unsigned int stream_id, bool mst);
+struct drm_dsc_config *msm_dp_get_dsc_config(struct msm_dp *dp_display,
+					     struct drm_atomic_commit *state);
 int msm_dp_get_mst_max_stream(struct msm_dp *dp_display);
 void msm_dp_set_mst_max_stream(struct msm_dp *dp, unsigned int max_streams);
 int msm_dp_mst_register(struct msm_dp *dp_display);
@@ -406,6 +408,12 @@ static inline bool msm_dp_wide_bus_available(const struct msm_dp *dp_display,
 					     unsigned int stream_id, bool mst)
 {
 	return false;
+}
+
+static inline struct drm_dsc_config *
+msm_dp_get_dsc_config(struct msm_dp *dp_display, struct drm_atomic_commit *state)
+{
+	return NULL;
 }
 
 static inline int msm_dp_get_mst_max_stream(struct msm_dp *dp_display)

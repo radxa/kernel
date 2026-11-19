@@ -2004,6 +2004,33 @@ bool msm_dp_wide_bus_available(const struct msm_dp *msm_dp_display,
 	return dp->wide_bus_supported;
 }
 
+/**
+ * msm_dp_get_dsc_config() - get the DSC configuration of the SST stream
+ * @msm_dp_display: the DP controller
+ * @state: the atomic commit
+ *
+ * Returns: the DSC configuration computed for the SST stream in @state, or
+ * NULL if the stream is not compressed. The configuration is part of the
+ * bridge state and is only valid for the lifetime of @state.
+ */
+struct drm_dsc_config *msm_dp_get_dsc_config(struct msm_dp *msm_dp_display,
+					     struct drm_atomic_commit *state)
+{
+	struct drm_bridge_state *bridge_state;
+	struct msm_dp_bridge_state *dp_state;
+
+	if (!msm_dp_display->bridge)
+		return NULL;
+
+	bridge_state = drm_atomic_get_new_bridge_state(state, msm_dp_display->bridge);
+	if (!bridge_state)
+		return NULL;
+
+	dp_state = to_dp_bridge_state(bridge_state);
+
+	return dp_state->dsc_enabled ? &dp_state->dsc : NULL;
+}
+
 void msm_dp_display_debugfs_init(struct msm_dp *msm_dp_display, struct dentry *root, bool is_edp)
 {
 	struct msm_dp_display_private *dp;
