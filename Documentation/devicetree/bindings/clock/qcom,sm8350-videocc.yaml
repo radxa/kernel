@@ -30,14 +30,16 @@ properties:
       - description: Board sleep clock
 
   power-domains:
-    description:
-      A phandle and PM domain specifier for the MMCX power domain.
-    maxItems: 1
+    minItems: 1
+    items:
+      - description: MMCX power domain
+      - description: MXC power domain (SC8280XP only)
 
   required-opps:
-    description:
-      A phandle to an OPP node describing required MMCX performance point.
-    maxItems: 1
+    minItems: 1
+    items:
+      - description: Required MMCX performance point
+      - description: Required MXC performance point (SC8280XP only)
 
 required:
   - compatible
@@ -47,6 +49,26 @@ required:
 
 allOf:
   - $ref: qcom,gcc.yaml#
+  - if:
+      properties:
+        compatible:
+          const: qcom,sm8350-videocc
+    then:
+      properties:
+        power-domains:
+          maxItems: 1
+  - if:
+      properties:
+        power-domains:
+          minItems: 2
+    then:
+      properties:
+        required-opps:
+          minItems: 2
+    else:
+      properties:
+        required-opps:
+          maxItems: 1
 
 unevaluatedProperties: false
 
