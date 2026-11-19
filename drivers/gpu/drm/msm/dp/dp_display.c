@@ -844,6 +844,7 @@ static int msm_dp_display_set_mode(struct msm_dp *msm_dp_display,
 	msm_dp_panel->sdp_needs_flush = old_state->vsc_enabled || state->vsc_enabled ||
 		old_state->hdr_enabled || state->hdr_enabled;
 	msm_dp_panel_init_panel_info(msm_dp_panel, adjusted_mode, bpp ? bpp : 24);
+	msm_dp_panel->msm_dp_mode.fec_enabled = state->fec_enabled;
 
 	/* populate wide_bus_support to different layers */
 	dp->ctrl->wide_bus_en =
