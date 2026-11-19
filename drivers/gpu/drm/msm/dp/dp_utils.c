@@ -3,6 +3,7 @@
  * Copyright (c) 2024, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/math64.h>
 #include <linux/types.h>
 #include <drm/display/drm_hdmi_helper.h>
 #include <drm/drm_property.h>
@@ -145,6 +146,41 @@ bool msm_dp_utils_dsc_link_fits(unsigned int clock, unsigned int hactive,
 
 	return DIV_ROUND_UP_ULL((u64)clock * bpp_x16 * overhead,
 				16 * 1000000) <= available;
+}
+
+/**
+ * msm_dp_utils_mst_pbn() - compute the PBN of an MST stream
+ * @clock: pixel clock of the mode in kHz
+ * @hactive: active width of the mode
+ * @lanes: number of lanes of the link
+ * @slice_count: number of DSC slices per line, or 0 if the stream is not
+ *	compressed
+ * @bpp_x16: bits per pixel on the link, in U6.4 fixed point
+ * @fec: whether FEC is enabled on the link
+ *
+ * Returns: the PBN to allocate to the stream, including the SSC margin and
+ * the FEC and compression overheads, or a negative error code.
+ */
+int msm_dp_utils_mst_pbn(unsigned int clock, unsigned int hactive,
+			 unsigned int lanes, unsigned int slice_count,
+			 unsigned int bpp_x16, bool fec)
+{
+	unsigned long flags = DRM_DP_BW_OVERHEAD_MST | DRM_DP_BW_OVERHEAD_SSC_REF_CLK;
+	int overhead;
+
+	if (!clock)
+		return -EINVAL;
+
+	if (fec)
+		flags |= DRM_DP_BW_OVERHEAD_FEC;
+
+	overhead = drm_dp_bw_overhead(lanes, hactive, slice_count, bpp_x16, flags);
+	if (overhead <= 0)
+		return -EINVAL;
+
+	/* One PBN is 54/64 MBps. */
+	return DIV64_U64_ROUND_UP((u64)clock * bpp_x16 * overhead * 64,
+				  16ULL * 8 * 54 * 1000 * 1000000);
 }
 
 int msm_dp_utils_select_bpp(unsigned int bpc, unsigned int max_bpc,

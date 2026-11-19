@@ -42,6 +42,9 @@ bool msm_dp_utils_link_fits(unsigned int clock, unsigned int bpp,
 bool msm_dp_utils_dsc_link_fits(unsigned int clock, unsigned int hactive,
 				unsigned int slice_count, unsigned int bpp_x16,
 				unsigned int rate, unsigned int lanes, bool fec);
+int msm_dp_utils_mst_pbn(unsigned int clock, unsigned int hactive,
+			 unsigned int lanes, unsigned int slice_count,
+			 unsigned int bpp_x16, bool fec);
 int msm_dp_utils_select_bpp(unsigned int bpc, unsigned int max_bpc,
 			    unsigned int clock, unsigned int rate,
 			    unsigned int lanes, bool yuv420, bool hdr);

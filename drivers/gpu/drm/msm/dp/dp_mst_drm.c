@@ -8,6 +8,7 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/display/drm_dp_mst_helper.h>
 #include <linux/pm_runtime.h>
+#include <linux/string_choices.h>
 
 #include "dp_mst_drm.h"
 #include "dp_drm.h"
@@ -19,16 +20,29 @@
 
 #define MSM_DP_MST_HPD_IRQ_MAX_TRIES 30
 
+/* Capabilities of the device decompressing the stream of an MST port */
+struct msm_dp_mst_dsc_caps {
+	struct drm_dp_aux *aux;
+	u8 dpcd[DP_DSC_RECEIVER_CAP_SIZE];
+	u8 fec_cap;
+};
+
 struct msm_dp_mst_connector {
 	struct drm_connector connector;
 	struct drm_dp_mst_port *mst_port;
 	struct msm_dp_mst *dp_mst;
+	/* Protected by msm_dp_mst::mst_lock */
+	struct msm_dp_mst_dsc_caps dsc_caps;
+	/* AUX device decompression is enabled through, protected by mst_lock */
+	struct drm_dp_aux *dsc_enabled_aux;
 };
 
 struct msm_dp_mst_connector_state {
 	struct drm_connector_state base;
 	struct msm_dp_bridge_state dp_state;
 	struct drm_encoder *encoder;
+	/* AUX device of the device decompressing the stream */
+	struct drm_dp_aux *dsc_aux;
 };
 
 #define to_msm_dp_mst_connector_state(x) \
@@ -47,6 +61,8 @@ struct msm_dp_mst {
 	struct msm_dp_link *link;
 	struct drm_dp_aux *dp_aux;
 	u32 max_streams;
+	/* FEC capability of the branch device, protected by mst_lock */
+	u8 fec_cap;
 	/* Serializes concurrent stream link-state access across streams. */
 	struct mutex mst_lock;
 	/* Serializes HPD IRQ handling between IRQ handler and poll_hpd_irq. */
@@ -137,6 +153,33 @@ msm_dp_mst_connector_detect(struct drm_connector *connector,
 	return status;
 }
 
+static void msm_dp_mst_read_dsc_caps(struct msm_dp_mst_connector *mst_conn)
+{
+	struct msm_dp_mst *mst = mst_conn->dp_mst;
+	struct msm_dp_mst_dsc_caps caps = {};
+	u8 fec_cap;
+
+	/* The branch device may update its capabilities after enumeration. */
+	if (drm_dp_dpcd_read_byte(mst->dp_aux, DP_FEC_CAPABILITY, &fec_cap) < 0)
+		fec_cap = 0;
+
+	caps.aux = drm_dp_mst_dsc_aux_for_port(mst_conn->mst_port);
+	if (caps.aux &&
+	    (drm_dp_dpcd_read_data(caps.aux, DP_DSC_SUPPORT, caps.dpcd,
+				   sizeof(caps.dpcd)) < 0 ||
+	     drm_dp_dpcd_read_byte(caps.aux, DP_FEC_CAPABILITY, &caps.fec_cap) < 0))
+		memset(&caps, 0, sizeof(caps));
+
+	drm_dbg_dp(mst->msm_dp->drm_dev,
+		   "[MST] conn:%d DSC caps: %*ph FEC: %#x, branch FEC: %#x\n",
+		   mst_conn->connector.base.id, (int)sizeof(caps.dpcd), caps.dpcd,
+		   caps.fec_cap, fec_cap);
+
+	guard(mutex)(&mst->mst_lock);
+	mst->fec_cap = fec_cap;
+	mst_conn->dsc_caps = caps;
+}
+
 static int msm_dp_mst_connector_get_modes(struct drm_connector *connector)
 {
 	struct msm_dp_mst_connector *mst_conn = to_dp_mst_connector(connector);
@@ -146,6 +189,9 @@ static int msm_dp_mst_connector_get_modes(struct drm_connector *connector)
 
 	drm_edid = drm_dp_mst_edid_read(connector, &mst->mst_mgr, mst_conn->mst_port);
 	drm_edid_connector_update(connector, drm_edid);
+
+	if (drm_edid)
+		msm_dp_mst_read_dsc_caps(mst_conn);
 
 	rc = drm_edid_connector_add_modes(connector);
 
@@ -202,46 +248,197 @@ static int msm_dp_mst_connector_atomic_check(struct drm_connector *connector,
 	return drm_dp_atomic_release_time_slots(state, &mst->mst_mgr, mst_conn->mst_port);
 }
 
-static int msm_dp_mst_select_bpp(struct drm_atomic_commit *state,
+static bool msm_dp_mst_is_connector(const struct drm_connector *connector,
+				    const struct msm_dp_mst *mst)
+{
+	return connector->funcs == &msm_dp_drm_mst_connector_funcs &&
+	       to_dp_mst_connector(connector)->dp_mst == mst;
+}
+
+/*
+ * FEC is enabled on the link when it is trained, if the branch device supports
+ * it. The link stays up, and keeps its FEC state, as long as a stream is not
+ * modeset.
+ */
+static bool msm_dp_mst_link_fec(struct drm_atomic_commit *state,
+				struct msm_dp_mst *mst,
+				struct drm_connector *connector, u8 fec_cap)
+{
+	struct drm_connector_list_iter conn_iter;
+	struct drm_connector *iter;
+	int fec = -1;
+
+	drm_connector_list_iter_begin(connector->dev, &conn_iter);
+	drm_for_each_connector_iter(iter, &conn_iter) {
+		struct drm_connector_state *peer_state;
+		struct drm_crtc_state *crtc_state;
+
+		if (iter == connector || !msm_dp_mst_is_connector(iter, mst))
+			continue;
+
+		peer_state = drm_atomic_get_new_connector_state(state, iter) ?: iter->state;
+		if (!peer_state || !peer_state->crtc)
+			continue;
+
+		crtc_state = drm_atomic_get_new_crtc_state(state, peer_state->crtc);
+		if (crtc_state && drm_atomic_crtc_needs_modeset(crtc_state))
+			continue;
+
+		fec = to_msm_dp_mst_connector_state(peer_state)->dp_state.fec_enabled;
+		break;
+	}
+	drm_connector_list_iter_end(&conn_iter);
+
+	return fec < 0 ? drm_dp_sink_supports_fec(fec_cap) : fec;
+}
+
+/* Allocate the time slots of the stream on the link, if they are available. */
+static int msm_dp_mst_find_slots(struct drm_atomic_commit *state,
 				 struct msm_dp_mst *mst,
 				 const struct drm_dp_mst_topology_state *mst_state,
-				 struct drm_dp_mst_port *port,
-				 const struct drm_display_mode *mode,
-				 u32 min_bpp, u32 max_bpp, bool yuv420, u32 *bpp)
+				 struct drm_dp_mst_port *port, int pbn)
+{
+	struct drm_dp_mst_atomic_payload *payload;
+	int slots, total_slots = 0;
+
+	if (pbn < 0)
+		return pbn;
+
+	if (pbn > port->full_pbn)
+		return -ENOSPC;
+
+	slots = drm_dp_atomic_find_time_slots(state, &mst->mst_mgr, port, pbn);
+	if (slots < 0)
+		return slots;
+
+	list_for_each_entry(payload, &mst_state->payloads, next) {
+		if (!payload->delete)
+			total_slots += payload->time_slots;
+	}
+
+	return total_slots <= mst_state->total_avail_slots ? slots : -ENOSPC;
+}
+
+static int msm_dp_mst_try_uncompressed(struct drm_atomic_commit *state,
+				       struct msm_dp_mst *mst,
+				       const struct drm_dp_mst_topology_state *mst_state,
+				       struct drm_dp_mst_port *port,
+				       const struct drm_display_mode *mode,
+				       struct msm_dp_bridge_state *dp_state,
+				       u32 min_bpp, u32 max_bpp, bool yuv420)
 {
 	static const u32 bpps[] = { 30, 24, 18 };
 	unsigned int i;
+	int pbn, slots;
 
 	for (i = 0; i < ARRAY_SIZE(bpps); i++) {
-		struct drm_dp_mst_atomic_payload *payload;
-		int pbn, slots, total_slots = 0;
-
 		if (bpps[i] > max_bpp || bpps[i] < min_bpp)
 			continue;
 
-		pbn = drm_dp_calc_pbn_mode(mode->clock, bpps[i] << (yuv420 ? 3 : 4));
-		if (pbn > port->full_pbn)
+		pbn = msm_dp_utils_mst_pbn(mode->clock, mode->hdisplay,
+					   dp_state->num_lanes, 0,
+					   bpps[i] << (yuv420 ? 3 : 4),
+					   dp_state->fec_enabled);
+		slots = msm_dp_mst_find_slots(state, mst, mst_state, port, pbn);
+		if (slots == -ENOSPC)
 			continue;
-
-		slots = drm_dp_atomic_find_time_slots(state, &mst->mst_mgr, port, pbn);
 		if (slots < 0)
 			return slots;
 
-		list_for_each_entry(payload, &mst_state->payloads, next) {
-			if (!payload->delete)
-				total_slots += payload->time_slots;
-		}
-
-		if (total_slots <= mst_state->total_avail_slots) {
-			drm_dbg_kms(mst->msm_dp->drm_dev,
-				    "[MST] bpp=%u pbn=%d slots=%d\n",
-				    bpps[i], pbn, slots);
-			*bpp = bpps[i];
-			return 0;
-		}
+		drm_dbg_kms(mst->msm_dp->drm_dev, "[MST] bpp=%u pbn=%d slots=%d\n",
+			    bpps[i], pbn, slots);
+		dp_state->bpp = bpps[i];
+		return 0;
 	}
 
 	return -ENOSPC;
+}
+
+static int msm_dp_mst_try_dsc(struct drm_atomic_commit *state,
+			      struct msm_dp_mst_connector *mst_conn,
+			      const struct drm_dp_mst_topology_state *mst_state,
+			      struct drm_connector_state *conn_state,
+			      const struct drm_display_mode *mode,
+			      const struct msm_dp_mst_dsc_caps *caps)
+{
+	struct msm_dp_mst_connector_state *mst_conn_state =
+		to_msm_dp_mst_connector_state(conn_state);
+	struct msm_dp_bridge_state *dp_state = &mst_conn_state->dp_state;
+	const struct drm_dsc_config *dsc = &dp_state->dsc;
+	struct msm_dp_mst *mst = mst_conn->dp_mst;
+	int pbn, slots;
+
+	/* The decompressing device has to support FEC too. */
+	if (!caps->aux || !drm_dp_sink_supports_fec(caps->fec_cap))
+		return -EOPNOTSUPP;
+
+	if (msm_dp_display_mst_compute_dsc(mst->msm_dp, dp_state, conn_state,
+					   mode, caps->dpcd))
+		return -EOPNOTSUPP;
+
+	pbn = msm_dp_utils_mst_pbn(mode->clock, mode->hdisplay, dp_state->num_lanes,
+				   dsc->slice_count, dsc->bits_per_pixel,
+				   dp_state->fec_enabled);
+	slots = msm_dp_mst_find_slots(state, mst, mst_state, mst_conn->mst_port, pbn);
+	if (slots < 0)
+		return slots;
+
+	drm_dbg_kms(mst->msm_dp->drm_dev,
+		    "[MST] DSC %u bpc to " FXP_Q4_FMT " bpp, pbn=%d slots=%d\n",
+		    dsc->bits_per_component, FXP_Q4_ARGS(dsc->bits_per_pixel),
+		    pbn, slots);
+
+	dp_state->dsc_enabled = true;
+	dp_state->bpp = dsc->bits_per_component * 3;
+	mst_conn_state->dsc_aux = caps->aux;
+
+	return 0;
+}
+
+/*
+ * Only compress the stream when it does not fit the link otherwise, but
+ * prefer compression to a reduced component depth.
+ */
+static int msm_dp_mst_compute_config(struct drm_atomic_commit *state,
+				     struct msm_dp_mst_connector *mst_conn,
+				     const struct drm_dp_mst_topology_state *mst_state,
+				     struct drm_connector_state *conn_state,
+				     const struct drm_display_mode *mode,
+				     bool allow_dsc, u32 min_bpp, bool yuv420)
+{
+	struct msm_dp_bridge_state *dp_state =
+		&to_msm_dp_mst_connector_state(conn_state)->dp_state;
+	struct drm_dp_mst_port *port = mst_conn->mst_port;
+	struct msm_dp_mst *mst = mst_conn->dp_mst;
+	struct msm_dp_mst_dsc_caps caps;
+	u32 max_bpp = dp_state->bpp;
+	u8 fec_cap;
+	int ret;
+
+	scoped_guard(mutex, &mst->mst_lock) {
+		caps = mst_conn->dsc_caps;
+		fec_cap = mst->fec_cap;
+	}
+
+	dp_state->fec_enabled = msm_dp_mst_link_fec(state, mst, conn_state->connector,
+						    fec_cap);
+
+	ret = msm_dp_mst_try_uncompressed(state, mst, mst_state, port, mode,
+					  dp_state, max(min_bpp, 24U), max_bpp,
+					  yuv420);
+	if (ret != -ENOSPC)
+		return ret;
+
+	if (allow_dsc && !yuv420) {
+		ret = msm_dp_mst_try_dsc(state, mst_conn, mst_state, conn_state,
+					 mode, &caps);
+		if (ret != -ENOSPC && ret != -EOPNOTSUPP)
+			return ret;
+	}
+
+	return msm_dp_mst_try_uncompressed(state, mst, mst_state, port, mode,
+					   dp_state, min_bpp, min(max_bpp, 23U),
+					   yuv420);
 }
 
 static struct msm_dp_panel *msm_dp_mst_panel_from_encoder(struct msm_dp_mst *mst,
@@ -293,6 +490,70 @@ static int msm_dp_mst_encoder_stream_id(struct msm_dp_mst *mst,
 	return -1;
 }
 
+static int msm_dp_mst_write_dsc_enable(struct drm_dp_aux *aux, u8 flag, bool enable)
+{
+	u8 val;
+	int ret;
+
+	ret = drm_dp_dpcd_read_byte(aux, DP_DSC_ENABLE, &val);
+	if (ret < 0)
+		return ret;
+
+	val = enable ? val | flag : val & ~flag;
+
+	return drm_dp_dpcd_write_byte(aux, DP_DSC_ENABLE, val);
+}
+
+static bool msm_dp_mst_dsc_aux_in_use(struct msm_dp_mst *mst,
+				      const struct msm_dp_mst_connector *mst_conn,
+				      const struct drm_dp_aux *aux)
+{
+	int i;
+
+	lockdep_assert_held(&mst->mst_lock);
+
+	for (i = 0; i < mst->max_streams; i++) {
+		struct drm_connector *connector = mst->mst_encoders[i].dp_panel->connector;
+
+		if (connector && connector != &mst_conn->connector &&
+		    to_dp_mst_connector(connector)->dsc_enabled_aux == aux)
+			return true;
+	}
+
+	return false;
+}
+
+/*
+ * Several streams can be decompressed by the same device, in which case the
+ * decompression is only disabled when none of them is compressed anymore.
+ */
+static void msm_dp_mst_set_decompression(struct msm_dp_mst *mst,
+					 struct msm_dp_mst_connector *mst_conn,
+					 struct drm_dp_aux *aux, bool enable)
+{
+	struct drm_dp_aux *passthrough_aux = mst_conn->mst_port->passthrough_aux;
+	struct drm_device *dev = mst->msm_dp->drm_dev;
+
+	lockdep_assert_held(&mst->mst_lock);
+
+	mst_conn->dsc_enabled_aux = enable ? aux : NULL;
+
+	if (msm_dp_mst_dsc_aux_in_use(mst, mst_conn, aux))
+		return;
+
+	if (enable && passthrough_aux &&
+	    msm_dp_mst_write_dsc_enable(passthrough_aux, DP_DSC_PASSTHROUGH_EN, true) < 0)
+		drm_dbg_dp(dev, "[MST] failed to enable DSC passthrough\n");
+
+	if (msm_dp_mst_write_dsc_enable(aux, DP_DECOMPRESSION_EN, enable) < 0)
+		drm_dbg_dp(dev, "[MST] failed to %s decompression\n",
+			   str_enable_disable(enable));
+
+	if (!enable && passthrough_aux &&
+	    msm_dp_mst_write_dsc_enable(passthrough_aux, DP_DSC_PASSTHROUGH_EN, false) < 0)
+		drm_dbg_dp(dev, "[MST] failed to disable DSC passthrough\n");
+}
+
 int msm_dp_mst_stream_enable(struct drm_encoder *encoder,
 			     struct drm_atomic_commit *state)
 {
@@ -326,6 +587,9 @@ int msm_dp_mst_stream_enable(struct drm_encoder *encoder,
 			"[MST] stream:%u set_mode failed rc=%d\n", panel->stream_id, rc);
 		goto err;
 	}
+
+	if (dp_state->dsc_enabled)
+		msm_dp_mst_set_decompression(mst, mst_conn, mst_conn_state->dsc_aux, true);
 
 	rc = msm_dp_display_prepare_link(dp_display, panel, dp_state);
 	if (rc) {
@@ -425,6 +689,10 @@ void msm_dp_mst_stream_post_disable(struct drm_encoder *encoder,
 
 	msm_dp_display_atomic_post_disable_helper(mst->msm_dp, panel);
 
+	if (mst_conn->dsc_enabled_aux)
+		msm_dp_mst_set_decompression(mst, mst_conn, mst_conn->dsc_enabled_aux,
+					     false);
+
 	msm_dp_display_unprepare(mst->msm_dp);
 
 	panel->connector = NULL;
@@ -442,7 +710,8 @@ int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 	struct msm_dp_mst *mst = mst_conn->dp_mst;
 	struct drm_dp_mst_topology_state *mst_state;
 	struct msm_dp_bridge_state *dp_state = &mst_conn_state->dp_state;
-	u32 bpp, max_bpp, min_bpp = 18;
+	int stream_id = msm_dp_mst_encoder_stream_id(mst, enc);
+	u32 min_bpp = 18;
 	bool yuv420;
 	int rc;
 
@@ -456,7 +725,8 @@ int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 	if (IS_ERR(mst_state))
 		return PTR_ERR(mst_state);
 
-	/* MST streams are never compressed. */
+	/* Compression is decided below, according to the available time slots. */
+	mst_conn_state->dsc_aux = NULL;
 	rc = msm_dp_display_atomic_check(mst->msm_dp, dp_state,
 					 &crtc_state->adjusted_mode, conn_state,
 					 false);
@@ -472,23 +742,23 @@ int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 	if (!mst_state->pbn_div.full)
 		return -ENOLINK;
 
-	max_bpp = dp_state->bpp;
 	if (dp_state->hdr_enabled &&
 	    dp_state->hdr_sdp.db[2] != HDMI_EOTF_TRADITIONAL_GAMMA_SDR)
 		min_bpp = 30;
 	yuv420 = drm_mode_is_420_only(&conn_state->connector->display_info,
 				      &crtc_state->adjusted_mode);
 
-	rc = msm_dp_mst_select_bpp(crtc_state->state, mst, mst_state,
-				   mst_conn->mst_port, &crtc_state->adjusted_mode,
-				   min_bpp, max_bpp, yuv420, &bpp);
+	/* Only the first two streams have compression registers. */
+	rc = msm_dp_mst_compute_config(crtc_state->state, mst_conn, mst_state,
+				       conn_state, &crtc_state->adjusted_mode,
+				       stream_id >= DP_STREAM_0 && stream_id <= DP_STREAM_1,
+				       min_bpp, yuv420);
 	if (rc)
 		return rc;
 
-	dp_state->bpp = bpp;
 	if (dp_state->vsc_enabled)
 		return msm_dp_utils_pack_vsc_sdp(&dp_state->vsc_sdp, dp_state->colorspace,
-						 bpp / 3, yuv420);
+						 dp_state->bpp / 3, yuv420);
 
 	return 0;
 }
@@ -626,9 +896,7 @@ msm_dp_mst_atomic_best_encoder(struct drm_connector *connector, struct drm_atomi
 		struct drm_encoder *peer_encoder;
 		int stream_id;
 
-		if (iter == connector ||
-		    iter->funcs != &msm_dp_drm_mst_connector_funcs ||
-		    to_dp_mst_connector(iter)->dp_mst != mst)
+		if (iter == connector || !msm_dp_mst_is_connector(iter, mst))
 			continue;
 
 		peer_state = drm_atomic_get_new_connector_state(state, iter) ?: iter->state;

@@ -966,6 +966,45 @@ static int msm_dp_display_compute_sst_dsc(struct msm_dp_display_private *dp,
 	return 0;
 }
 
+/**
+ * msm_dp_display_mst_compute_dsc() - compute the compression of an MST stream
+ * @msm_dp_display: the DP controller
+ * @state: the state of the stream, with the FEC state of the link
+ * @conn_state: the state of the MST connector
+ * @mode: the mode of the stream
+ * @dsc_dpcd: the DSC capabilities of the device decompressing the stream
+ *
+ * Compute the DSC configuration of an MST stream, without checking whether
+ * it fits the time slots available on the link.
+ *
+ * Returns: 0 on success, with the configuration in @state->dsc, or a
+ * negative error code if the stream cannot be compressed.
+ */
+int msm_dp_display_mst_compute_dsc(struct msm_dp *msm_dp_display,
+				   struct msm_dp_bridge_state *state,
+				   const struct drm_connector_state *conn_state,
+				   const struct drm_display_mode *mode,
+				   const u8 *dsc_dpcd)
+{
+	const struct drm_display_info *info = &conn_state->connector->display_info;
+	struct msm_dp_display_private *dp;
+	bool hdr;
+
+	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
+
+	guard(mutex)(&dp->plugged_lock);
+
+	if (!msm_dp_display_dsc_supported(dp, info, mode, dsc_dpcd,
+					  state->fec_enabled))
+		return -EOPNOTSUPP;
+
+	hdr = state->hdr_enabled &&
+	      state->hdr_sdp.db[2] != HDMI_EOTF_TRADITIONAL_GAMMA_SDR;
+
+	return msm_dp_display_compute_dsc(dp, &state->dsc, info, mode, dsc_dpcd,
+					  conn_state->max_requested_bpc ?: 8, hdr);
+}
+
 int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
 				struct msm_dp_bridge_state *state,
 				const struct drm_display_mode *mode,
