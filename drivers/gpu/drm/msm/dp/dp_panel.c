@@ -185,6 +185,45 @@ static bool msm_dp_panel_read_psr_cap(struct msm_dp_panel_private *panel)
 	return true;
 }
 
+static int msm_dp_panel_read_dsc_caps(struct msm_dp_panel_private *panel,
+				      u8 edp_rev)
+{
+	struct msm_dp_panel *msm_dp_panel = &panel->msm_dp_panel;
+	bool is_edp = msm_dp_panel->dpcd[DP_EDP_CONFIGURATION_CAP];
+	int rc;
+
+	/* DSC was introduced in DP 1.4 and eDP 1.4. */
+	if (is_edp ? edp_rev < DP_EDP_14 :
+	    msm_dp_panel->dpcd[DP_DPCD_REV] < DP_DPCD_REV_14)
+		return 0;
+
+	rc = drm_dp_dpcd_read_data(panel->aux, DP_DSC_SUPPORT,
+				   msm_dp_panel->dsc_dpcd,
+				   sizeof(msm_dp_panel->dsc_dpcd));
+	if (rc)
+		goto err;
+
+	/* FEC is not defined for eDP, DSC does not need it there. */
+	if (!is_edp) {
+		rc = drm_dp_dpcd_read_byte(panel->aux, DP_FEC_CAPABILITY,
+					   &msm_dp_panel->fec_cap);
+		if (rc)
+			goto err;
+	}
+
+	drm_dbg_dp(panel->drm_dev, "DSC DPCD: %*ph, FEC capability: %#x\n",
+		   (int)sizeof(msm_dp_panel->dsc_dpcd), msm_dp_panel->dsc_dpcd,
+		   msm_dp_panel->fec_cap);
+
+	return 0;
+
+err:
+	memset(msm_dp_panel->dsc_dpcd, 0, sizeof(msm_dp_panel->dsc_dpcd));
+	msm_dp_panel->fec_cap = 0;
+
+	return rc;
+}
+
 static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel,
 				  bool *caps_valid)
 {
@@ -193,6 +232,7 @@ static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel,
 	struct msm_dp_link_info *link_info;
 	struct msm_dp_link *link;
 	u8 *dpcd, major, minor;
+	u8 edp_rev = 0;
 
 	panel = container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
 	dpcd = msm_dp_panel->dpcd;
@@ -228,8 +268,6 @@ static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel,
 
 	/* eDP sink */
 	if (msm_dp_panel->dpcd[DP_EDP_CONFIGURATION_CAP]) {
-		u8 edp_rev;
-
 		rc = drm_dp_dpcd_read_byte(panel->aux, DP_EDP_DPCD_REV, &edp_rev);
 		if (rc)
 			return rc;
@@ -313,6 +351,10 @@ static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel,
 	if (!msm_dp_panel_read_psr_cap(panel))
 		*caps_valid = false;
 
+	/* Retry discovery rather than caching a failed optional read. */
+	if (msm_dp_panel_read_dsc_caps(panel, edp_rev))
+		*caps_valid = false;
+
 	return 0;
 }
 
@@ -388,6 +430,8 @@ int msm_dp_panel_read_link_caps(struct msm_dp_panel *msm_dp_panel,
 	msm_dp_panel->caps_cached = false;
 	memset(&panel->link->link_caps, 0, sizeof(panel->link->link_caps));
 	memset(&msm_dp_panel->psr_cap, 0, sizeof(msm_dp_panel->psr_cap));
+	memset(msm_dp_panel->dsc_dpcd, 0, sizeof(msm_dp_panel->dsc_dpcd));
+	msm_dp_panel->fec_cap = 0;
 	panel->link->vsc_sdp_supported = false;
 	rc = msm_dp_panel_read_dpcd(msm_dp_panel, &caps_valid);
 	if (rc) {
