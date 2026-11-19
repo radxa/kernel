@@ -456,8 +456,10 @@ int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 	if (IS_ERR(mst_state))
 		return PTR_ERR(mst_state);
 
+	/* MST streams are never compressed. */
 	rc = msm_dp_display_atomic_check(mst->msm_dp, dp_state,
-					 &crtc_state->adjusted_mode, conn_state);
+					 &crtc_state->adjusted_mode, conn_state,
+					 false);
 	if (rc)
 		return rc;
 

@@ -654,9 +654,21 @@ static int _dpu_kms_initialize_displayport(struct drm_device *dev,
 	struct drm_encoder *encoder = NULL;
 	struct msm_display_info info;
 	bool yuv_supported;
+	unsigned int dsc_max_width = 0;
 	unsigned int intf_count;
 	int rc;
 	int i, stream_cnt;
+
+	/*
+	 * A compressed DP stream is always split between two DSC encoders,
+	 * see dpu_encoder_update_topology().
+	 */
+	if (dpu_kms->catalog->dsc_count >= 2) {
+		if (dpu_kms->catalog->mdss_ver->core_major_ver < 6)
+			dsc_max_width = 2 * DPU_1_x_MAX_DSC_ENCODER_WIDTH;
+		else
+			dsc_max_width = 2 * DPU_8_x_MAX_DSC_ENCODER_WIDTH;
+	}
 
 	for (i = 0; i < ARRAY_SIZE(priv->kms->dp); i++) {
 		if (!priv->kms->dp[i])
@@ -674,7 +686,8 @@ static int _dpu_kms_initialize_displayport(struct drm_device *dev,
 		}
 
 		yuv_supported = !!dpu_kms->catalog->cdm;
-		rc = msm_dp_modeset_init(priv->kms->dp[i], dev, encoder, yuv_supported);
+		rc = msm_dp_modeset_init(priv->kms->dp[i], dev, encoder, yuv_supported,
+					 dsc_max_width);
 		if (rc) {
 			DPU_ERROR("modeset_init failed for DP, rc = %d\n", rc);
 			return rc;
