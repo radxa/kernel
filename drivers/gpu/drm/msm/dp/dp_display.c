@@ -89,6 +89,8 @@ struct msm_dp_display_private {
 	u32 hpd_isr_status;
 
 	bool wide_bus_supported;
+	/* Maximum width of a compressed stream, 0 if DSC is not supported. */
+	unsigned int dsc_max_width;
 
 	struct msm_dp_audio *audio;
 
@@ -858,19 +860,102 @@ static int msm_dp_display_set_mode(struct msm_dp *msm_dp_display,
 	return 0;
 }
 
+static bool msm_dp_display_dsc_supported(struct msm_dp_display_private *dp,
+					 const struct drm_display_info *info,
+					 const struct drm_display_mode *mode)
+{
+	struct msm_dp_panel *panel = dp->panel;
+
+	lockdep_assert_held(&dp->plugged_lock);
+
+	/*
+	 * The DTO and the DPU interface timings are only set up for a
+	 * compressed stream transferred on a wide bus.
+	 */
+	if (!dp->dsc_max_width || !dp->wide_bus_supported ||
+	    panel->hw_revision < DP_HW_VERSION_1_2)
+		return false;
+
+	if (dp->msm_dp_display.mst_active || panel->video_test ||
+	    mode->hdisplay > dp->dsc_max_width ||
+	    drm_mode_is_420_only(info, mode))
+		return false;
+
+	if (!drm_dp_sink_supports_dsc(panel->dsc_dpcd))
+		return false;
+
+	/* FEC is mandatory to transfer a compressed stream over DP. */
+	return dp->msm_dp_display.is_edp || drm_dp_sink_supports_fec(panel->fec_cap);
+}
+
+static int msm_dp_display_compute_dsc(struct msm_dp_display_private *dp,
+				      struct msm_dp_bridge_state *state,
+				      const struct drm_display_info *info,
+				      const struct drm_display_mode *mode,
+				      unsigned int max_bpc, bool hdr)
+{
+	static const unsigned int bpcs[] = { 10, 8 };
+	bool is_edp = dp->msm_dp_display.is_edp;
+	unsigned int i;
+	int ret = -EOPNOTSUPP;
+
+	if (!msm_dp_display_dsc_supported(dp, info, mode))
+		return ret;
+
+	max_bpc = min(info->bpc ? info->bpc : 8, max_bpc);
+
+	for (i = 0; i < ARRAY_SIZE(bpcs); i++) {
+		if (bpcs[i] > max_bpc || (hdr && bpcs[i] < 10))
+			continue;
+
+		ret = msm_dp_panel_dsc_compute_config(dp->panel, mode, bpcs[i],
+						      is_edp, &state->dsc);
+		if (ret)
+			continue;
+
+		if (!msm_dp_utils_dsc_link_fits(mode->clock, mode->hdisplay,
+						state->dsc.slice_count,
+						state->dsc.bits_per_pixel,
+						state->link_rate, state->num_lanes,
+						!is_edp)) {
+			ret = -ENOSPC;
+			continue;
+		}
+
+		state->dsc_enabled = true;
+		state->fec_enabled = !is_edp;
+
+		drm_dbg_dp(dp->drm_dev,
+			   "DSC: %ux%u %u bpc, %u slices of %ux%u, DSC v1.%u\n",
+			   mode->hdisplay, mode->vdisplay, bpcs[i],
+			   state->dsc.slice_count, state->dsc.slice_width,
+			   state->dsc.slice_height, state->dsc.dsc_version_minor);
+
+		return 0;
+	}
+
+	return ret;
+}
+
 int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
 				struct msm_dp_bridge_state *state,
 				const struct drm_display_mode *mode,
-				const struct drm_connector_state *conn_state)
+				const struct drm_connector_state *conn_state,
+				bool allow_dsc)
 {
 	const struct drm_display_info *info = &conn_state->connector->display_info;
 	struct msm_dp_display_private *dp;
 	unsigned int clock = mode->clock;
+	unsigned int max_bpc = conn_state->max_requested_bpc ?: 8;
+	bool hdr;
 	int bpp, ret;
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 
 	guard(mutex)(&dp->plugged_lock);
+
+	state->dsc_enabled = false;
+	state->fec_enabled = false;
 
 	if (!dp->link->link_caps_valid)
 		return -EINVAL;
@@ -886,12 +971,22 @@ int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
 	if (state->hdr_enabled && dp->panel->hw_revision < DP_HW_VERSION_1_0)
 		return -EINVAL;
 
-	bpp = msm_dp_utils_select_bpp(info->bpc, conn_state->max_requested_bpc ?: 8,
+	hdr = state->hdr_enabled &&
+	      state->hdr_sdp.db[2] != HDMI_EOTF_TRADITIONAL_GAMMA_SDR;
+
+	bpp = msm_dp_utils_select_bpp(info->bpc, max_bpc,
 				      clock, dp->link->link_caps.rate,
 				      dp->link->link_caps.num_lanes,
-				      drm_mode_is_420_only(info, mode),
-				      state->hdr_enabled && state->hdr_sdp.db[2] !=
-				      HDMI_EOTF_TRADITIONAL_GAMMA_SDR);
+				      drm_mode_is_420_only(info, mode), hdr);
+
+	/*
+	 * Only compress the stream when it does not fit the link otherwise,
+	 * but prefer compression to a reduced component depth.
+	 */
+	if (allow_dsc && bpp < 24 &&
+	    !msm_dp_display_compute_dsc(dp, state, info, mode, max_bpc, hdr))
+		bpp = state->dsc.bits_per_component * 3;
+
 	if (bpp < 0)
 		return bpp;
 
@@ -1114,6 +1209,27 @@ static bool msm_dp_bridge_mode_filter_valid(const struct drm_display_mode *mode)
 	return true;
 }
 
+static bool msm_dp_display_dsc_mode_valid(struct msm_dp_display_private *dp,
+					  const struct drm_display_info *info,
+					  const struct drm_display_mode *mode)
+{
+	const struct msm_dp_link_info *link_info = &dp->link->link_caps;
+	struct drm_dsc_config dsc;
+
+	if (!msm_dp_display_dsc_supported(dp, info, mode))
+		return false;
+
+	/* Every DSC sink supports 8 bpc input. */
+	if (msm_dp_panel_dsc_compute_config(dp->panel, mode, 8,
+					    dp->msm_dp_display.is_edp, &dsc))
+		return false;
+
+	return msm_dp_utils_dsc_link_fits(mode->clock, mode->hdisplay,
+					  dsc.slice_count, dsc.bits_per_pixel,
+					  link_info->rate, link_info->num_lanes,
+					  !dp->msm_dp_display.is_edp);
+}
+
 /**
  * msm_dp_display_mode_valid - callback to determine if specified mode is valid
  * @dp: Pointer to dp display structure
@@ -1172,7 +1288,8 @@ enum drm_mode_status msm_dp_display_mode_valid(struct msm_dp *dp,
 	mode_rate_khz = link_pclk_khz * mode_bpp;
 	supported_rate_khz = link_info->num_lanes * link_info->rate * 8;
 
-	if (mode_rate_khz > supported_rate_khz)
+	if (mode_rate_khz > supported_rate_khz &&
+	    !msm_dp_display_dsc_mode_valid(msm_dp_display, info, mode))
 		return MODE_BAD;
 
 	return MODE_OK;
@@ -2046,7 +2163,8 @@ void msm_dp_display_debugfs_init(struct msm_dp *msm_dp_display, struct dentry *r
 }
 
 int msm_dp_modeset_init(struct msm_dp *msm_dp_display, struct drm_device *dev,
-			struct drm_encoder *encoder, bool yuv_supported)
+			struct drm_encoder *encoder, bool yuv_supported,
+			unsigned int dsc_max_width)
 {
 	struct msm_dp_display_private *msm_dp_priv;
 	int ret;
@@ -2054,6 +2172,7 @@ int msm_dp_modeset_init(struct msm_dp *msm_dp_display, struct drm_device *dev,
 	msm_dp_display->drm_dev = dev;
 
 	msm_dp_priv = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
+	msm_dp_priv->dsc_max_width = dsc_max_width;
 
 	ret = msm_dp_bridge_init(msm_dp_display, dev, encoder, yuv_supported);
 	if (ret) {

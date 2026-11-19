@@ -8,6 +8,7 @@
 #include "dp_utils.h"
 #include "msm_dsc_helper.h"
 
+#include <drm/display/drm_dsc_helper.h>
 #include <drm/drm_connector.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_of.h>
@@ -640,6 +641,125 @@ void msm_dp_panel_tpg_config(struct msm_dp_panel *msm_dp_panel, bool enable)
 
 	drm_dbg_dp(panel->drm_dev, "calling panel's tpg_enable\n");
 	msm_dp_panel_tpg_enable(msm_dp_panel, &panel->msm_dp_panel.msm_dp_mode.drm_mode);
+}
+
+/**
+ * msm_dp_panel_dsc_compute_config() - compute the DSC configuration of a mode
+ * @msm_dp_panel: the panel driving the stream
+ * @mode: the mode to compress
+ * @bpc: the uncompressed component depth
+ * @is_edp: whether the sink is an eDP panel
+ * @dsc: the DSC configuration to fill
+ *
+ * Compute the configuration used to compress @mode to MSM_DP_DSC_BPP_X16,
+ * according to the capabilities of the sink. This does not check whether
+ * the compressed stream fits the link.
+ *
+ * Returns: 0 on success, or a negative error code if the sink cannot
+ * decompress the stream.
+ */
+int msm_dp_panel_dsc_compute_config(struct msm_dp_panel *msm_dp_panel,
+				    const struct drm_display_mode *mode,
+				    unsigned int bpc, bool is_edp,
+				    struct drm_dsc_config *dsc)
+{
+	/*
+	 * The compressed stream is split between two DSC encoders in the DPU,
+	 * and the DP controller supports up to four slices per line.
+	 */
+	static const unsigned int slice_counts[] = { 2, 4 };
+	static const unsigned int slice_heights[] = { 108, 16, 12, 15, 8 };
+	const u8 *dsc_dpcd = msm_dp_panel->dsc_dpcd;
+	unsigned int major, minor, max_slice_width, throughput, i;
+	u8 rev, input_bpcs[3];
+	int num_bpcs, max_bpp_x16, ret;
+
+	if (!drm_dp_sink_supports_dsc(dsc_dpcd) ||
+	    !drm_dp_dsc_sink_supports_format(dsc_dpcd, DP_DSC_RGB))
+		return -EOPNOTSUPP;
+
+	rev = dsc_dpcd[DP_DSC_REV - DP_DSC_SUPPORT];
+	major = (rev & DP_DSC_MAJOR_MASK) >> DP_DSC_MAJOR_SHIFT;
+	minor = (rev & DP_DSC_MINOR_MASK) >> DP_DSC_MINOR_SHIFT;
+	if (major != 1 || minor < 1)
+		return -EOPNOTSUPP;
+
+	num_bpcs = drm_dp_dsc_sink_supported_input_bpcs(dsc_dpcd, input_bpcs);
+	for (i = 0; i < num_bpcs; i++) {
+		if (input_bpcs[i] == bpc)
+			break;
+	}
+	if (i == num_bpcs)
+		return -EOPNOTSUPP;
+
+	/* eDP sinks may limit the compressed bpp. */
+	if (is_edp) {
+		max_bpp_x16 = drm_edp_dsc_sink_output_bpp(dsc_dpcd);
+		if (max_bpp_x16 && max_bpp_x16 < MSM_DP_DSC_BPP_X16)
+			return -EOPNOTSUPP;
+	}
+
+	memset(dsc, 0, sizeof(*dsc));
+
+	dsc->dsc_version_major = 1;
+	dsc->dsc_version_minor = min(minor, 2U);
+	dsc->pic_width = mode->hdisplay;
+	dsc->pic_height = mode->vdisplay;
+	dsc->bits_per_component = bpc;
+	dsc->bits_per_pixel = MSM_DP_DSC_BPP_X16;
+	dsc->convert_rgb = true;
+	dsc->block_pred_enable =
+		dsc_dpcd[DP_DSC_BLK_PREDICTION_SUPPORT - DP_DSC_SUPPORT] &
+		DP_DSC_BLK_PREDICTION_IS_SUPPORTED;
+
+	max_slice_width = drm_dp_dsc_sink_max_slice_width(dsc_dpcd);
+	throughput = drm_dp_dsc_sink_max_slice_throughput(dsc_dpcd, mode->clock,
+							  true);
+
+	for (i = 0; i < ARRAY_SIZE(slice_counts); i++) {
+		unsigned int count = slice_counts[i];
+
+		if (!(drm_dp_dsc_sink_slice_count_mask(dsc_dpcd, is_edp) &
+		      drm_dp_dsc_slice_count_to_mask(count)))
+			continue;
+
+		if (mode->hdisplay % count ||
+		    mode->hdisplay / count > max_slice_width ||
+		    DIV_ROUND_UP(mode->clock, count) > throughput)
+			continue;
+
+		dsc->slice_count = count;
+		dsc->slice_width = mode->hdisplay / count;
+		break;
+	}
+
+	if (!dsc->slice_count)
+		return -EINVAL;
+
+	for (i = 0; i < ARRAY_SIZE(slice_heights); i++) {
+		if (!(mode->vdisplay % slice_heights[i])) {
+			dsc->slice_height = slice_heights[i];
+			break;
+		}
+	}
+
+	if (!dsc->slice_height)
+		return -EINVAL;
+
+	drm_dsc_set_const_params(dsc);
+	drm_dsc_set_rc_buf_thresh(dsc);
+
+	ret = drm_dsc_setup_rc_params(dsc, dsc->dsc_version_minor == 1 ?
+				      DRM_DSC_1_1_PRE_SCR : DRM_DSC_1_2_444);
+	if (ret)
+		return ret;
+
+	dsc->initial_scale_value = drm_dsc_initial_scale_value(dsc);
+	dsc->line_buf_depth = bpc + 1;
+	if (dsc->line_buf_depth > drm_dp_dsc_sink_line_buf_depth(dsc_dpcd))
+		return -EOPNOTSUPP;
+
+	return drm_dsc_compute_rc_parameters(dsc);
 }
 
 static void msm_dp_panel_write_pps(struct msm_dp_panel_private *panel,

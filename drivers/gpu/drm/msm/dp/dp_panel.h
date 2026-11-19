@@ -81,6 +81,13 @@ void msm_dp_panel_handle_sink_request(struct msm_dp_panel *msm_dp_panel,
 				      const struct drm_edid *drm_edid);
 void msm_dp_panel_tpg_config(struct msm_dp_panel *msm_dp_panel, bool enable);
 
+/* DSC is always used with a compressed rate of 8 bpp */
+#define MSM_DP_DSC_BPP_X16	(8 << 4)
+
+int msm_dp_panel_dsc_compute_config(struct msm_dp_panel *msm_dp_panel,
+				    const struct drm_display_mode *mode,
+				    unsigned int bpc, bool is_edp,
+				    struct drm_dsc_config *dsc);
 void msm_dp_panel_config_dsc(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en);
 
 void msm_dp_panel_enable_vsc_sdp(struct msm_dp_panel *msm_dp_panel, const struct dp_sdp *vsc_sdp);

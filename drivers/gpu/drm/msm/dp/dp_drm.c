@@ -165,7 +165,8 @@ static int msm_dp_bridge_atomic_check(struct drm_bridge *bridge,
 
 	ret = msm_dp_display_atomic_check(to_dp_bridge(bridge)->msm_dp_display,
 					  to_dp_bridge_state(bridge_state),
-					  &crtc_state->adjusted_mode, conn_state);
+					  &crtc_state->adjusted_mode, conn_state,
+					  true);
 	if (ret)
 		return ret;
 
