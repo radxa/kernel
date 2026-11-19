@@ -185,10 +185,10 @@ static void dpu_hw_intf_setup_timing_engine(struct dpu_hw_intf *intf,
 	 * For compressed stream, data validity window needs to be adjusted for
 	 * compression ratio and then further halved.
 	 *
-	 * For the compression mode in DP case, the p->width is already
-	 * adjusted in drm_mode_to_intf_timing_params().
+	 * For DP, p->width is already halved in
+	 * drm_mode_to_intf_timing_params() when widebus is enabled.
 	 */
-	if (p->compression_en && !dp_intf) {
+	if (p->compression_en) {
 		if (p->wide_bus_en)
 			data_width = DIV_ROUND_UP(p->dce_bytes_per_line, 6);
 		else
@@ -197,9 +197,7 @@ static void dpu_hw_intf_setup_timing_engine(struct dpu_hw_intf *intf,
 		data_width = p->width >> 1;
 	}
 
-	/* TODO: handle DSC+DP case, we only handle DSC+DSI case so far */
-	if (p->compression_en && !dp_intf &&
-	    intf->mdss_ver->core_major_ver >= 7)
+	if (p->compression_en && intf->mdss_ver->core_major_ver >= 7)
 		intf_cfg2 |= INTF_CFG2_DCE_DATA_COMPRESS;
 
 	hsync_data_start_x = hsync_start_x;
@@ -219,6 +217,13 @@ static void dpu_hw_intf_setup_timing_engine(struct dpu_hw_intf *intf,
 
 		active_hctl = (active_h_end << 16) | active_h_start;
 		display_hctl = active_hctl;
+
+		/*
+		 * The compressed data is only valid for the first part of
+		 * the active period.
+		 */
+		if (p->compression_en)
+			active_data_hctl = display_data_hctl;
 
 		intf_cfg |= INTF_CFG_ACTIVE_H_EN | INTF_CFG_ACTIVE_V_EN;
 	}

@@ -139,6 +139,17 @@ static void drm_mode_to_intf_timing_params(
 		timing->xres = timing->width;
 		timing->dce_bytes_per_line = msm_dsc_get_bytes_per_line(dsc);
 	}
+
+	/*
+	 * For DP, the timing describes the uncompressed stream, the DP
+	 * controller paces the compressed data out of the interface.
+	 */
+	if (phys_enc->hw_intf->cap->type == INTF_DP && timing->compression_en) {
+		struct drm_dsc_config *dsc =
+		       dpu_encoder_get_dsc_config(phys_enc->parent);
+
+		timing->dce_bytes_per_line = msm_dsc_get_bytes_per_line(dsc);
+	}
 }
 
 static u32 get_horizontal_total(const struct dpu_hw_intf_timing_params *timing)

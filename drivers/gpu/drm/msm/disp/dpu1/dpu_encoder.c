@@ -171,6 +171,8 @@ enum dpu_enc_rc_states {
  * @idle_timeout:		idle timeout duration in milliseconds
  * @wide_bus_en:		wide bus is enabled on this interface
  * @dsc:			drm_dsc_config pointer, for DSC-enabled encoders
+ * @dsc_cfg:			copy of the DSC configuration of the display, the
+ *				source may not outlive the atomic commit
  */
 struct dpu_encoder_virt {
 	struct drm_encoder base;
@@ -217,6 +219,7 @@ struct dpu_encoder_virt {
 
 	/* DSC configuration */
 	struct drm_dsc_config *dsc;
+	struct drm_dsc_config dsc_cfg;
 };
 
 #define to_dpu_encoder_virt(x) container_of(x, struct dpu_encoder_virt, base)
@@ -640,13 +643,9 @@ bool dpu_encoder_use_dsc_merge(struct drm_encoder *drm_enc)
 	return (num_dsc > 0) && (num_dsc > intf_count);
 }
 
-/**
- * dpu_encoder_get_dsc_config - get DSC config for the DPU encoder
- *   This helper function is used by physical encoder to get DSC config
- *   used for this encoder.
- * @drm_enc: Pointer to encoder structure
- */
-struct drm_dsc_config *dpu_encoder_get_dsc_config(struct drm_encoder *drm_enc)
+static struct drm_dsc_config *
+dpu_encoder_find_dsc_config(struct drm_encoder *drm_enc,
+			    struct drm_atomic_commit *state)
 {
 	struct msm_drm_private *priv = drm_enc->dev->dev_private;
 	struct dpu_encoder_virt *dpu_enc = to_dpu_encoder_virt(drm_enc);
@@ -655,7 +654,23 @@ struct drm_dsc_config *dpu_encoder_get_dsc_config(struct drm_encoder *drm_enc)
 	if (dpu_enc->disp_info.intf_type == INTF_DSI)
 		return msm_dsi_get_dsc_config(priv->kms->dsi[index]);
 
+	/* DSC is not supported for MST streams. */
+	if (dpu_enc->disp_info.intf_type == INTF_DP &&
+	    drm_enc->encoder_type != DRM_MODE_ENCODER_DPMST)
+		return msm_dp_get_dsc_config(priv->kms->dp[index], state);
+
 	return NULL;
+}
+
+/**
+ * dpu_encoder_get_dsc_config - get DSC config for the DPU encoder
+ *   This helper function is used by physical encoder to get DSC config
+ *   used for this encoder.
+ * @drm_enc: Pointer to encoder structure
+ */
+struct drm_dsc_config *dpu_encoder_get_dsc_config(struct drm_encoder *drm_enc)
+{
+	return to_dpu_encoder_virt(drm_enc)->dsc;
 }
 
 void dpu_encoder_update_topology(struct drm_encoder *drm_enc,
@@ -678,7 +693,7 @@ void dpu_encoder_update_topology(struct drm_encoder *drm_enc,
 		if (dpu_enc->phys_encs[i])
 			topology->num_intf++;
 
-	dsc = dpu_encoder_get_dsc_config(drm_enc);
+	dsc = dpu_encoder_find_dsc_config(drm_enc, state);
 
 	/* We only support 2 DSC mode (with 2 LM and 1 INTF) */
 	if (dsc) {
@@ -1354,9 +1369,17 @@ static void dpu_encoder_virt_atomic_enable(struct drm_encoder *drm_enc,
 	struct dpu_encoder_virt *dpu_enc = NULL;
 	int ret = 0;
 	struct drm_display_mode *cur_mode = NULL;
+	struct drm_dsc_config *dsc;
 
 	dpu_enc = to_dpu_encoder_virt(drm_enc);
-	dpu_enc->dsc = dpu_encoder_get_dsc_config(drm_enc);
+
+	dsc = dpu_encoder_find_dsc_config(drm_enc, state);
+	if (dsc) {
+		dpu_enc->dsc_cfg = *dsc;
+		dpu_enc->dsc = &dpu_enc->dsc_cfg;
+	} else {
+		dpu_enc->dsc = NULL;
+	}
 
 	atomic_set(&dpu_enc->frame_done_timeout_cnt, 0);
 
