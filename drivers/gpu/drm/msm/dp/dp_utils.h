@@ -39,6 +39,9 @@ void msm_dp_utils_pack_sdp_header(const struct dp_sdp_header *sdp_header,
 
 bool msm_dp_utils_link_fits(unsigned int clock, unsigned int bpp,
 			    unsigned int rate, unsigned int lanes, bool yuv420);
+bool msm_dp_utils_dsc_link_fits(unsigned int clock, unsigned int hactive,
+				unsigned int slice_count, unsigned int bpp_x16,
+				unsigned int rate, unsigned int lanes, bool fec);
 int msm_dp_utils_select_bpp(unsigned int bpc, unsigned int max_bpc,
 			    unsigned int clock, unsigned int rate,
 			    unsigned int lanes, bool yuv420, bool hdr);

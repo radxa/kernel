@@ -572,6 +572,19 @@ static int msm_dp_ctrl_set_sink_fec_ready(struct msm_dp_ctrl_private *ctrl,
 	return ret;
 }
 
+static int msm_dp_ctrl_set_sink_dsc(struct msm_dp_ctrl_private *ctrl, bool enable)
+{
+	int ret;
+
+	ret = drm_dp_dpcd_write_byte(ctrl->aux, DP_DSC_ENABLE,
+				     enable ? DP_DECOMPRESSION_EN : 0);
+	if (ret)
+		drm_dbg_dp(ctrl->drm_dev, "failed to %s sink DSC, ret=%d\n",
+			   str_enable_disable(enable), ret);
+
+	return ret;
+}
+
 static void msm_dp_setup_peripheral_flush(struct msm_dp_ctrl_private *ctrl)
 {
 	u32 mainlink_ctrl;
@@ -667,8 +680,10 @@ static void msm_dp_ctrl_config_ctrl_streams(struct msm_dp_ctrl_private *ctrl,
 	if (msm_dp_panel->msm_dp_mode.out_fmt_is_yuv_420)
 		config |= DP_CONFIGURATION_CTRL_RGB_YUV; /* YUV420 */
 
+	/* The compressed stream is transferred as 8 bpc data. */
 	tbd = msm_dp_link_get_test_bits_depth(ctrl->link,
-					      msm_dp_panel->msm_dp_mode.bpp);
+					      msm_dp_panel->msm_dp_mode.dsc_enabled ?
+					      24 : msm_dp_panel->msm_dp_mode.bpp);
 
 	config |= tbd << DP_CONFIGURATION_CTRL_BPC_SHIFT;
 
@@ -762,6 +777,7 @@ static void msm_dp_ctrl_configure_source_params(struct msm_dp_ctrl_private *ctrl
 
 	msm_dp_panel_timing_cfg(panel, ctrl->msm_dp_ctrl.wide_bus_en);
 	msm_dp_panel_mst_async_fifo(panel, ctrl->mst_mode);
+	msm_dp_panel_config_dsc(panel, ctrl->msm_dp_ctrl.wide_bus_en);
 
 	if (state->vsc_enabled)
 		msm_dp_panel_enable_vsc_sdp(panel, vsc_sdp);
@@ -954,6 +970,9 @@ static void msm_dp_panel_update_tu_timings(struct msm_dp_tu_calc_input *in,
 
 	if (!in->dsc_en)
 		goto fec_check;
+
+	/* The compressed stream is transferred in units of 3 bytes. */
+	tu->bpp = 24;
 
 	temp1_fp = drm_fixp_from_fraction(in->compress_ratio, 100);
 	temp2_fp = drm_fixp_from_fraction(in->bpp, 1);
@@ -1544,10 +1563,11 @@ static void msm_dp_ctrl_calc_tu_parameters(struct msm_dp_ctrl_private *ctrl,
 		struct msm_dp_panel *panel,
 		struct msm_dp_vc_tu_mapping_table *tu_table)
 {
+	const struct msm_dp_display_mode *mode = &panel->msm_dp_mode;
 	struct msm_dp_tu_calc_input in;
 	const struct drm_display_mode *drm_mode;
 
-	drm_mode = &panel->msm_dp_mode.drm_mode;
+	drm_mode = &mode->drm_mode;
 
 	in.lclk = ctrl->link->link_params.rate / 1000;
 	in.pclk_khz = drm_mode->clock;
@@ -1556,11 +1576,12 @@ static void msm_dp_ctrl_calc_tu_parameters(struct msm_dp_ctrl_private *ctrl,
 	in.nlanes = ctrl->link->link_params.num_lanes;
 	in.bpp = panel->msm_dp_mode.bpp;
 	in.pixel_enc = panel->msm_dp_mode.out_fmt_is_yuv_420 ? 420 : 444;
-	in.dsc_en = 0;
+	in.dsc_en = mode->dsc_enabled;
 	in.async_en = 0;
-	in.fec_en = panel->msm_dp_mode.fec_enabled;
-	in.num_of_dsc_slices = 0;
-	in.compress_ratio = 100;
+	in.fec_en = mode->fec_enabled;
+	in.num_of_dsc_slices = mode->dsc_enabled ? mode->dsc.slice_count : 0;
+	in.compress_ratio = mode->dsc_enabled ?
+		mode->bpp * 100 * 16 / mode->dsc.bits_per_pixel : 100;
 
 	_dp_ctrl_calc_tu(ctrl, &in, tu_table);
 }
@@ -1950,6 +1971,12 @@ static int msm_dp_ctrl_link_train(struct msm_dp_ctrl_private *ctrl,
 	msm_dp_ctrl_config_fec(ctrl, false);
 	if (panel->msm_dp_mode.fec_enabled) {
 		ret = msm_dp_ctrl_set_sink_fec_ready(ctrl, true);
+		if (ret)
+			return ret;
+	}
+
+	if (panel->msm_dp_mode.dsc_enabled) {
+		ret = msm_dp_ctrl_set_sink_dsc(ctrl, true);
 		if (ret)
 			return ret;
 	}
@@ -2695,6 +2722,17 @@ static bool msm_dp_ctrl_channel_eq_ok(struct msm_dp_ctrl_private *ctrl)
 static bool msm_dp_ctrl_link_fits(struct msm_dp_ctrl_private *ctrl,
 				  const struct msm_dp_panel *panel)
 {
+	const struct msm_dp_display_mode *mode = &panel->msm_dp_mode;
+
+	if (mode->dsc_enabled)
+		return msm_dp_utils_dsc_link_fits(mode->drm_mode.clock,
+						  mode->drm_mode.hdisplay,
+						  mode->dsc.slice_count,
+						  mode->dsc.bits_per_pixel,
+						  ctrl->link->link_params.rate,
+						  ctrl->link->link_params.num_lanes,
+						  mode->fec_enabled);
+
 	return msm_dp_utils_link_fits(panel->msm_dp_mode.drm_mode.clock,
 				      panel->msm_dp_mode.bpp,
 				      ctrl->link->link_params.rate,
@@ -3116,8 +3154,6 @@ int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *
 	msm_dp_ctrl_config_msa(ctrl, panel,
 		ctrl->link->link_params.rate);
 
-	msm_dp_panel_clear_dsc_dto(panel);
-
 	if (!ctrl->mst_mode)
 		msm_dp_ctrl_setup_tr_unit(ctrl, panel);
 
@@ -3178,6 +3214,8 @@ void msm_dp_ctrl_off_link(struct msm_dp_ctrl *msm_dp_ctrl,
 	}
 
 	/* The sink may already be gone, this is best effort. */
+	if (panel->msm_dp_mode.dsc_enabled)
+		msm_dp_ctrl_set_sink_dsc(ctrl, false);
 	if (panel->msm_dp_mode.fec_enabled)
 		msm_dp_ctrl_set_sink_fec_ready(ctrl, false);
 

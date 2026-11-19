@@ -6,6 +6,7 @@
 #ifndef _DP_PANEL_H_
 #define _DP_PANEL_H_
 
+#include <drm/display/drm_dsc.h>
 #include <drm/drm_modes.h>
 #include <drm/msm_drm.h>
 
@@ -21,6 +22,8 @@ struct msm_dp_display_mode {
 	u32 v_active_low;
 	bool out_fmt_is_yuv_420;
 	bool fec_enabled;
+	bool dsc_enabled;
+	struct drm_dsc_config dsc;
 };
 
 struct msm_dp_panel_psr {
@@ -78,7 +81,7 @@ void msm_dp_panel_handle_sink_request(struct msm_dp_panel *msm_dp_panel,
 				      const struct drm_edid *drm_edid);
 void msm_dp_panel_tpg_config(struct msm_dp_panel *msm_dp_panel, bool enable);
 
-void msm_dp_panel_clear_dsc_dto(struct msm_dp_panel *msm_dp_panel);
+void msm_dp_panel_config_dsc(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en);
 
 void msm_dp_panel_enable_vsc_sdp(struct msm_dp_panel *msm_dp_panel, const struct dp_sdp *vsc_sdp);
 void msm_dp_panel_disable_vsc_sdp(struct msm_dp_panel *msm_dp_panel);

@@ -836,15 +836,21 @@ static int msm_dp_display_set_mode(struct msm_dp *msm_dp_display,
 	if (state->hdr_enabled)
 		msm_dp_panel->video_test = false;
 
-	if (msm_dp_panel->video_test)
+	/* The depth of a compressed stream cannot be changed for a test. */
+	if (msm_dp_panel->video_test && !state->dsc_enabled)
 		bpp = msm_dp_link_bit_depth_to_bpp(dp->link->test_video.test_bit_depth);
 	else
 		bpp = state->bpp;
 
+	/* The PPS and compression settings are latched by a peripheral flush. */
 	msm_dp_panel->sdp_needs_flush = old_state->vsc_enabled || state->vsc_enabled ||
-		old_state->hdr_enabled || state->hdr_enabled;
+		old_state->hdr_enabled || state->hdr_enabled ||
+		old_state->dsc_enabled || state->dsc_enabled;
 	msm_dp_panel_init_panel_info(msm_dp_panel, adjusted_mode, bpp ? bpp : 24);
 	msm_dp_panel->msm_dp_mode.fec_enabled = state->fec_enabled;
+	msm_dp_panel->msm_dp_mode.dsc_enabled = state->dsc_enabled;
+	if (state->dsc_enabled)
+		msm_dp_panel->msm_dp_mode.dsc = state->dsc;
 
 	/* populate wide_bus_support to different layers */
 	dp->ctrl->wide_bus_en =
