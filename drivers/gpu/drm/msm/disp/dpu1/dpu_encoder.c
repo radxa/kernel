@@ -654,12 +654,13 @@ dpu_encoder_find_dsc_config(struct drm_encoder *drm_enc,
 	if (dpu_enc->disp_info.intf_type == INTF_DSI)
 		return msm_dsi_get_dsc_config(priv->kms->dsi[index]);
 
-	/* DSC is not supported for MST streams. */
-	if (dpu_enc->disp_info.intf_type == INTF_DP &&
-	    drm_enc->encoder_type != DRM_MODE_ENCODER_DPMST)
-		return msm_dp_get_dsc_config(priv->kms->dp[index], state);
+	if (dpu_enc->disp_info.intf_type != INTF_DP)
+		return NULL;
 
-	return NULL;
+	if (drm_enc->encoder_type == DRM_MODE_ENCODER_DPMST)
+		return msm_dp_mst_get_dsc_config(drm_enc, state);
+
+	return msm_dp_get_dsc_config(priv->kms->dp[index], state);
 }
 
 /**
