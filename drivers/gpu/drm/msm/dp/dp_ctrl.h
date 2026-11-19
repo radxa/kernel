@@ -19,7 +19,7 @@ struct msm_dp_ctrl {
 struct phy;
 
 int msm_dp_ctrl_on_link(struct msm_dp_ctrl *msm_dp_ctrl,
-			struct msm_dp_panel *panel);
+			struct msm_dp_panel *panel, bool mst_active);
 int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *panel,
 			  const struct msm_dp_bridge_state *state, bool mst_active,
 			  const struct msm_dp_mst_slot_info *slots);
