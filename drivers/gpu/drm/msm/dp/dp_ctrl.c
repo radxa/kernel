@@ -515,6 +515,63 @@ static void msm_dp_ctrl_mainlink_disable(struct msm_dp_ctrl_private *ctrl)
 	msm_dp_write_link(ctrl, REG_DP_MAINLINK_CTRL, mainlink_ctrl);
 }
 
+static void msm_dp_ctrl_config_fec(struct msm_dp_ctrl_private *ctrl, bool enable)
+{
+	u32 mainlink_ctrl;
+
+	mainlink_ctrl = msm_dp_read_link(ctrl, REG_DP_MAINLINK_CTRL);
+	if (enable)
+		mainlink_ctrl |= DP_MAINLINK_CTRL_FEC_EN | DP_MAINLINK_CTRL_FEC_SEQ_MODE;
+	else
+		mainlink_ctrl &= ~(DP_MAINLINK_CTRL_FEC_EN | DP_MAINLINK_CTRL_FEC_SEQ_MODE);
+	msm_dp_write_link(ctrl, REG_DP_MAINLINK_CTRL, mainlink_ctrl);
+}
+
+static int msm_dp_ctrl_read_fec_status(struct msm_dp_ctrl_private *ctrl)
+{
+	u8 status;
+	int ret;
+
+	ret = drm_dp_dpcd_read_byte(ctrl->aux, DP_FEC_STATUS, &status);
+
+	return ret ? ret : status;
+}
+
+static void msm_dp_ctrl_enable_fec(struct msm_dp_ctrl_private *ctrl,
+				   struct msm_dp_panel *panel)
+{
+	int status, ret;
+
+	if (!panel->msm_dp_mode.fec_enabled)
+		return;
+
+	/*
+	 * FEC has to stay disabled in the source during link training, the
+	 * controller starts sending the FEC_DECODE_EN sequence once enabled.
+	 */
+	msm_dp_ctrl_config_fec(ctrl, true);
+
+	ret = read_poll_timeout(msm_dp_ctrl_read_fec_status, status,
+				status < 0 || (status & DP_FEC_DECODE_EN_DETECTED),
+				1000, 10000, false, ctrl);
+	if (ret || status < 0)
+		drm_warn(ctrl->drm_dev, "sink did not detect FEC decoding enable\n");
+}
+
+static int msm_dp_ctrl_set_sink_fec_ready(struct msm_dp_ctrl_private *ctrl,
+					  bool enable)
+{
+	int ret;
+
+	ret = drm_dp_dpcd_write_byte(ctrl->aux, DP_FEC_CONFIGURATION,
+				     enable ? DP_FEC_READY : 0);
+	if (ret)
+		drm_dbg_dp(ctrl->drm_dev, "failed to %s sink FEC, ret=%d\n",
+			   str_enable_disable(enable), ret);
+
+	return ret;
+}
+
 static void msm_dp_setup_peripheral_flush(struct msm_dp_ctrl_private *ctrl)
 {
 	u32 mainlink_ctrl;
@@ -1501,7 +1558,7 @@ static void msm_dp_ctrl_calc_tu_parameters(struct msm_dp_ctrl_private *ctrl,
 	in.pixel_enc = panel->msm_dp_mode.out_fmt_is_yuv_420 ? 420 : 444;
 	in.dsc_en = 0;
 	in.async_en = 0;
-	in.fec_en = 0;
+	in.fec_en = panel->msm_dp_mode.fec_enabled;
 	in.num_of_dsc_slices = 0;
 	in.compress_ratio = 100;
 
@@ -1885,6 +1942,17 @@ static int msm_dp_ctrl_link_train(struct msm_dp_ctrl_private *ctrl,
 
 	msm_dp_ctrl_config_ctrl_link(ctrl, panel);
 	msm_dp_ctrl_config_ctrl_streams(ctrl, panel, false);
+
+	/*
+	 * The sink must be FEC ready before the link is trained, while the
+	 * source must only start FEC encoding once training has completed.
+	 */
+	msm_dp_ctrl_config_fec(ctrl, false);
+	if (panel->msm_dp_mode.fec_enabled) {
+		ret = msm_dp_ctrl_set_sink_fec_ready(ctrl, true);
+		if (ret)
+			return ret;
+	}
 
 	link_info.num_lanes = ctrl->link->link_params.num_lanes;
 	link_info.rate = ctrl->link->link_params.rate;
@@ -2326,6 +2394,8 @@ static int msm_dp_ctrl_link_maintenance(struct msm_dp_ctrl_private *ctrl,
 	msm_dp_write_link(ctrl, REG_DP_STATE_CTRL, DP_STATE_CTRL_SEND_VIDEO);
 
 	ret = msm_dp_ctrl_wait4video_ready(ctrl);
+	if (!ret)
+		msm_dp_ctrl_enable_fec(ctrl, panel);
 end:
 	return ret;
 }
@@ -3067,6 +3137,8 @@ int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *
 	drm_dbg_dp(ctrl->drm_dev,
 		"mainlink %s\n", mainlink_ready ? "READY" : "NOT READY");
 
+	msm_dp_ctrl_enable_fec(ctrl, panel);
+
 	return ret;
 
 err_pixel_clk:
@@ -3101,8 +3173,13 @@ void msm_dp_ctrl_off_link(struct msm_dp_ctrl *msm_dp_ctrl,
 		msm_dp_panel_disable_vsc_sdp(panel);
 		msm_dp_panel_disable_hdr_sdp(panel);
 		msm_dp_ctrl_mainlink_disable(ctrl);
+		msm_dp_ctrl_config_fec(ctrl, false);
 		msm_dp_ctrl_mst_config(ctrl, false);
 	}
+
+	/* The sink may already be gone, this is best effort. */
+	if (panel->msm_dp_mode.fec_enabled)
+		msm_dp_ctrl_set_sink_fec_ready(ctrl, false);
 
 	msm_dp_ctrl_reset(&ctrl->msm_dp_ctrl, panel);
 	ctrl->mst_mode = false;

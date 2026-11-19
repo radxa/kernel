@@ -20,6 +20,7 @@ struct msm_dp_display_mode {
 	u32 h_active_low;
 	u32 v_active_low;
 	bool out_fmt_is_yuv_420;
+	bool fec_enabled;
 };
 
 struct msm_dp_panel_psr {
