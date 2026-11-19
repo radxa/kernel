@@ -1086,7 +1086,7 @@ static int msm_dp_display_prepare_link_locked(struct msm_dp_display_private *dp,
 			return rc;
 
 		dp->stream_link_attempted = true;
-		rc = msm_dp_ctrl_on_link(dp->ctrl, panel);
+		rc = msm_dp_ctrl_on_link(dp->ctrl, panel, msm_dp_display->mst_active);
 		if (rc) {
 			DRM_ERROR("Failed link training (rc=%d)\n", rc);
 			return rc;

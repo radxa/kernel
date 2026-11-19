@@ -159,6 +159,10 @@ struct msm_dp_ctrl_private {
 	bool stream_clks_on[DP_STREAM_MAX];
 	bool clk_defaults_set;
 	bool mst_mode;
+	/* The link was trained with FEC_READY set in the sink. */
+	bool sink_fec_ready;
+	/* Decompression was enabled in the SST sink. */
+	bool sink_dsc_enabled;
 };
 
 static inline u32 msm_dp_read_ahb(const struct msm_dp_ctrl_private *ctrl, u32 offset)
@@ -537,12 +541,11 @@ static int msm_dp_ctrl_read_fec_status(struct msm_dp_ctrl_private *ctrl)
 	return ret ? ret : status;
 }
 
-static void msm_dp_ctrl_enable_fec(struct msm_dp_ctrl_private *ctrl,
-				   struct msm_dp_panel *panel)
+static void msm_dp_ctrl_enable_fec(struct msm_dp_ctrl_private *ctrl)
 {
 	int status, ret;
 
-	if (!panel->msm_dp_mode.fec_enabled)
+	if (!ctrl->sink_fec_ready)
 		return;
 
 	/*
@@ -1973,12 +1976,15 @@ static int msm_dp_ctrl_link_train(struct msm_dp_ctrl_private *ctrl,
 		ret = msm_dp_ctrl_set_sink_fec_ready(ctrl, true);
 		if (ret)
 			return ret;
+		ctrl->sink_fec_ready = true;
 	}
 
-	if (panel->msm_dp_mode.dsc_enabled) {
+	/* MST streams enable decompression in the device behind their port. */
+	if (panel->msm_dp_mode.dsc_enabled && !ctrl->mst_mode) {
 		ret = msm_dp_ctrl_set_sink_dsc(ctrl, true);
 		if (ret)
 			return ret;
+		ctrl->sink_dsc_enabled = true;
 	}
 
 	link_info.num_lanes = ctrl->link->link_params.num_lanes;
@@ -2422,7 +2428,7 @@ static int msm_dp_ctrl_link_maintenance(struct msm_dp_ctrl_private *ctrl,
 
 	ret = msm_dp_ctrl_wait4video_ready(ctrl);
 	if (!ret)
-		msm_dp_ctrl_enable_fec(ctrl, panel);
+		msm_dp_ctrl_enable_fec(ctrl);
 end:
 	return ret;
 }
@@ -2618,7 +2624,8 @@ static int msm_dp_ctrl_process_phy_test_request(struct msm_dp_ctrl_private *ctrl
 	msm_dp_ctrl_off_pixel_clk(&ctrl->msm_dp_ctrl, panel->stream_id);
 	msm_dp_ctrl_off_link(&ctrl->msm_dp_ctrl, panel);
 
-	ret = msm_dp_ctrl_on_link(&ctrl->msm_dp_ctrl, panel);
+	/* PHY compliance tests run on an SST link. */
+	ret = msm_dp_ctrl_on_link(&ctrl->msm_dp_ctrl, panel, false);
 	if (ret) {
 		DRM_ERROR("failed to enable DP link controller\n");
 		return ret;
@@ -2775,7 +2782,7 @@ static int msm_dp_ctrl_next_link_params(struct msm_dp_ctrl_private *ctrl,
 }
 
 int msm_dp_ctrl_on_link(struct msm_dp_ctrl *msm_dp_ctrl,
-			struct msm_dp_panel *panel)
+			struct msm_dp_panel *panel, bool mst_active)
 {
 	int rc = 0;
 	bool trained = false;
@@ -2792,6 +2799,8 @@ int msm_dp_ctrl_on_link(struct msm_dp_ctrl *msm_dp_ctrl,
 		return -EINVAL;
 
 	ctrl = container_of(msm_dp_ctrl, struct msm_dp_ctrl_private, msm_dp_ctrl);
+
+	ctrl->mst_mode = mst_active;
 
 	check_bw = !(ctrl->link->sink_request & DP_TEST_LINK_PHY_TEST_PATTERN) &&
 		   !panel->video_test;
@@ -3173,7 +3182,7 @@ int msm_dp_ctrl_on_stream(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *
 	drm_dbg_dp(ctrl->drm_dev,
 		"mainlink %s\n", mainlink_ready ? "READY" : "NOT READY");
 
-	msm_dp_ctrl_enable_fec(ctrl, panel);
+	msm_dp_ctrl_enable_fec(ctrl);
 
 	return ret;
 
@@ -3214,10 +3223,12 @@ void msm_dp_ctrl_off_link(struct msm_dp_ctrl *msm_dp_ctrl,
 	}
 
 	/* The sink may already be gone, this is best effort. */
-	if (panel->msm_dp_mode.dsc_enabled)
+	if (ctrl->sink_dsc_enabled)
 		msm_dp_ctrl_set_sink_dsc(ctrl, false);
-	if (panel->msm_dp_mode.fec_enabled)
+	if (ctrl->sink_fec_ready)
 		msm_dp_ctrl_set_sink_fec_ready(ctrl, false);
+	ctrl->sink_dsc_enabled = false;
+	ctrl->sink_fec_ready = false;
 
 	msm_dp_ctrl_reset(&ctrl->msm_dp_ctrl, panel);
 	ctrl->mst_mode = false;
