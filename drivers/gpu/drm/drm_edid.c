@@ -4218,6 +4218,7 @@ static int add_detailed_modes(struct drm_connector *connector,
 #define CTA_EXT_DB_HDR_STATIC_METADATA	6
 #define CTA_EXT_DB_420_VIDEO_DATA	14
 #define CTA_EXT_DB_420_VIDEO_CAP_MAP	15
+#define CTA_EXT_DB_T10VTDB		0x2a
 #define CTA_EXT_DB_HF_EEODB		0x78
 #define CTA_EXT_DB_HF_SCDB		0x79
 
@@ -7094,6 +7095,49 @@ static int add_displayid_detailed_modes(struct drm_connector *connector,
 	return num_modes;
 }
 
+/*
+ * CTA-861-I T10VTDB: a byte whose bits 6:4 give the size of the timing
+ * descriptors beyond 6 bytes, then DisplayID Type X formula timings.
+ */
+static int add_cta_t10vtdb_modes(struct drm_connector *connector,
+				 const struct drm_edid *drm_edid)
+{
+	const struct displayid_formula_timings_9 *timings;
+	struct drm_display_mode *newmode;
+	const struct cea_db *db;
+	struct cea_db_iter iter;
+	int num_modes = 0;
+
+	cea_db_iter_edid_begin(drm_edid, &iter);
+	cea_db_iter_for_each(db, &iter) {
+		const u8 *data = cea_db_data(db);
+		int len = cea_db_payload_len(db);
+		int i;
+
+		if (!cea_db_is_extended_tag(db, CTA_EXT_DB_T10VTDB) || len < 2)
+			continue;
+
+		/* As for DisplayID, extended descriptors are not supported yet */
+		if (data[1] & 0x70 || (len - 2) % sizeof(*timings))
+			continue;
+
+		for (i = 2; i < len; i += sizeof(*timings)) {
+			timings = (const void *)&data[i];
+
+			newmode = drm_mode_displayid_formula(connector->dev,
+							     timings, true);
+			if (!newmode)
+				continue;
+
+			drm_mode_probed_add(connector, newmode);
+			num_modes++;
+		}
+	}
+	cea_db_iter_end(&iter);
+
+	return num_modes;
+}
+
 static int _drm_edid_connector_add_modes(struct drm_connector *connector,
 					 const struct drm_edid *drm_edid)
 {
@@ -7123,6 +7167,7 @@ static int _drm_edid_connector_add_modes(struct drm_connector *connector,
 	num_modes += add_cea_modes(connector, drm_edid);
 	num_modes += add_alternate_cea_modes(connector, drm_edid);
 	num_modes += add_displayid_detailed_modes(connector, drm_edid);
+	num_modes += add_cta_t10vtdb_modes(connector, drm_edid);
 	if (drm_edid->edid->features & DRM_EDID_FEATURE_CONTINUOUS_FREQ)
 		num_modes += add_inferred_modes(connector, drm_edid);
 
