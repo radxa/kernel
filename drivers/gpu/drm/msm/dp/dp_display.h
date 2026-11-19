@@ -56,6 +56,12 @@ int msm_dp_display_atomic_check(struct msm_dp *dp, struct msm_dp_bridge_state *s
 				const struct drm_connector_state *conn_state,
 				bool allow_dsc);
 
+int msm_dp_display_mst_compute_dsc(struct msm_dp *msm_dp_display,
+				   struct msm_dp_bridge_state *state,
+				   const struct drm_connector_state *conn_state,
+				   const struct drm_display_mode *mode,
+				   const u8 *dsc_dpcd);
+
 int msm_dp_display_enable_helper(struct msm_dp *msm_dp_display,
 				 struct msm_dp_panel *msm_dp_panel,
 				 const struct msm_dp_mst_slot_info *slots,

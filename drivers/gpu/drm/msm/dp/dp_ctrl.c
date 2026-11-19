@@ -2973,6 +2973,7 @@ static void msm_dp_ctrl_config_msa(struct msm_dp_ctrl_private *ctrl,
  * where M is the target symbol count per MTP across all lanes.
  *
  * min_slot_cnt = (pclk * bpp/8) / (lclk * lanes) * 64   -- slots at 1.0x BW
+ *                (including the FEC and DSC overheads)
  * max_slot_cnt = pbn * 54 / (lclk * lanes)               -- slots at PBN limit
  * raw_target_sc = (min + max) / 2                        -- midpoint (~1.003x)
  *
@@ -2986,22 +2987,35 @@ static void msm_dp_ctrl_mst_calculate_rg(struct msm_dp_ctrl_private *ctrl,
 					 const struct msm_dp_mst_slot_info *slots,
 					 u32 *p_x_int, u32 *p_y_frac_enum)
 {
+	const struct msm_dp_display_mode *mode = &panel->msm_dp_mode;
 	u64 min_slot_cnt, max_slot_cnt;
 	u64 raw_target_sc, target_sc_fixp, scale_fixp;
-	u64 pclk = panel->msm_dp_mode.drm_mode.clock;
+	u64 pclk = mode->drm_mode.clock;
 	u64 lclk = 0;
 	u64 lanes = ctrl->link->link_params.num_lanes;
-	u64 bpp = panel->msm_dp_mode.bpp;
+	u64 bpp_x16 = mode->dsc_enabled ? mode->dsc.bits_per_pixel : mode->bpp << 4;
 	u64 pbn = slots[panel->stream_id].pbn;
+	u64 overhead = 1000000;
 	u64 numerator, denominator, temp, temp1, scaled_target_sc;
 	u32 x_int = 0, y_frac_enum = 0;
 	u64 target_strm_sym, y_frac_enum_fixp;
 
 	lclk = ctrl->link->link_params.rate;
 
+	/* Account for the FEC and compression overheads, like the PBN does. */
+	if (mode->fec_enabled || mode->dsc_enabled) {
+		int ret = drm_dp_bw_overhead(lanes, mode->drm_mode.hdisplay,
+					     mode->dsc_enabled ? mode->dsc.slice_count : 0,
+					     bpp_x16, DRM_DP_BW_OVERHEAD_MST |
+					     (mode->fec_enabled ? DRM_DP_BW_OVERHEAD_FEC : 0));
+
+		if (ret > 0)
+			overhead = ret;
+	}
+
 	/* min_slot_cnt */
-	numerator = pclk * bpp * 64 * 1000;
-	denominator = lclk * lanes * 8 * 1000;
+	numerator = pclk * bpp_x16 * 64 * overhead;
+	denominator = lclk * lanes * 8 * 16 * 1000000;
 	min_slot_cnt = drm_fixp_from_fraction(numerator, denominator);
 
 	/* max_slot_cnt */
