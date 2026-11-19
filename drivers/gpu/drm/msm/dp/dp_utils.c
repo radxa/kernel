@@ -115,6 +115,38 @@ bool msm_dp_utils_link_fits(unsigned int clock, unsigned int bpp,
 	return (u64)clock * bpp <= available;
 }
 
+/**
+ * msm_dp_utils_dsc_link_fits() - check whether a compressed stream fits a link
+ * @clock: pixel clock of the mode in kHz
+ * @hactive: active width of the mode
+ * @slice_count: number of DSC slices per line
+ * @bpp_x16: compressed bits per pixel, in U6.4 fixed point
+ * @rate: link rate in kHz
+ * @lanes: number of lanes
+ * @fec: whether FEC is enabled on the link
+ *
+ * Returns: true if the link can carry the compressed stream, including the
+ * end-of-chunk and FEC overheads.
+ */
+bool msm_dp_utils_dsc_link_fits(unsigned int clock, unsigned int hactive,
+				unsigned int slice_count, unsigned int bpp_x16,
+				unsigned int rate, unsigned int lanes, bool fec)
+{
+	u64 available = (u64)rate * lanes * 8;
+	int overhead;
+
+	if (!clock || !hactive || !slice_count || !bpp_x16 || !rate || !lanes)
+		return false;
+
+	overhead = drm_dp_bw_overhead(lanes, hactive, slice_count, bpp_x16,
+				      fec ? DRM_DP_BW_OVERHEAD_FEC : 0);
+	if (overhead <= 0)
+		return false;
+
+	return DIV_ROUND_UP_ULL((u64)clock * bpp_x16 * overhead,
+				16 * 1000000) <= available;
+}
+
 int msm_dp_utils_select_bpp(unsigned int bpc, unsigned int max_bpc,
 			    unsigned int clock, unsigned int rate,
 			    unsigned int lanes, bool yuv420, bool hdr)

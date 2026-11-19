@@ -6,12 +6,14 @@
 #include "dp_panel.h"
 #include "dp_reg.h"
 #include "dp_utils.h"
+#include "msm_dsc_helper.h"
 
 #include <drm/drm_connector.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_of.h>
 #include <drm/drm_print.h>
 
+#include <linux/gcd.h>
 #include <linux/io.h>
 #include <linux/types.h>
 #include <linux/unaligned.h>
@@ -640,12 +642,118 @@ void msm_dp_panel_tpg_config(struct msm_dp_panel *msm_dp_panel, bool enable)
 	msm_dp_panel_tpg_enable(msm_dp_panel, &panel->msm_dp_panel.msm_dp_mode.drm_mode);
 }
 
-void msm_dp_panel_clear_dsc_dto(struct msm_dp_panel *msm_dp_panel)
+static void msm_dp_panel_write_pps(struct msm_dp_panel_private *panel,
+				   const struct drm_dsc_config *dsc)
+{
+	struct drm_dsc_pps_infoframe pps;
+	const struct dp_sdp_header *hdr = &pps.pps_header;
+	const u8 *payload = (const u8 *)&pps.pps_payload;
+	u8 parity[DP_PPS_PB_REG_COUNT * 4] = {};
+	u32 data;
+	int i;
+
+	drm_dsc_dp_pps_header_init(&pps.pps_header);
+	drm_dsc_pps_payload_pack(&pps.pps_payload, dsc);
+
+	msm_dp_write_link(panel, REG_DP_PPS_HB_0_3,
+			  hdr->HB0 | hdr->HB1 << 8 | hdr->HB2 << 16 | hdr->HB3 << 24);
+	msm_dp_write_link(panel, REG_DP_PPS_PB_0_3,
+			  msm_dp_utils_calculate_parity(hdr->HB0, 1) |
+			  msm_dp_utils_calculate_parity(hdr->HB1, 1) << 8 |
+			  msm_dp_utils_calculate_parity(hdr->HB2, 1) << 16 |
+			  msm_dp_utils_calculate_parity(hdr->HB3, 1) << 24);
+
+	/*
+	 * The controller holds the first 88 bytes of the PPS, which cover all
+	 * the parameters used for RGB. The remaining reserved bytes are sent
+	 * as zeroes. Each data word is protected by its own parity byte.
+	 */
+	for (i = 0; i < DP_PPS_DATA_REG_COUNT; i++) {
+		data = get_unaligned_le32(&payload[i * 4]);
+		msm_dp_write_link(panel, REG_DP_PPS_PPS_0_3 + i * 4, data);
+		parity[i] = msm_dp_utils_calculate_parity(data, 4);
+	}
+
+	for (i = 0; i < DP_PPS_PB_REG_COUNT; i++)
+		msm_dp_write_link(panel, REG_DP_PPS_PB_4_7 + i * 4,
+				  get_unaligned_le32(&parity[i * 4]));
+}
+
+/**
+ * msm_dp_panel_config_dsc() - configure the stream compression
+ * @msm_dp_panel: the panel driving the stream
+ * @wide_bus_en: whether the DPU interface transfers two pixels per clock
+ *
+ * Program the DSC Picture Parameter Set SDP, the compressed stream packing
+ * and the pixel clock DTO of the stream, or disable compression if the
+ * current mode does not use DSC.
+ */
+void msm_dp_panel_config_dsc(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en)
 {
 	struct msm_dp_panel_private *panel =
 		container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
+	const struct msm_dp_display_mode *mode = &msm_dp_panel->msm_dp_mode;
+	const struct drm_dsc_config *dsc = &mode->dsc;
+	u32 bytes_per_line, bytes_per_pclk, eol, val;
+	unsigned int num, den, div;
 
-	msm_dp_write_pn(panel, MMSS_DP_DSC_DTO, 0x0);
+	/* Compression is only supported for the SST stream. */
+	if (msm_dp_panel->stream_id != DP_STREAM_0 || !mode->dsc_enabled) {
+		msm_dp_write_pn(panel, MMSS_DP_DSC_DTO, 0x0);
+
+		if (msm_dp_panel->stream_id == DP_STREAM_0 &&
+		    msm_dp_panel->hw_revision >= DP_HW_VERSION_1_2) {
+			msm_dp_write_link(panel, REG_DP_COMPRESSION_MODE_CTRL, 0x0);
+			msm_dp_write_link(panel, MMSS_DP_FLUSH, DP_FLUSH_LAST_PPS);
+		}
+
+		return;
+	}
+
+	/*
+	 * The DPU interface transfers 3 bytes of compressed data per pixel
+	 * clock, or 6 when the data bus is widened. The DTO slows the pixel
+	 * clock down accordingly: f_pclk'' = f_pclk * bpp / 24, independently
+	 * of the bus width.
+	 */
+	bytes_per_line = msm_dsc_get_bytes_per_line(dsc);
+	bytes_per_pclk = wide_bus_en ? 6 : 3;
+	eol = round_up(bytes_per_line, bytes_per_pclk) - bytes_per_line;
+
+	div = gcd(dsc->bits_per_pixel, 24 << 4);
+	num = dsc->bits_per_pixel / div;
+	den = (24 << 4) / div;
+	if (WARN_ON(num > FIELD_MAX(DP_DSC_DTO_NUMERATOR) ||
+		    den > FIELD_MAX(DP_DSC_DTO_DENOMINATOR)))
+		return;
+
+	msm_dp_panel_write_pps(panel, dsc);
+
+	msm_dp_write_pn(panel, MMSS_DP_DSC_DTO_COUNT,
+			DIV_ROUND_UP(bytes_per_line, bytes_per_pclk) - 1);
+	msm_dp_write_pn(panel, MMSS_DP_DSC_DTO,
+			DP_DSC_DTO_EN |
+			FIELD_PREP(DP_DSC_DTO_NUMERATOR, num) |
+			FIELD_PREP(DP_DSC_DTO_DENOMINATOR, den));
+
+	/*
+	 * EOL_BYTE_NUM is the number of padding bytes at the end of a line,
+	 * BE_IN_LANE is only used in MST mode and takes its default value.
+	 */
+	val = DP_COMPRESSION_MODE_CTRL_EN |
+	      FIELD_PREP(DP_COMPRESSION_MODE_CTRL_EOL_BYTE_NUM_B2, eol >> 2) |
+	      FIELD_PREP(DP_COMPRESSION_MODE_CTRL_EOL_BYTE_NUM_B1_B0, eol & 0x3) |
+	      FIELD_PREP(DP_COMPRESSION_MODE_CTRL_SLICES_PER_LINE, dsc->slice_count - 1) |
+	      FIELD_PREP(DP_COMPRESSION_MODE_CTRL_BE_IN_LANE, 0xa) |
+	      FIELD_PREP(DP_COMPRESSION_MODE_CTRL_BYTE_COUNT, dsc->slice_chunk_size);
+	msm_dp_write_link(panel, REG_DP_COMPRESSION_MODE_CTRL, val);
+
+	drm_dbg_dp(panel->drm_dev,
+		   "DSC: slices=%u chunk=%u eol=%u dto=%u/%u compression=%#x\n",
+		   dsc->slice_count, dsc->slice_chunk_size, eol, num, den, val);
+
+	/* Send the PPS SDP in every frame, not only in the next one. */
+	msm_dp_write_link(panel, MMSS_DP_FLUSH, DP_FLUSH_PPS_FLUSH);
 }
 
 static void msm_dp_panel_send_sdp(struct msm_dp_panel_private *panel,

@@ -28,6 +28,8 @@ struct msm_dp_bridge_state {
 	bool hdr_enabled;
 	struct dp_sdp hdr_sdp;
 	bool fec_enabled;
+	bool dsc_enabled;
+	struct drm_dsc_config dsc;
 };
 
 #define to_dp_bridge_state(x) container_of((x), struct msm_dp_bridge_state, base)
