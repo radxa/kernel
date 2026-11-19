@@ -27,6 +27,10 @@ struct msm_dp {
 	bool psr_supported;
 };
 
+enum drm_mode_status msm_dp_mode_valid(struct msm_dp *dp,
+				       const struct drm_connector_state *conn_state,
+				       const struct drm_display_mode *mode, u32 format);
+
 int msm_dp_display_get_modes(struct msm_dp *msm_dp_display);
 bool msm_dp_display_check_video_test(struct msm_dp *msm_dp_display);
 int msm_dp_display_get_test_bpp(struct msm_dp *msm_dp_display);
