@@ -762,6 +762,37 @@ int msm_dp_panel_dsc_compute_config(struct msm_dp_panel *msm_dp_panel,
 	return drm_dsc_compute_rc_parameters(dsc);
 }
 
+/**
+ * msm_dp_panel_dsc_capable() - check whether the stream can be compressed
+ * @msm_dp_panel: the panel driving the stream
+ *
+ * Returns: true if the controller has compression registers for the stream
+ * of @msm_dp_panel, which is only the case for the first two streams.
+ */
+bool msm_dp_panel_dsc_capable(const struct msm_dp_panel *msm_dp_panel)
+{
+	return msm_dp_panel->hw_revision >= DP_HW_VERSION_1_2 &&
+	       msm_dp_panel->stream_id <= DP_STREAM_1;
+}
+
+/* Stream 1 has its own copy of the compression and PPS flush registers. */
+static u32 msm_dp_panel_dsc_reg(const struct msm_dp_panel_private *panel, u32 reg)
+{
+	if (panel->msm_dp_panel.stream_id != DP_STREAM_1)
+		return reg;
+
+	if (reg == MMSS_DP_FLUSH)
+		return MMSS_DP1_FLUSH;
+
+	return reg - REG_DP_COMPRESSION_MODE_CTRL + REG_DP1_COMPRESSION_MODE_CTRL;
+}
+
+static void msm_dp_panel_write_dsc(struct msm_dp_panel_private *panel,
+				   u32 reg, u32 data)
+{
+	msm_dp_write_link(panel, msm_dp_panel_dsc_reg(panel, reg), data);
+}
+
 static void msm_dp_panel_write_pps(struct msm_dp_panel_private *panel,
 				   const struct drm_dsc_config *dsc)
 {
@@ -775,13 +806,13 @@ static void msm_dp_panel_write_pps(struct msm_dp_panel_private *panel,
 	drm_dsc_dp_pps_header_init(&pps.pps_header);
 	drm_dsc_pps_payload_pack(&pps.pps_payload, dsc);
 
-	msm_dp_write_link(panel, REG_DP_PPS_HB_0_3,
-			  hdr->HB0 | hdr->HB1 << 8 | hdr->HB2 << 16 | hdr->HB3 << 24);
-	msm_dp_write_link(panel, REG_DP_PPS_PB_0_3,
-			  msm_dp_utils_calculate_parity(hdr->HB0, 1) |
-			  msm_dp_utils_calculate_parity(hdr->HB1, 1) << 8 |
-			  msm_dp_utils_calculate_parity(hdr->HB2, 1) << 16 |
-			  msm_dp_utils_calculate_parity(hdr->HB3, 1) << 24);
+	msm_dp_panel_write_dsc(panel, REG_DP_PPS_HB_0_3,
+			       hdr->HB0 | hdr->HB1 << 8 | hdr->HB2 << 16 | hdr->HB3 << 24);
+	msm_dp_panel_write_dsc(panel, REG_DP_PPS_PB_0_3,
+			       msm_dp_utils_calculate_parity(hdr->HB0, 1) |
+			       msm_dp_utils_calculate_parity(hdr->HB1, 1) << 8 |
+			       msm_dp_utils_calculate_parity(hdr->HB2, 1) << 16 |
+			       msm_dp_utils_calculate_parity(hdr->HB3, 1) << 24);
 
 	/*
 	 * The controller holds the first 88 bytes of the PPS, which cover all
@@ -790,25 +821,49 @@ static void msm_dp_panel_write_pps(struct msm_dp_panel_private *panel,
 	 */
 	for (i = 0; i < DP_PPS_DATA_REG_COUNT; i++) {
 		data = get_unaligned_le32(&payload[i * 4]);
-		msm_dp_write_link(panel, REG_DP_PPS_PPS_0_3 + i * 4, data);
+		msm_dp_panel_write_dsc(panel, REG_DP_PPS_PPS_0_3 + i * 4, data);
 		parity[i] = msm_dp_utils_calculate_parity(data, 4);
 	}
 
 	for (i = 0; i < DP_PPS_PB_REG_COUNT; i++)
-		msm_dp_write_link(panel, REG_DP_PPS_PB_4_7 + i * 4,
-				  get_unaligned_le32(&parity[i * 4]));
+		msm_dp_panel_write_dsc(panel, REG_DP_PPS_PB_4_7 + i * 4,
+				       get_unaligned_le32(&parity[i * 4]));
+}
+
+/*
+ * With MST constant fill and a widened data bus, BE_IN_LANE gives the lane
+ * that carries the blanking end symbol, from the compressed line size modulo
+ * 12. It takes its default value, meaning an even line size, otherwise.
+ */
+static u32 msm_dp_panel_dsc_be_in_lane(u32 bytes_per_line, bool mst_en)
+{
+	u32 rem = bytes_per_line % 12;
+
+	if (!mst_en)
+		return 0xa;
+
+	if (!rem || rem > 9)
+		return BIT(3);
+	if (rem > 6)
+		return BIT(2);
+	if (rem > 3)
+		return BIT(1);
+
+	return BIT(0);
 }
 
 /**
  * msm_dp_panel_config_dsc() - configure the stream compression
  * @msm_dp_panel: the panel driving the stream
  * @wide_bus_en: whether the DPU interface transfers two pixels per clock
+ * @mst_en: whether the link is in MST mode
  *
  * Program the DSC Picture Parameter Set SDP, the compressed stream packing
  * and the pixel clock DTO of the stream, or disable compression if the
  * current mode does not use DSC.
  */
-void msm_dp_panel_config_dsc(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en)
+void msm_dp_panel_config_dsc(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en,
+			     bool mst_en)
 {
 	struct msm_dp_panel_private *panel =
 		container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
@@ -817,18 +872,19 @@ void msm_dp_panel_config_dsc(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en
 	u32 bytes_per_line, bytes_per_pclk, eol, val;
 	unsigned int num, den, div;
 
-	/* Compression is only supported for the SST stream. */
-	if (msm_dp_panel->stream_id != DP_STREAM_0 || !mode->dsc_enabled) {
+	if (!mode->dsc_enabled) {
 		msm_dp_write_pn(panel, MMSS_DP_DSC_DTO, 0x0);
 
-		if (msm_dp_panel->stream_id == DP_STREAM_0 &&
-		    msm_dp_panel->hw_revision >= DP_HW_VERSION_1_2) {
-			msm_dp_write_link(panel, REG_DP_COMPRESSION_MODE_CTRL, 0x0);
-			msm_dp_write_link(panel, MMSS_DP_FLUSH, DP_FLUSH_LAST_PPS);
+		if (msm_dp_panel_dsc_capable(msm_dp_panel)) {
+			msm_dp_panel_write_dsc(panel, REG_DP_COMPRESSION_MODE_CTRL, 0x0);
+			msm_dp_panel_write_dsc(panel, MMSS_DP_FLUSH, DP_FLUSH_LAST_PPS);
 		}
 
 		return;
 	}
+
+	if (WARN_ON(!msm_dp_panel_dsc_capable(msm_dp_panel)))
+		return;
 
 	/*
 	 * The DPU interface transfers 3 bytes of compressed data per pixel
@@ -856,24 +912,23 @@ void msm_dp_panel_config_dsc(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en
 			FIELD_PREP(DP_DSC_DTO_NUMERATOR, num) |
 			FIELD_PREP(DP_DSC_DTO_DENOMINATOR, den));
 
-	/*
-	 * EOL_BYTE_NUM is the number of padding bytes at the end of a line,
-	 * BE_IN_LANE is only used in MST mode and takes its default value.
-	 */
+	/* EOL_BYTE_NUM is the number of padding bytes at the end of a line. */
 	val = DP_COMPRESSION_MODE_CTRL_EN |
 	      FIELD_PREP(DP_COMPRESSION_MODE_CTRL_EOL_BYTE_NUM_B2, eol >> 2) |
 	      FIELD_PREP(DP_COMPRESSION_MODE_CTRL_EOL_BYTE_NUM_B1_B0, eol & 0x3) |
 	      FIELD_PREP(DP_COMPRESSION_MODE_CTRL_SLICES_PER_LINE, dsc->slice_count - 1) |
-	      FIELD_PREP(DP_COMPRESSION_MODE_CTRL_BE_IN_LANE, 0xa) |
+	      FIELD_PREP(DP_COMPRESSION_MODE_CTRL_BE_IN_LANE,
+			 msm_dp_panel_dsc_be_in_lane(bytes_per_line, mst_en)) |
 	      FIELD_PREP(DP_COMPRESSION_MODE_CTRL_BYTE_COUNT, dsc->slice_chunk_size);
-	msm_dp_write_link(panel, REG_DP_COMPRESSION_MODE_CTRL, val);
+	msm_dp_panel_write_dsc(panel, REG_DP_COMPRESSION_MODE_CTRL, val);
 
 	drm_dbg_dp(panel->drm_dev,
-		   "DSC: slices=%u chunk=%u eol=%u dto=%u/%u compression=%#x\n",
-		   dsc->slice_count, dsc->slice_chunk_size, eol, num, den, val);
+		   "DSC: stream=%d slices=%u chunk=%u eol=%u dto=%u/%u compression=%#x\n",
+		   msm_dp_panel->stream_id, dsc->slice_count, dsc->slice_chunk_size,
+		   eol, num, den, val);
 
 	/* Send the PPS SDP in every frame, not only in the next one. */
-	msm_dp_write_link(panel, MMSS_DP_FLUSH, DP_FLUSH_PPS_FLUSH);
+	msm_dp_panel_write_dsc(panel, MMSS_DP_FLUSH, DP_FLUSH_PPS_FLUSH);
 }
 
 static void msm_dp_panel_send_sdp(struct msm_dp_panel_private *panel,

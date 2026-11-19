@@ -370,6 +370,13 @@
 #define REG_DP_DP1_RG				(0x000004fc)
 #define REG_DP_MST_ACT				(0x00000500)
 
+/*
+ * The compression control and PPS SDP registers of stream 1 have the same
+ * layout as the ones of stream 0, starting at this offset.
+ */
+#define REG_DP1_COMPRESSION_MODE_CTRL		(0x00000560)
+#define MMSS_DP1_FLUSH				(0x000002FC)
+
 #define MMSS_DP_BIST_ENABLE			(0x00000000)
 #define DP_BIST_ENABLE_DPBIST_EN		(0x00000001)
 
