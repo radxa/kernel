@@ -7,11 +7,13 @@
 #include <linux/cleanup.h>
 #include <linux/module.h>
 #include <linux/string.h>
+#include <linux/workqueue.h>
 #include <sound/core.h>
 #include <sound/jack.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
+#include <sound/soc-dpcm.h>
 #include <sound/tlv.h>
 #include <sound/pcm_drm_eld.h>
 #include <sound/hdmi-codec.h>
@@ -291,6 +293,11 @@ struct hdmi_codec_priv {
 	unsigned int jack_status;
 	u8 iec_status[AES_IEC958_STATUS_SIZE];
 	struct snd_info_entry *proc_entry;
+	struct snd_soc_component *component;
+	/* Open stream and the DP MST stream it was prepared for, PCM mutex */
+	struct snd_pcm_substream *substream;
+	int dp_mst_stream;
+	struct work_struct dp_mst_work;
 };
 
 static const struct snd_soc_dapm_widget hdmi_widgets[] = {
@@ -487,6 +494,8 @@ static int hdmi_codec_startup(struct snd_pcm_substream *substream,
 	}
 
 	hcp->busy = true;
+	hcp->substream = substream;
+	hcp->dp_mst_stream = -ENODEV;
 
 	return ret;
 }
@@ -507,6 +516,7 @@ static void hdmi_codec_shutdown(struct snd_pcm_substream *substream,
 
 	guard(mutex)(&hcp->lock);
 	hcp->busy = false;
+	hcp->substream = NULL;
 }
 
 static int hdmi_codec_fill_codec_params(struct snd_soc_dai *dai,
@@ -616,6 +626,10 @@ static int hdmi_codec_prepare(struct snd_pcm_substream *substream,
 	unsigned int rate = runtime->rate;
 	struct hdmi_codec_params hp;
 	int ret;
+
+	if (substream == hcp->substream && hcp->hcd.ops->get_dp_mst_stream)
+		hcp->dp_mst_stream = hcp->hcd.ops->get_dp_mst_stream(dai->dev->parent,
+								     hcp->hcd.data);
 
 	if (!hcp->hcd.ops->prepare)
 		return 0;
@@ -949,12 +963,83 @@ static void hdmi_codec_jack_report(struct hdmi_codec_priv *hcp,
 	}
 }
 
+/* Make the user prepare the PCM again, if it has been prepared. */
+static void hdmi_codec_stop_pcm(struct snd_pcm_substream *substream)
+{
+	unsigned long flags;
+
+	snd_pcm_stream_lock_irqsave(substream, flags);
+
+	if (substream->runtime) {
+		switch (substream->runtime->state) {
+		case SNDRV_PCM_STATE_PREPARED:
+		case SNDRV_PCM_STATE_RUNNING:
+		case SNDRV_PCM_STATE_PAUSED:
+			snd_pcm_stop(substream, SNDRV_PCM_STATE_XRUN);
+			break;
+		default:
+			break;
+		}
+	}
+
+	snd_pcm_stream_unlock_irqrestore(substream, flags);
+}
+
+/*
+ * The audio interface of a DisplayPort controller is configured for the MST
+ * stream sending the audio when the PCM gets prepared. Stop the open stream
+ * when the audio moves to another MST stream, so that it is prepared again.
+ */
+static void hdmi_codec_dp_mst_work(struct work_struct *work)
+{
+	struct hdmi_codec_priv *hcp = container_of(work, struct hdmi_codec_priv,
+						   dp_mst_work);
+	struct snd_soc_card *card = hcp->component->card;
+	struct snd_pcm_substream *substream;
+	struct snd_soc_pcm_runtime *rtd;
+	struct snd_soc_dpcm *dpcm;
+	int stream;
+
+	if (!card)
+		return;
+
+	snd_soc_dpcm_mutex_lock(card);
+
+	substream = hcp->substream;
+	if (!substream)
+		goto unlock;
+
+	stream = hcp->hcd.ops->get_dp_mst_stream(hcp->component->dev->parent,
+						 hcp->hcd.data);
+	if (stream < 0 || stream == hcp->dp_mst_stream)
+		goto unlock;
+
+	dev_dbg(hcp->component->dev, "audio moved to DP MST stream %d\n", stream);
+
+	rtd = snd_soc_substream_to_rtd(substream);
+	if (!rtd->dai_link->no_pcm) {
+		hdmi_codec_stop_pcm(substream);
+		goto unlock;
+	}
+
+	/* A back end gets prepared through its front ends. */
+	for_each_dpcm_fe(rtd, substream->stream, dpcm)
+		hdmi_codec_stop_pcm(snd_soc_dpcm_get_substream(dpcm->fe,
+							       substream->stream));
+
+unlock:
+	snd_soc_dpcm_mutex_unlock(card);
+}
+
 static void plugged_cb(struct device *dev, bool plugged)
 {
 	struct hdmi_codec_priv *hcp = dev_get_drvdata(dev);
 	int ret;
 
 	if (plugged) {
+		if (hcp->hcd.ops->get_dp_mst_stream)
+			schedule_work(&hcp->dp_mst_work);
+
 		if (hcp->hcd.ops->get_eld) {
 			hcp->hcd.ops->get_eld(dev->parent, hcp->hcd.data,
 					    hcp->eld, sizeof(hcp->eld));
@@ -1091,6 +1176,8 @@ static int hdmi_probe(struct snd_soc_component *component)
 	struct hdmi_codec_priv *hcp = snd_soc_component_get_drvdata(component);
 	int ret = 0;
 
+	hcp->component = component;
+
 	if (hcp->hcd.ops->hook_plugged_cb) {
 		ret = hcp->hcd.ops->hook_plugged_cb(component->dev->parent,
 						    hcp->hcd.data,
@@ -1108,6 +1195,8 @@ static void hdmi_remove(struct snd_soc_component *component)
 	if (hcp->hcd.ops->hook_plugged_cb)
 		hcp->hcd.ops->hook_plugged_cb(component->dev->parent,
 					      hcp->hcd.data, NULL, NULL);
+
+	cancel_work_sync(&hcp->dp_mst_work);
 }
 
 static const struct snd_soc_component_driver hdmi_driver = {
@@ -1176,6 +1265,7 @@ static int hdmi_codec_probe(struct platform_device *pdev)
 
 	hcp->hcd = *hcd;
 	mutex_init(&hcp->lock);
+	INIT_WORK(&hcp->dp_mst_work, hdmi_codec_dp_mst_work);
 
 	ret = snd_pcm_create_iec958_consumer_default(hcp->iec_status,
 						     sizeof(hcp->iec_status));
