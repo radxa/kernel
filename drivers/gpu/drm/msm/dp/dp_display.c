@@ -16,6 +16,7 @@
 #include <drm/display/drm_dp_aux_bus.h>
 #include <drm/display/drm_dp_mst_helper.h>
 #include <drm/display/drm_hdmi_audio_helper.h>
+#include <drm/drm_atomic.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_panel.h>
 #include <drm/drm_probe_helper.h>
@@ -63,10 +64,12 @@ struct msm_dp_display_private {
 	bool stream_pm_active;
 	bool stream_link_attempted;
 	struct work_struct link_status_work;
+	struct work_struct replug_work;
 
 	/* Serializes HPD, stream and PSR operations while runtime active. */
 	struct mutex plugged_lock;
 	bool plugged;
+	bool replug_pending;
 	/* Protected by plugged_lock, including accesses from link_status_work. */
 	bool link_failed;
 	bool link_status_notified;
@@ -259,6 +262,99 @@ static void msm_dp_display_link_status_work(struct work_struct *work)
 		drm_kms_helper_connector_hotplug_event(connector);
 }
 
+/*
+ * Disable and enable again the SST stream of a sink coming back before
+ * userspace disabled the stream. Return -ENOENT without a commit if the stream
+ * is gone or no longer suits this.
+ */
+static int msm_dp_display_reset_sst(struct msm_dp_display_private *dp,
+				    struct drm_modeset_acquire_ctx *ctx)
+{
+	struct msm_dp *display = &dp->msm_dp_display;
+	struct drm_connector *connector = display->connector;
+	struct drm_atomic_commit *state;
+	struct drm_connector_state *conn_state;
+	struct drm_crtc_state *crtc_state;
+	int ret = -ENOENT;
+
+	state = drm_atomic_commit_alloc(connector->dev);
+	if (!state)
+		return -ENOMEM;
+	state->acquire_ctx = ctx;
+
+	conn_state = drm_atomic_get_connector_state(state, connector);
+	if (IS_ERR(conn_state)) {
+		ret = PTR_ERR(conn_state);
+		goto out;
+	}
+	if (!conn_state->crtc || conn_state->best_encoder != display->bridge->encoder ||
+	    drm_connector_is_unregistered(connector))
+		goto out;
+
+	crtc_state = drm_atomic_get_crtc_state(state, conn_state->crtc);
+	if (IS_ERR(crtc_state)) {
+		ret = PTR_ERR(crtc_state);
+		goto out;
+	}
+	if (!crtc_state->active)
+		goto out;
+
+	/* Check the hardware state after locking the current route. */
+	scoped_guard(mutex, &dp->plugged_lock) {
+		if (!dp->replug_pending || !dp->plugged || !dp->link->link_caps_valid ||
+		    !dp->link->sink_count || display->mst_active ||
+		    display->active_stream_mask != BIT(DP_STREAM_0))
+			goto out;
+	}
+
+	/* The bridge disable/enable callbacks take plugged_lock. */
+	drm_dbg_dp(connector->dev, "resetting active CRTC after SST replug\n");
+	conn_state->link_status = DRM_MODE_LINK_STATUS_GOOD;
+	crtc_state->connectors_changed = true;
+
+	/* Keep the planes and the other connectors of the CRTC in the commit. */
+	ret = drm_atomic_add_affected_connectors(state, conn_state->crtc);
+	if (ret)
+		goto out;
+	ret = drm_atomic_add_affected_planes(state, conn_state->crtc);
+	if (ret)
+		goto out;
+
+	ret = drm_atomic_commit(state);
+out:
+	drm_atomic_commit_put(state);
+	return ret;
+}
+
+static void msm_dp_display_replug_work(struct work_struct *work)
+{
+	struct msm_dp_display_private *dp = container_of(work,
+			struct msm_dp_display_private, replug_work);
+	struct drm_modeset_acquire_ctx ctx;
+	int ret;
+
+	drm_modeset_acquire_init(&ctx, 0);
+	do {
+		ret = msm_dp_display_reset_sst(dp, &ctx);
+		if (ret != -EDEADLK)
+			break;
+		ret = drm_modeset_backoff(&ctx);
+	} while (!ret);
+	drm_modeset_drop_locks(&ctx);
+	drm_modeset_acquire_fini(&ctx);
+
+	guard(mutex)(&dp->plugged_lock);
+	/* A newer HPD edge may have queued another pass during the commit. */
+	if (work_pending(work) || !dp->replug_pending)
+		return;
+	dp->replug_pending = false;
+	if (ret) {
+		drm_dbg_dp(dp->drm_dev, "SST replug modeset failed: %d\n", ret);
+		dp->link_failed = true;
+		schedule_work(&dp->link_status_work);
+	}
+}
+
 static int msm_dp_display_bind(struct device *dev, struct device *master,
 			   void *data)
 {
@@ -272,6 +368,7 @@ static int msm_dp_display_bind(struct device *dev, struct device *master,
 
 	dp->drm_dev = drm;
 	dp->aux->drm_dev = drm;
+	INIT_WORK(&dp->replug_work, msm_dp_display_replug_work);
 	rc = msm_dp_aux_register(dp->aux);
 	if (rc) {
 		DRM_ERROR("DRM DP AUX register failed\n");
@@ -289,6 +386,7 @@ static void msm_dp_display_unbind(struct device *dev, struct device *master,
 	struct msm_dp_display_private *dp = dev_get_dp_display_private(dev);
 	struct msm_drm_private *priv = dev_get_drvdata(master);
 
+	disable_work_sync(&dp->replug_work);
 	cancel_work_sync(&dp->link_status_work);
 	of_dp_aux_depopulate_bus(dp->aux);
 
@@ -570,8 +668,16 @@ static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
 
 	if (!ret && !dp->msm_dp_display.is_edp &&
 	    dp->msm_dp_display.active_stream_mask && !was_plugged) {
-		dp->link_failed = true;
-		schedule_work(&dp->link_status_work);
+		/* A surviving SST stream needs its bridge enable sequence again. */
+		if (!dp->msm_dp_display.mst_active && dp->link->link_caps_valid &&
+		    dp->msm_dp_display.active_stream_mask == BIT(DP_STREAM_0) &&
+		    dp->link->sink_count) {
+			dp->replug_pending = true;
+			queue_work(system_freezable_wq, &dp->replug_work);
+		} else {
+			dp->link_failed = true;
+			schedule_work(&dp->link_status_work);
+		}
 	}
 
 	drm_dbg_dp(dp->drm_dev, "After, type=%d sink_count=%d\n",
@@ -619,6 +725,7 @@ static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 
 	mutex_lock(&dp->plugged_lock);
 	was_plugged = dp->plugged;
+	dp->replug_pending = false;
 
 	if (!dp->msm_dp_display.is_edp)
 		msm_dp_display_reset_link_status(dp);
@@ -1366,6 +1473,7 @@ static int msm_dp_display_disable(struct msm_dp_display_private *dp,
 	lockdep_assert_held(&dp->plugged_lock);
 
 	dp->video_test_blocked = false;
+	dp->replug_pending = false;
 
 	if (!(msm_dp_display->active_stream_mask & BIT(msm_dp_panel->stream_id)))
 		return 0;
@@ -2567,6 +2675,7 @@ void msm_dp_display_atomic_enable(struct msm_dp *msm_dp_display,
 	}
 
 	msm_dp_display_reset_link_status(dp);
+	dp->replug_pending = false;
 	mutex_unlock(&dp->plugged_lock);
 
 	drm_dbg_dp(msm_dp_display->drm_dev, "type=%d Done\n", msm_dp_display->connector_type);
