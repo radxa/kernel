@@ -6,6 +6,7 @@
 
 #define pr_fmt(fmt)	"[drm-dp] %s: " fmt, __func__
 
+#include <linux/bitfield.h>
 #include <linux/platform_device.h>
 
 #include <drm/display/drm_dp_helper.h>
@@ -17,6 +18,14 @@
 #include "dp_reg.h"
 #include "dp_display.h"
 #include "dp_utils.h"
+
+/* Audio SDPs of a stream, in MMSS_DP_SDP_CFG */
+#define DP_SDP_CFG_AUDIO_SDP_EN			\
+	(BIT(1) |	/* AUDIO_TIMESTAMP_SDP_EN */	\
+	 BIT(2) |	/* AUDIO_STREAM_SDP_EN */	\
+	 BIT(5) |	/* AUDIO_COPY_MANAGEMENT_SDP_EN */ \
+	 BIT(6) |	/* AUDIO_ISRC_SDP_EN */		\
+	 BIT(20))	/* AUDIO_INFOFRAME_SDP_EN */
 
 struct msm_dp_audio_private {
 	struct platform_device *pdev;
@@ -128,27 +137,37 @@ static void msm_dp_audio_isrc_sdp(struct msm_dp_audio_private *audio)
 	msm_dp_write_link(audio, MMSS_DP_AUDIO_ISRC_1, header[1]);
 }
 
+static void msm_dp_audio_enable_sdp(struct msm_dp_audio_private *audio,
+				    enum msm_dp_stream_id stream_id, bool enable)
+{
+	u32 reg = msm_dp_stream_reg(stream_id, MMSS_DP_SDP_CFG);
+	u32 sdp_cfg;
+
+	sdp_cfg = msm_dp_read_link(audio, reg);
+	if (enable)
+		sdp_cfg |= DP_SDP_CFG_AUDIO_SDP_EN;
+	else
+		sdp_cfg &= ~DP_SDP_CFG_AUDIO_SDP_EN;
+
+	drm_dbg_dp(audio->drm_dev, "stream %d sdp_cfg = 0x%x\n", stream_id, sdp_cfg);
+
+	msm_dp_write_link(audio, reg, sdp_cfg);
+}
+
 static void msm_dp_audio_config_sdp(struct msm_dp_audio_private *audio)
 {
-	u32 sdp_cfg, sdp_cfg2;
+	enum msm_dp_stream_id stream_id = audio->msm_dp_audio.stream_id;
+	u32 reg = msm_dp_stream_reg(stream_id, MMSS_DP_SDP_CFG2);
+	u32 sdp_cfg2;
 
-	sdp_cfg = msm_dp_read_link(audio, MMSS_DP_SDP_CFG);
-	/* AUDIO_TIMESTAMP_SDP_EN */
-	sdp_cfg |= BIT(1);
-	/* AUDIO_STREAM_SDP_EN */
-	sdp_cfg |= BIT(2);
-	/* AUDIO_COPY_MANAGEMENT_SDP_EN */
-	sdp_cfg |= BIT(5);
-	/* AUDIO_ISRC_SDP_EN  */
-	sdp_cfg |= BIT(6);
-	/* AUDIO_INFOFRAME_SDP_EN  */
-	sdp_cfg |= BIT(20);
+	/* The audio SDP headers are shared, only one stream sends them. */
+	if (audio->msm_dp_audio.mst)
+		msm_dp_audio_enable_sdp(audio, stream_id == DP_STREAM_0 ?
+					DP_STREAM_1 : DP_STREAM_0, false);
 
-	drm_dbg_dp(audio->drm_dev, "sdp_cfg = 0x%x\n", sdp_cfg);
+	msm_dp_audio_enable_sdp(audio, stream_id, true);
 
-	msm_dp_write_link(audio, MMSS_DP_SDP_CFG, sdp_cfg);
-
-	sdp_cfg2 = msm_dp_read_link(audio, MMSS_DP_SDP_CFG2);
+	sdp_cfg2 = msm_dp_read_link(audio, reg);
 	/* IFRM_REGSRC -> Do not use reg values */
 	sdp_cfg2 &= ~BIT(0);
 	/* AUDIO_STREAM_HB3_REGSRC-> Do not use reg values */
@@ -156,7 +175,7 @@ static void msm_dp_audio_config_sdp(struct msm_dp_audio_private *audio)
 
 	drm_dbg_dp(audio->drm_dev, "sdp_cfg2 = 0x%x\n", sdp_cfg2);
 
-	msm_dp_write_link(audio, MMSS_DP_SDP_CFG2, sdp_cfg2);
+	msm_dp_write_link(audio, reg, sdp_cfg2);
 }
 
 static void msm_dp_audio_setup_sdp(struct msm_dp_audio_private *audio)
@@ -240,10 +259,17 @@ static void msm_dp_audio_enable(struct msm_dp_audio_private *audio, bool enable)
 
 	audio_ctrl = msm_dp_read_link(audio, MMSS_DP_AUDIO_CFG);
 
-	if (enable)
+	if (enable) {
+		audio_ctrl &= ~(DP_AUDIO_CFG_MST_STREAM |
+				DP_AUDIO_CFG_MST_STREAM_OVERRIDE);
+		if (audio->msm_dp_audio.mst)
+			audio_ctrl |= DP_AUDIO_CFG_MST_STREAM_OVERRIDE |
+				      FIELD_PREP(DP_AUDIO_CFG_MST_STREAM,
+						 audio->msm_dp_audio.stream_id);
 		audio_ctrl |= BIT(0);
-	else
+	} else {
 		audio_ctrl &= ~BIT(0);
+	}
 
 	drm_dbg_dp(audio->drm_dev, "dp_audio_cfg = 0x%x\n", audio_ctrl);
 
@@ -293,6 +319,10 @@ int msm_dp_audio_prepare(struct drm_bridge *bridge,
 		goto end;
 	}
 
+	/* No MST stream sends the audio. */
+	if (audio->msm_dp_audio.stream_id < 0)
+		goto end;
+
 	audio->channels = params->channels;
 
 	msm_dp_audio_setup_sdp(audio);
@@ -336,6 +366,24 @@ void msm_dp_audio_shutdown(struct drm_bridge *bridge,
 	msm_dp_display_signal_audio_complete(msm_dp_display);
 }
 
+int msm_dp_audio_get_mst_stream(struct drm_bridge *bridge,
+				struct drm_connector *connector)
+{
+	struct msm_dp *msm_dp_display = to_dp_bridge(bridge)->msm_dp_display;
+	struct msm_dp_audio_private *audio;
+
+	audio = msm_dp_audio_get_data(msm_dp_display);
+	if (IS_ERR(audio))
+		return PTR_ERR(audio);
+
+	/* The audio interface addresses stream 0 for SST too. */
+	if (!audio->msm_dp_audio.mst)
+		return DP_STREAM_0;
+
+	return audio->msm_dp_audio.stream_id >= 0 ?
+	       audio->msm_dp_audio.stream_id : -ENODEV;
+}
+
 void msm_dp_audio_restore(struct msm_dp *msm_dp_display)
 {
 	struct msm_dp_audio_private *audio;
@@ -344,13 +392,28 @@ void msm_dp_audio_restore(struct msm_dp *msm_dp_display)
 		return;
 
 	audio = msm_dp_audio_get_data(msm_dp_display);
-	if (IS_ERR(audio))
+	if (IS_ERR(audio) || audio->msm_dp_audio.stream_id < 0)
 		return;
 
 	msm_dp_audio_setup_sdp(audio);
 	msm_dp_audio_setup_acr(audio);
 	msm_dp_audio_safe_to_exit_level(audio);
 	msm_dp_audio_enable(audio, true);
+}
+
+/**
+ * msm_dp_audio_disable_sdp() - stop sending the audio SDPs with the stream
+ * @msm_dp_audio: the DP audio
+ *
+ * The stream sending the audio has to be enabled.
+ */
+void msm_dp_audio_disable_sdp(struct msm_dp_audio *msm_dp_audio)
+{
+	struct msm_dp_audio_private *audio =
+		container_of(msm_dp_audio, struct msm_dp_audio_private, msm_dp_audio);
+
+	if (msm_dp_audio->stream_id >= 0)
+		msm_dp_audio_enable_sdp(audio, msm_dp_audio->stream_id, false);
 }
 
 struct msm_dp_audio *msm_dp_audio_get(struct platform_device *pdev,

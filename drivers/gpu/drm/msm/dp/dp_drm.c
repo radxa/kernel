@@ -197,6 +197,7 @@ static const struct drm_bridge_funcs msm_dp_bridge_ops = {
 
 	.dp_audio_prepare = msm_dp_audio_prepare,
 	.dp_audio_shutdown = msm_dp_audio_shutdown,
+	.dp_audio_get_mst_stream = msm_dp_audio_get_mst_stream,
 };
 
 static int msm_edp_bridge_atomic_check(struct drm_bridge *drm_bridge,
