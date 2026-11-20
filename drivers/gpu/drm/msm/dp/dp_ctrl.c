@@ -619,32 +619,56 @@ static bool msm_dp_ctrl_mainlink_ready(struct msm_dp_ctrl_private *ctrl)
 	return true;
 }
 
+/*
+ * The controller sends the idle pattern and the VCPF sequence at the end of
+ * the current frame. Allow for two frames of the stream being stopped, as a
+ * frame lasts longer than the default timeout below 34 Hz.
+ */
+static unsigned long msm_dp_ctrl_pattern_timeout(const struct msm_dp_panel *panel)
+{
+	int vrefresh = drm_mode_vrefresh(&panel->msm_dp_mode.drm_mode);
+	unsigned long timeout = IDLE_PATTERN_COMPLETION_TIMEOUT_JIFFIES;
+
+	if (vrefresh > 0)
+		timeout = max(timeout,
+			      msecs_to_jiffies(2 * DIV_ROUND_UP(MSEC_PER_SEC, vrefresh)));
+
+	return timeout;
+}
+
+static void msm_dp_ctrl_push_idle_timeout(struct msm_dp_ctrl_private *ctrl,
+					  unsigned long timeout)
+{
+	reinit_completion(&ctrl->idle_comp);
+	msm_dp_write_link(ctrl, REG_DP_STATE_CTRL, DP_STATE_CTRL_PUSH_IDLE);
+
+	if (!wait_for_completion_timeout(&ctrl->idle_comp, timeout))
+		pr_warn("PUSH_IDLE pattern timedout\n");
+
+	drm_dbg_dp(ctrl->drm_dev, "mainlink off\n");
+}
+
 void msm_dp_ctrl_push_idle(struct msm_dp_ctrl *msm_dp_ctrl)
 {
 	struct msm_dp_ctrl_private *ctrl;
 
 	ctrl = container_of(msm_dp_ctrl, struct msm_dp_ctrl_private, msm_dp_ctrl);
 
-	reinit_completion(&ctrl->idle_comp);
-	msm_dp_write_link(ctrl, REG_DP_STATE_CTRL, DP_STATE_CTRL_PUSH_IDLE);
-
-	if (!wait_for_completion_timeout(&ctrl->idle_comp,
-					 IDLE_PATTERN_COMPLETION_TIMEOUT_JIFFIES))
-		pr_warn("PUSH_IDLE pattern timedout\n");
-
-	drm_dbg_dp(ctrl->drm_dev, "mainlink off\n");
+	msm_dp_ctrl_push_idle_timeout(ctrl, IDLE_PATTERN_COMPLETION_TIMEOUT_JIFFIES);
 }
 
 /* Must be called with msm_dp_mst::mst_lock held */
 void msm_dp_ctrl_push_vcpf(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel *msm_dp_panel)
 {
 	struct msm_dp_ctrl_private *ctrl;
+	unsigned long timeout;
 	u32 state = 0x0;
 
 	ctrl = container_of(msm_dp_ctrl, struct msm_dp_ctrl_private, msm_dp_ctrl);
+	timeout = msm_dp_ctrl_pattern_timeout(msm_dp_panel);
 
 	if (!ctrl->mst_mode) {
-		msm_dp_ctrl_push_idle(msm_dp_ctrl);
+		msm_dp_ctrl_push_idle_timeout(ctrl, timeout);
 		return;
 	}
 
@@ -659,8 +683,7 @@ void msm_dp_ctrl_push_vcpf(struct msm_dp_ctrl *msm_dp_ctrl, struct msm_dp_panel 
 
 	msm_dp_write_stream_link(ctrl, msm_dp_panel->stream_id, REG_DP_STATE_CTRL, state);
 
-	if (!wait_for_completion_timeout(&ctrl->idle_comp,
-					 IDLE_PATTERN_COMPLETION_TIMEOUT_JIFFIES))
+	if (!wait_for_completion_timeout(&ctrl->idle_comp, timeout))
 		pr_warn("PUSH_VCPF pattern timedout\n");
 }
 
