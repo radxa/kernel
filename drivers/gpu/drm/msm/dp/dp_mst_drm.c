@@ -733,6 +733,10 @@ int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 	if (rc)
 		return rc;
 
+	/* Only streams 0 and 1 are known to have a Generic 2 SDP. */
+	if (dp_state->hdr_enabled && stream_id > DP_STREAM_1)
+		return -EINVAL;
+
 	if (!dfixed_trunc(mst_state->pbn_div)) {
 		mst_state->pbn_div =
 			drm_dp_get_vc_payload_bw(dp_state->link_rate,
