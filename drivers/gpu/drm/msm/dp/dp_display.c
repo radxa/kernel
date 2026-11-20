@@ -895,8 +895,7 @@ static int msm_dp_display_compute_dsc(struct msm_dp_display_private *dp,
 				      struct drm_dsc_config *dsc,
 				      const struct drm_display_info *info,
 				      const struct drm_display_mode *mode,
-				      const u8 *dsc_dpcd, unsigned int max_bpc,
-				      bool hdr)
+				      const u8 *dsc_dpcd, unsigned int max_bpc)
 {
 	static const unsigned int bpcs[] = { 10, 8 };
 	unsigned int i;
@@ -905,7 +904,7 @@ static int msm_dp_display_compute_dsc(struct msm_dp_display_private *dp,
 	max_bpc = min(info->bpc ? info->bpc : 8, max_bpc);
 
 	for (i = 0; i < ARRAY_SIZE(bpcs); i++) {
-		if (bpcs[i] > max_bpc || (hdr && bpcs[i] < 10))
+		if (bpcs[i] > max_bpc)
 			continue;
 
 		ret = msm_dp_panel_dsc_compute_config(dsc_dpcd, mode, bpcs[i],
@@ -940,7 +939,7 @@ static int msm_dp_display_compute_sst_dsc(struct msm_dp_display_private *dp,
 					  struct msm_dp_bridge_state *state,
 					  const struct drm_display_info *info,
 					  const struct drm_display_mode *mode,
-					  unsigned int max_bpc, bool hdr)
+					  unsigned int max_bpc)
 {
 	bool is_edp = dp->msm_dp_display.is_edp;
 	int ret;
@@ -949,7 +948,7 @@ static int msm_dp_display_compute_sst_dsc(struct msm_dp_display_private *dp,
 		return -EOPNOTSUPP;
 
 	ret = msm_dp_display_compute_dsc(dp, &state->dsc, info, mode,
-					 dp->panel->dsc_dpcd, max_bpc, hdr);
+					 dp->panel->dsc_dpcd, max_bpc);
 	if (ret)
 		return ret;
 
@@ -988,7 +987,6 @@ int msm_dp_display_mst_compute_dsc(struct msm_dp *msm_dp_display,
 {
 	const struct drm_display_info *info = &conn_state->connector->display_info;
 	struct msm_dp_display_private *dp;
-	bool hdr;
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 
@@ -998,11 +996,8 @@ int msm_dp_display_mst_compute_dsc(struct msm_dp *msm_dp_display,
 					  state->fec_enabled))
 		return -EOPNOTSUPP;
 
-	hdr = state->hdr_enabled &&
-	      state->hdr_sdp.db[2] != HDMI_EOTF_TRADITIONAL_GAMMA_SDR;
-
 	return msm_dp_display_compute_dsc(dp, &state->dsc, info, mode, dsc_dpcd,
-					  conn_state->max_requested_bpc ?: 8, hdr);
+					  conn_state->max_requested_bpc ?: 8);
 }
 
 int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
@@ -1015,7 +1010,6 @@ int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
 	struct msm_dp_display_private *dp;
 	unsigned int clock = mode->clock;
 	unsigned int max_bpc = conn_state->max_requested_bpc ?: 8;
-	bool hdr;
 	int bpp, ret;
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
@@ -1039,20 +1033,17 @@ int msm_dp_display_atomic_check(struct msm_dp *msm_dp_display,
 	if (state->hdr_enabled && dp->panel->hw_revision < DP_HW_VERSION_1_0)
 		return -EINVAL;
 
-	hdr = state->hdr_enabled &&
-	      state->hdr_sdp.db[2] != HDMI_EOTF_TRADITIONAL_GAMMA_SDR;
-
 	bpp = msm_dp_utils_select_bpp(info->bpc, max_bpc,
 				      clock, dp->link->link_caps.rate,
 				      dp->link->link_caps.num_lanes,
-				      drm_mode_is_420_only(info, mode), hdr);
+				      drm_mode_is_420_only(info, mode));
 
 	/*
 	 * Only compress the stream when it does not fit the link otherwise,
 	 * but prefer compression to a reduced component depth.
 	 */
 	if (allow_dsc && bpp < 24 &&
-	    !msm_dp_display_compute_sst_dsc(dp, state, info, mode, max_bpc, hdr))
+	    !msm_dp_display_compute_sst_dsc(dp, state, info, mode, max_bpc))
 		bpp = state->dsc.bits_per_component * 3;
 
 	if (bpp < 0)

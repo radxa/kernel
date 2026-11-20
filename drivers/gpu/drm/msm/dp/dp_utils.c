@@ -185,19 +185,16 @@ int msm_dp_utils_mst_pbn(unsigned int clock, unsigned int hactive,
 
 int msm_dp_utils_select_bpp(unsigned int bpc, unsigned int max_bpc,
 			    unsigned int clock, unsigned int rate,
-			    unsigned int lanes, bool yuv420, bool hdr)
+			    unsigned int lanes, bool yuv420)
 {
 	unsigned int bpp;
 
-	if (hdr && bpc < 10)
-		return -EINVAL;
-
 	bpc = min3(bpc ? bpc : 8, max_bpc, 10U);
 	bpc = round_down(bpc, 2);
-	if (bpc < (hdr ? 10 : 6))
+	if (bpc < 6)
 		return -EINVAL;
 
-	for (bpp = bpc * 3; bpp >= (hdr ? 30 : 18); bpp -= 6) {
+	for (bpp = bpc * 3; bpp >= 18; bpp -= 6) {
 		if (msm_dp_utils_link_fits(clock, bpp, rate, lanes, yuv420))
 			return bpp;
 	}

@@ -404,7 +404,7 @@ static int msm_dp_mst_compute_config(struct drm_atomic_commit *state,
 				     const struct drm_dp_mst_topology_state *mst_state,
 				     struct drm_connector_state *conn_state,
 				     const struct drm_display_mode *mode,
-				     bool allow_dsc, u32 min_bpp, bool yuv420)
+				     bool allow_dsc, bool yuv420)
 {
 	struct msm_dp_bridge_state *dp_state =
 		&to_msm_dp_mst_connector_state(conn_state)->dp_state;
@@ -424,7 +424,7 @@ static int msm_dp_mst_compute_config(struct drm_atomic_commit *state,
 						    fec_cap);
 
 	ret = msm_dp_mst_try_uncompressed(state, mst, mst_state, port, mode,
-					  dp_state, max(min_bpp, 24U), max_bpp,
+					  dp_state, 24, max_bpp,
 					  yuv420);
 	if (ret != -ENOSPC)
 		return ret;
@@ -437,7 +437,7 @@ static int msm_dp_mst_compute_config(struct drm_atomic_commit *state,
 	}
 
 	return msm_dp_mst_try_uncompressed(state, mst, mst_state, port, mode,
-					   dp_state, min_bpp, min(max_bpp, 23U),
+					   dp_state, 0, min(max_bpp, 23U),
 					   yuv420);
 }
 
@@ -711,7 +711,6 @@ int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 	struct drm_dp_mst_topology_state *mst_state;
 	struct msm_dp_bridge_state *dp_state = &mst_conn_state->dp_state;
 	int stream_id = msm_dp_mst_encoder_stream_id(mst, enc);
-	u32 min_bpp = 18;
 	bool yuv420;
 	int rc;
 
@@ -746,9 +745,6 @@ int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 	if (!mst_state->pbn_div.full)
 		return -ENOLINK;
 
-	if (dp_state->hdr_enabled &&
-	    dp_state->hdr_sdp.db[2] != HDMI_EOTF_TRADITIONAL_GAMMA_SDR)
-		min_bpp = 30;
 	yuv420 = drm_mode_is_420_only(&conn_state->connector->display_info,
 				      &crtc_state->adjusted_mode);
 
@@ -756,7 +752,7 @@ int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,
 	rc = msm_dp_mst_compute_config(crtc_state->state, mst_conn, mst_state,
 				       conn_state, &crtc_state->adjusted_mode,
 				       stream_id >= DP_STREAM_0 && stream_id <= DP_STREAM_1,
-				       min_bpp, yuv420);
+				       yuv420);
 	if (rc)
 		return rc;
 
