@@ -54,6 +54,8 @@ struct hdmi_codec_params {
 typedef void (*hdmi_codec_plugged_cb)(struct device *dev,
 				      bool plugged);
 
+typedef void (*hdmi_codec_dp_mst_plugged_cb)(struct device *dev, u32 ports);
+
 struct hdmi_codec_pdata;
 struct hdmi_codec_ops {
 	/*
@@ -122,6 +124,30 @@ struct hdmi_codec_ops {
 	 * Optional
 	 */
 	int (*get_dp_mst_stream)(struct device *dev, void *data);
+
+	/*
+	 * Getting the mask of the DisplayPort MST ports, of the branch device
+	 * connected to the source, which the audio can be sent to.
+	 * Optional
+	 */
+	u32 (*get_dp_mst_ports)(struct device *dev, void *data);
+
+	/*
+	 * Sending the audio to the sink connected to the given DisplayPort MST
+	 * port, or to a sink the DisplayPort driver chooses if the port is 0.
+	 * Optional
+	 */
+	int (*set_dp_mst_port)(struct device *dev, void *data,
+			       unsigned int port);
+
+	/*
+	 * Hook callback function reporting the mask of the DisplayPort MST
+	 * ports connected to an enabled sink the audio can be sent to.
+	 * Optional
+	 */
+	int (*hook_dp_mst_plugged_cb)(struct device *dev, void *data,
+				      hdmi_codec_dp_mst_plugged_cb fn,
+				      struct device *codec_dev);
 };
 
 /* HDMI codec initalization data */

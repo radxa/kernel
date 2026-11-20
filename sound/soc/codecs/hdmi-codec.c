@@ -4,6 +4,7 @@
  * Copyright (C) 2015 Texas Instruments Incorporated - https://www.ti.com/
  * Author: Jyri Sarha <jsarha@ti.com>
  */
+#include <linux/bitops.h>
 #include <linux/cleanup.h>
 #include <linux/module.h>
 #include <linux/string.h>
@@ -281,6 +282,9 @@ static const struct hdmi_codec_cea_spk_alloc hdmi_codec_channel_alloc[] = {
 	  .mask = FL | FR | LFE },
 };
 
+/* Port numbers of the DisplayPort MST branch devices */
+#define HDMI_CODEC_DP_MST_PORTS		16
+
 struct hdmi_codec_priv {
 	struct hdmi_codec_pdata hcd;
 	uint8_t eld[MAX_ELD_BYTES];
@@ -298,6 +302,14 @@ struct hdmi_codec_priv {
 	struct snd_pcm_substream *substream;
 	int dp_mst_stream;
 	struct work_struct dp_mst_work;
+	/* DP MST port the audio is sent to, 0 for any port */
+	struct mutex dp_mst_port_lock;
+	unsigned int dp_mst_port;
+	/* DP MST ports the audio can be sent to, and the plugged ones */
+	struct mutex dp_mst_lock;
+	u32 dp_mst_ports;
+	u32 dp_mst_plugged;
+	struct snd_jack *dp_mst_jacks[HDMI_CODEC_DP_MST_PORTS];
 };
 
 static const struct snd_soc_dapm_widget hdmi_widgets[] = {
@@ -806,6 +818,137 @@ static struct snd_kcontrol_new hdmi_codec_controls[] = {
 	},
 };
 
+static int hdmi_codec_dp_mst_port_info(struct snd_kcontrol *kcontrol,
+				       struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = 1;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = HDMI_CODEC_DP_MST_PORTS - 1;
+
+	return 0;
+}
+
+static int hdmi_codec_dp_mst_port_get(struct snd_kcontrol *kcontrol,
+				      struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct hdmi_codec_priv *hcp = snd_soc_component_get_drvdata(component);
+
+	guard(mutex)(&hcp->dp_mst_port_lock);
+	ucontrol->value.integer.value[0] = hcp->dp_mst_port;
+
+	return 0;
+}
+
+static int hdmi_codec_dp_mst_port_put(struct snd_kcontrol *kcontrol,
+				      struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct hdmi_codec_priv *hcp = snd_soc_component_get_drvdata(component);
+	long port = ucontrol->value.integer.value[0];
+	int ret;
+
+	if (port < 0 || port >= HDMI_CODEC_DP_MST_PORTS ||
+	    (port && !(hcp->dp_mst_ports & BIT(port))))
+		return -EINVAL;
+
+	guard(mutex)(&hcp->dp_mst_port_lock);
+	if (port == hcp->dp_mst_port)
+		return 0;
+
+	ret = hcp->hcd.ops->set_dp_mst_port(component->dev->parent,
+					    hcp->hcd.data, port);
+	if (ret)
+		return ret;
+
+	hcp->dp_mst_port = port;
+
+	return 1;
+}
+
+/*
+ * The audio is sent to the sink connected to the DisplayPort MST port given
+ * by the control, or to any sink if it is 0. Each port the audio can be sent
+ * to reports with a jack whether it is connected to an enabled sink, which
+ * the audio can be sent to.
+ */
+static const struct snd_kcontrol_new hdmi_codec_dp_mst_port_control = {
+	.iface	= SNDRV_CTL_ELEM_IFACE_PCM,
+	.name	= "DP MST Port",
+	.info	= hdmi_codec_dp_mst_port_info,
+	.get	= hdmi_codec_dp_mst_port_get,
+	.put	= hdmi_codec_dp_mst_port_put,
+};
+
+static void hdmi_codec_dp_mst_jack_report(struct hdmi_codec_priv *hcp)
+{
+	unsigned long ports = hcp->dp_mst_ports;
+	unsigned int port;
+
+	lockdep_assert_held(&hcp->dp_mst_lock);
+
+	for_each_set_bit(port, &ports, HDMI_CODEC_DP_MST_PORTS)
+		snd_jack_report(hcp->dp_mst_jacks[port],
+				hcp->dp_mst_plugged & BIT(port) ?
+				SND_JACK_LINEOUT : 0);
+}
+
+static void hdmi_codec_dp_mst_plugged(struct device *dev, u32 ports)
+{
+	struct hdmi_codec_priv *hcp = dev_get_drvdata(dev);
+
+	guard(mutex)(&hcp->dp_mst_lock);
+	hcp->dp_mst_plugged = ports;
+	hdmi_codec_dp_mst_jack_report(hcp);
+}
+
+static int hdmi_codec_dp_mst_new(struct snd_soc_pcm_runtime *rtd,
+				 struct snd_soc_dai *dai)
+{
+	struct hdmi_codec_priv *hcp = snd_soc_dai_get_drvdata(dai);
+	char name[SNDRV_CTL_ELEM_ID_NAME_MAXLEN];
+	struct snd_kcontrol *kctl;
+	unsigned long ports;
+	unsigned int port;
+	int ret;
+
+	/* The controls are added once, for the first PCM of the codec. */
+	if (!hcp->hcd.ops->get_dp_mst_ports || !hcp->hcd.ops->set_dp_mst_port ||
+	    hcp->dp_mst_ports)
+		return 0;
+
+	ports = hcp->hcd.ops->get_dp_mst_ports(dai->dev->parent, hcp->hcd.data) &
+		GENMASK(HDMI_CODEC_DP_MST_PORTS - 1, 1);
+	if (!ports)
+		return 0;
+
+	kctl = snd_ctl_new1(&hdmi_codec_dp_mst_port_control, dai->component);
+	if (!kctl)
+		return -ENOMEM;
+
+	kctl->id.device = rtd->pcm->device;
+	ret = snd_ctl_add(rtd->card->snd_card, kctl);
+	if (ret < 0)
+		return ret;
+
+	guard(mutex)(&hcp->dp_mst_lock);
+
+	for_each_set_bit(port, &ports, HDMI_CODEC_DP_MST_PORTS) {
+		snprintf(name, sizeof(name), "HDMI/DP,pcm=%d MST Port %u Jack",
+			 rtd->pcm->device, port);
+		ret = snd_jack_new(rtd->card->snd_card, name, SND_JACK_LINEOUT,
+				   &hcp->dp_mst_jacks[port], true, true);
+		if (ret < 0)
+			return ret;
+	}
+
+	hcp->dp_mst_ports = ports;
+	hdmi_codec_dp_mst_jack_report(hcp);
+
+	return 0;
+}
+
 static int hdmi_codec_pcm_new(struct snd_soc_pcm_runtime *rtd,
 			      struct snd_soc_dai *dai)
 {
@@ -842,7 +985,7 @@ static int hdmi_codec_pcm_new(struct snd_soc_pcm_runtime *rtd,
 			return ret;
 	}
 
-	return 0;
+	return hdmi_codec_dp_mst_new(rtd, dai);
 }
 
 #ifdef CONFIG_SND_PROC_FS
@@ -1183,7 +1326,15 @@ static int hdmi_probe(struct snd_soc_component *component)
 						    hcp->hcd.data,
 						    plugged_cb,
 						    component->dev);
+		if (ret)
+			return ret;
 	}
+
+	if (hcp->hcd.ops->hook_dp_mst_plugged_cb)
+		ret = hcp->hcd.ops->hook_dp_mst_plugged_cb(component->dev->parent,
+							   hcp->hcd.data,
+							   hdmi_codec_dp_mst_plugged,
+							   component->dev);
 
 	return ret;
 }
@@ -1196,7 +1347,17 @@ static void hdmi_remove(struct snd_soc_component *component)
 		hcp->hcd.ops->hook_plugged_cb(component->dev->parent,
 					      hcp->hcd.data, NULL, NULL);
 
+	if (hcp->hcd.ops->hook_dp_mst_plugged_cb)
+		hcp->hcd.ops->hook_dp_mst_plugged_cb(component->dev->parent,
+						     hcp->hcd.data, NULL, NULL);
+
 	cancel_work_sync(&hcp->dp_mst_work);
+
+	/* The jacks are freed with the card. */
+	scoped_guard(mutex, &hcp->dp_mst_lock) {
+		hcp->dp_mst_ports = 0;
+		memset(hcp->dp_mst_jacks, 0, sizeof(hcp->dp_mst_jacks));
+	}
 }
 
 static const struct snd_soc_component_driver hdmi_driver = {
@@ -1266,6 +1427,8 @@ static int hdmi_codec_probe(struct platform_device *pdev)
 	hcp->hcd = *hcd;
 	mutex_init(&hcp->lock);
 	INIT_WORK(&hcp->dp_mst_work, hdmi_codec_dp_mst_work);
+	mutex_init(&hcp->dp_mst_port_lock);
+	mutex_init(&hcp->dp_mst_lock);
 
 	ret = snd_pcm_create_iec958_consumer_default(hcp->iec_status,
 						     sizeof(hcp->iec_status));
