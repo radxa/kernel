@@ -20,6 +20,14 @@
 
 #define MSM_DP_MST_HPD_IRQ_MAX_TRIES 30
 
+/*
+ * A stream limited to 6 bpc cannot be compressed, which would take fewer
+ * time slots. The component depth is still reduced to 6 bpc when the time
+ * slots require it.
+ */
+#define MSM_DP_MST_MIN_BPC		8
+#define MSM_DP_MST_MAX_BPC		10
+
 /* Capabilities of the device decompressing the stream of an MST port */
 struct msm_dp_mst_dsc_caps {
 	struct drm_dp_aux *aux;
@@ -61,6 +69,8 @@ struct msm_dp_mst {
 	struct msm_dp_link *link;
 	struct drm_dp_aux *dp_aux;
 	u32 max_streams;
+	/* max bpc property of the MST connectors */
+	struct drm_property *max_bpc_property;
 	/* FEC capability of the branch device, protected by mst_lock */
 	u8 fec_cap;
 	/* Serializes concurrent stream link-state access across streams. */
@@ -242,8 +252,23 @@ static int msm_dp_mst_connector_mode_valid(struct drm_connector *connector,
 static int msm_dp_mst_connector_atomic_check(struct drm_connector *connector,
 					     struct drm_atomic_commit *state)
 {
+	struct drm_connector_state *old_conn_state =
+		drm_atomic_get_old_connector_state(state, connector);
+	struct drm_connector_state *new_conn_state =
+		drm_atomic_get_new_connector_state(state, connector);
 	struct msm_dp_mst_connector *mst_conn = to_dp_mst_connector(connector);
 	struct msm_dp_mst *mst = mst_conn->dp_mst;
+	struct drm_crtc_state *crtc_state;
+
+	/* The stream configuration is only computed for a modeset. */
+	if (new_conn_state->crtc &&
+	    msm_dp_utils_needs_modeset(old_conn_state, new_conn_state)) {
+		crtc_state = drm_atomic_get_crtc_state(state, new_conn_state->crtc);
+		if (IS_ERR(crtc_state))
+			return PTR_ERR(crtc_state);
+
+		crtc_state->mode_changed = true;
+	}
 
 	return drm_dp_atomic_release_time_slots(state, &mst->mst_mgr, mst_conn->mst_port);
 }
@@ -976,6 +1001,21 @@ msm_dp_mst_add_connector(struct drm_dp_mst_topology_mgr *mgr,
 		}
 	}
 
+	/*
+	 * Properties cannot be created once the device is registered, reuse
+	 * the ones created beforehand, including the Colorspace property of
+	 * the SST connector.
+	 */
+	connector->max_bpc_property = mst->max_bpc_property;
+	rc = drm_connector_attach_max_bpc_property(connector, MSM_DP_MST_MIN_BPC,
+						   MSM_DP_MST_MAX_BPC);
+	if (rc)
+		goto err_connector;
+
+	connector->colorspace_property = mst->msm_dp->connector->colorspace_property;
+	drm_connector_attach_colorspace_property(connector);
+	drm_connector_attach_hdr_output_metadata_property(connector);
+
 	mst_conn->mst_port = port;
 	drm_dp_mst_get_port_malloc(port);
 
@@ -1025,6 +1065,14 @@ int msm_dp_mst_mgr_init(struct msm_dp *dp_display, struct msm_dp_link *link,
 	mst->link = link;
 	mst->max_streams = max_streams;
 	mst->dp_aux = drm_aux;
+
+	mst->max_bpc_property = drm_property_create_range(dev, 0, "max bpc",
+							  MSM_DP_MST_MIN_BPC,
+							  MSM_DP_MST_MAX_BPC);
+	if (!mst->max_bpc_property) {
+		kfree(mst);
+		return -ENOMEM;
+	}
 
 	ret = drm_dp_mst_topology_mgr_init(&mst->mst_mgr, dev,
 					   drm_aux,
