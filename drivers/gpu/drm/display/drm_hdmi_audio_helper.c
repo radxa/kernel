@@ -72,6 +72,33 @@ static int drm_connector_hdmi_audio_get_dp_mst_stream(struct device *dev,
 	return -EOPNOTSUPP;
 }
 
+static u32 drm_connector_hdmi_audio_get_dp_mst_ports(struct device *dev,
+						     void *data)
+{
+	struct drm_connector *connector = data;
+	const struct drm_connector_hdmi_audio_funcs *funcs =
+		connector->hdmi_audio.funcs;
+
+	if (funcs->get_dp_mst_ports)
+		return funcs->get_dp_mst_ports(connector);
+
+	return 0;
+}
+
+static int drm_connector_hdmi_audio_set_dp_mst_port(struct device *dev,
+						    void *data,
+						    unsigned int port)
+{
+	struct drm_connector *connector = data;
+	const struct drm_connector_hdmi_audio_funcs *funcs =
+		connector->hdmi_audio.funcs;
+
+	if (funcs->set_dp_mst_port)
+		return funcs->set_dp_mst_port(connector, port);
+
+	return -EOPNOTSUPP;
+}
+
 static int drm_connector_hdmi_audio_get_dai_id(struct snd_soc_component *comment,
 					       struct device_node *endpoint,
 					       void *data)
@@ -141,6 +168,51 @@ void drm_connector_hdmi_audio_plugged_notify(struct drm_connector *connector,
 }
 EXPORT_SYMBOL(drm_connector_hdmi_audio_plugged_notify);
 
+static int drm_connector_hdmi_audio_hook_dp_mst_plugged_cb(struct device *dev,
+							   void *data,
+							   hdmi_codec_dp_mst_plugged_cb fn,
+							   struct device *codec_dev)
+{
+	struct drm_connector *connector = data;
+
+	mutex_lock(&connector->hdmi_audio.lock);
+
+	connector->hdmi_audio.dp_mst_plugged_cb = fn;
+	connector->hdmi_audio.dp_mst_plugged_cb_dev = codec_dev;
+
+	if (fn)
+		fn(codec_dev, connector->hdmi_audio.dp_mst_last_ports);
+
+	mutex_unlock(&connector->hdmi_audio.lock);
+
+	return 0;
+}
+
+/**
+ * drm_connector_hdmi_audio_dp_mst_plugged_notify - report the DP MST ports
+ * @connector: the connector the HDMI Codec was initialized for
+ * @ports: mask of the DisplayPort MST ports the audio can be sent to
+ *
+ * Report the DisplayPort MST ports, among the ones returned by
+ * &drm_connector_hdmi_audio_funcs.get_dp_mst_ports, which are connected to an
+ * enabled sink the audio can be sent to.
+ */
+void drm_connector_hdmi_audio_dp_mst_plugged_notify(struct drm_connector *connector,
+						    u32 ports)
+{
+	mutex_lock(&connector->hdmi_audio.lock);
+
+	connector->hdmi_audio.dp_mst_last_ports = ports;
+
+	if (connector->hdmi_audio.dp_mst_plugged_cb &&
+	    connector->hdmi_audio.dp_mst_plugged_cb_dev)
+		connector->hdmi_audio.dp_mst_plugged_cb(connector->hdmi_audio.dp_mst_plugged_cb_dev,
+							ports);
+
+	mutex_unlock(&connector->hdmi_audio.lock);
+}
+EXPORT_SYMBOL(drm_connector_hdmi_audio_dp_mst_plugged_notify);
+
 static const struct hdmi_codec_ops drm_connector_hdmi_audio_ops = {
 	.audio_startup = drm_connector_hdmi_audio_startup,
 	.prepare = drm_connector_hdmi_audio_prepare,
@@ -150,6 +222,9 @@ static const struct hdmi_codec_ops drm_connector_hdmi_audio_ops = {
 	.get_dai_id = drm_connector_hdmi_audio_get_dai_id,
 	.hook_plugged_cb = drm_connector_hdmi_audio_hook_plugged_cb,
 	.get_dp_mst_stream = drm_connector_hdmi_audio_get_dp_mst_stream,
+	.get_dp_mst_ports = drm_connector_hdmi_audio_get_dp_mst_ports,
+	.set_dp_mst_port = drm_connector_hdmi_audio_set_dp_mst_port,
+	.hook_dp_mst_plugged_cb = drm_connector_hdmi_audio_hook_dp_mst_plugged_cb,
 };
 
 /**

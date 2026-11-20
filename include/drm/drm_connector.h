@@ -1365,6 +1365,31 @@ struct drm_connector_hdmi_audio_funcs {
 	 * sends the audio
 	 */
 	int (*get_dp_mst_stream)(struct drm_connector *connector);
+
+	/**
+	 * @get_dp_mst_ports:
+	 *
+	 * Get the mask of the DisplayPort MST ports, of the branch device
+	 * connected to the source, which the audio can be sent to. The
+	 * @get_dp_mst_ports callback is optional.
+	 *
+	 * Returns:
+	 * The mask of the port numbers
+	 */
+	u32 (*get_dp_mst_ports)(struct drm_connector *connector);
+
+	/**
+	 * @set_dp_mst_port:
+	 *
+	 * Send the audio to the sink connected to the DisplayPort MST port
+	 * @port, or to a sink the driver chooses if @port is 0. The
+	 * @set_dp_mst_port callback is optional.
+	 *
+	 * Returns:
+	 * 0 on success, a negative error code otherwise
+	 */
+	int (*set_dp_mst_port)(struct drm_connector *connector,
+			       unsigned int port);
 };
 
 void drm_connector_cec_phys_addr_invalidate(struct drm_connector *connector);
@@ -2022,7 +2047,8 @@ struct drm_connector_hdmi_audio {
 	/**
 	 * @lock:
 	 *
-	 * Mutex to protect @last_state, @plugged_cb and @plugged_cb_dev.
+	 * Mutex to protect @last_state, @plugged_cb, @plugged_cb_dev,
+	 * @dp_mst_last_ports, @dp_mst_plugged_cb and @dp_mst_plugged_cb_dev.
 	 */
 	struct mutex lock;
 
@@ -2049,6 +2075,31 @@ struct drm_connector_hdmi_audio {
 	 * report the state to @plugged_cb().
 	 */
 	bool last_state;
+
+	/**
+	 * @dp_mst_plugged_cb:
+	 *
+	 * Callback to be called when the DisplayPort MST ports the audio can
+	 * be sent to change. This is assigned by the framework when requested
+	 * by the ASoC code.
+	 */
+	void (*dp_mst_plugged_cb)(struct device *dev, u32 ports);
+
+	/**
+	 * @dp_mst_plugged_cb_dev:
+	 *
+	 * The data for @dp_mst_plugged_cb(). It is being provided by the ASoC.
+	 */
+	struct device *dp_mst_plugged_cb_dev;
+
+	/**
+	 * @dp_mst_last_ports:
+	 *
+	 * Last mask of the DisplayPort MST ports the audio can be sent to,
+	 * recorded by the framework. It is used to correctly report the ports
+	 * to @dp_mst_plugged_cb().
+	 */
+	u32 dp_mst_last_ports;
 
 	/**
 	 * @dai_port:

@@ -19,5 +19,7 @@ int drm_connector_hdmi_audio_init(struct drm_connector *connector,
 				  int sound_dai_port);
 void drm_connector_hdmi_audio_plugged_notify(struct drm_connector *connector,
 					     bool plugged);
+void drm_connector_hdmi_audio_dp_mst_plugged_notify(struct drm_connector *connector,
+						    u32 ports);
 
 #endif
