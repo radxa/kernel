@@ -740,11 +740,24 @@ static int drm_bridge_connector_audio_mute_stream(struct drm_connector *connecto
 	return -EINVAL;
 }
 
+static int drm_bridge_connector_audio_get_dp_mst_stream(struct drm_connector *connector)
+{
+	struct drm_bridge_connector *bridge_connector =
+		to_drm_bridge_connector(connector);
+	struct drm_bridge *bridge = bridge_connector->bridge_dp_audio;
+
+	if (!bridge || !bridge->funcs->dp_audio_get_mst_stream)
+		return -EOPNOTSUPP;
+
+	return bridge->funcs->dp_audio_get_mst_stream(bridge, connector);
+}
+
 static const struct drm_connector_hdmi_audio_funcs drm_bridge_connector_hdmi_audio_funcs = {
 	.startup = drm_bridge_connector_audio_startup,
 	.prepare = drm_bridge_connector_audio_prepare,
 	.shutdown = drm_bridge_connector_audio_shutdown,
 	.mute_stream = drm_bridge_connector_audio_mute_stream,
+	.get_dp_mst_stream = drm_bridge_connector_audio_get_dp_mst_stream,
 };
 
 static int drm_bridge_connector_hdmi_cec_enable(struct drm_connector *connector, bool enable)

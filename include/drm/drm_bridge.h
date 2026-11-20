@@ -848,6 +848,21 @@ struct drm_bridge_funcs {
 				    bool enable, int direction);
 
 	/**
+	 * @dp_audio_get_mst_stream:
+	 *
+	 * Get the index of the DisplayPort MST stream sending the audio.
+	 *
+	 * This callback is optional, it can be implemented by bridges that
+	 * set the @DRM_BRIDGE_OP_DP_AUDIO flag in their &drm_bridge->ops.
+	 *
+	 * Returns:
+	 * The index of the stream, or a negative error code if no stream
+	 * sends the audio
+	 */
+	int (*dp_audio_get_mst_stream)(struct drm_bridge *bridge,
+				       struct drm_connector *connector);
+
+	/**
 	 * @debugfs_init:
 	 *
 	 * Allows bridges to create bridge-specific debugfs files.
