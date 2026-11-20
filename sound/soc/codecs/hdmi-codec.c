@@ -1122,6 +1122,32 @@ static const struct snd_soc_component_driver hdmi_driver = {
 	.set_jack		= hdmi_codec_set_jack,
 };
 
+/**
+ * hdmi_codec_get_dp_mst_stream() - get the DisplayPort MST stream of the audio
+ * @dai: a DAI of any component
+ *
+ * The audio interface of a DisplayPort controller may have to address the
+ * MST stream sending the audio, which only the DisplayPort driver knows.
+ *
+ * Returns: the index of the DisplayPort MST stream sending the audio of @dai,
+ * or a negative error code if @dai is not an HDMI codec DAI or no MST stream
+ * is known to send the audio.
+ */
+int hdmi_codec_get_dp_mst_stream(struct snd_soc_dai *dai)
+{
+	struct hdmi_codec_priv *hcp;
+
+	if (dai->component->driver != &hdmi_driver)
+		return -EINVAL;
+
+	hcp = snd_soc_dai_get_drvdata(dai);
+	if (!hcp->hcd.ops->get_dp_mst_stream)
+		return -EOPNOTSUPP;
+
+	return hcp->hcd.ops->get_dp_mst_stream(dai->dev->parent, hcp->hcd.data);
+}
+EXPORT_SYMBOL_GPL(hdmi_codec_get_dp_mst_stream);
+
 static int hdmi_codec_probe(struct platform_device *pdev)
 {
 	struct hdmi_codec_pdata *hcd = pdev->dev.platform_data;
