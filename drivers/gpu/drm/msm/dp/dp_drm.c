@@ -10,11 +10,13 @@
 #include <drm/drm_bridge.h>
 #include <drm/drm_bridge_connector.h>
 #include <drm/drm_crtc.h>
+#include <drm/display/drm_dp_mst_helper.h>
 
 #include "msm_drv.h"
 #include "msm_kms.h"
 #include "dp_audio.h"
 #include "dp_drm.h"
+#include "dp_mst_drm.h"
 #include "dp_utils.h"
 
 /**
@@ -178,6 +180,27 @@ static int msm_dp_bridge_atomic_check(struct drm_bridge *bridge,
 	return 0;
 }
 
+/* The audio can be sent to a sink behind any physical port of the branch. */
+static u32 msm_dp_bridge_audio_get_mst_ports(struct drm_bridge *bridge,
+					     struct drm_connector *connector)
+{
+	struct msm_dp *msm_dp_display = to_dp_bridge(bridge)->msm_dp_display;
+
+	if (msm_dp_get_mst_max_stream(msm_dp_display) < 2)
+		return 0;
+
+	return GENMASK(DP_MST_LOGICAL_PORT_0 - 1, 1);
+}
+
+static int msm_dp_bridge_audio_set_mst_port(struct drm_bridge *bridge,
+					    struct drm_connector *connector,
+					    unsigned int port)
+{
+	struct msm_dp *msm_dp_display = to_dp_bridge(bridge)->msm_dp_display;
+
+	return msm_dp_mst_set_audio_port(msm_dp_display, port);
+}
+
 static const struct drm_bridge_funcs msm_dp_bridge_ops = {
 	.atomic_check           = msm_dp_bridge_atomic_check,
 	.atomic_duplicate_state = msm_dp_bridge_duplicate_state,
@@ -198,6 +221,8 @@ static const struct drm_bridge_funcs msm_dp_bridge_ops = {
 	.dp_audio_prepare = msm_dp_audio_prepare,
 	.dp_audio_shutdown = msm_dp_audio_shutdown,
 	.dp_audio_get_mst_stream = msm_dp_audio_get_mst_stream,
+	.dp_audio_get_mst_ports = msm_dp_bridge_audio_get_mst_ports,
+	.dp_audio_set_mst_port = msm_dp_bridge_audio_set_mst_port,
 };
 
 static int msm_edp_bridge_atomic_check(struct drm_bridge *drm_bridge,
