@@ -115,6 +115,13 @@ struct hdmi_codec_ops {
 	int (*hook_plugged_cb)(struct device *dev, void *data,
 			       hdmi_codec_plugged_cb fn,
 			       struct device *codec_dev);
+
+	/*
+	 * Getting the index of the DisplayPort MST stream sending the audio,
+	 * or a negative error code if no stream sends it.
+	 * Optional
+	 */
+	int (*get_dp_mst_stream)(struct device *dev, void *data);
 };
 
 /* HDMI codec initalization data */
@@ -133,7 +140,17 @@ struct hdmi_codec_pdata {
 };
 
 struct snd_soc_component;
+struct snd_soc_dai;
 struct snd_soc_jack;
+
+#if IS_REACHABLE(CONFIG_SND_SOC_HDMI_CODEC)
+int hdmi_codec_get_dp_mst_stream(struct snd_soc_dai *dai);
+#else
+static inline int hdmi_codec_get_dp_mst_stream(struct snd_soc_dai *dai)
+{
+	return -EOPNOTSUPP;
+}
+#endif
 
 #define HDMI_CODEC_DRV_NAME "hdmi-audio-codec"
 
