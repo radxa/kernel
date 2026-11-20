@@ -863,6 +863,37 @@ struct drm_bridge_funcs {
 				       struct drm_connector *connector);
 
 	/**
+	 * @dp_audio_get_mst_ports:
+	 *
+	 * Get the mask of the DisplayPort MST ports, of the branch device
+	 * connected to the source, which the audio can be sent to.
+	 *
+	 * This callback is optional, it can be implemented by bridges that
+	 * set the @DRM_BRIDGE_OP_DP_AUDIO flag in their &drm_bridge->ops.
+	 *
+	 * Returns:
+	 * The mask of the port numbers
+	 */
+	u32 (*dp_audio_get_mst_ports)(struct drm_bridge *bridge,
+				      struct drm_connector *connector);
+
+	/**
+	 * @dp_audio_set_mst_port:
+	 *
+	 * Send the audio to the sink connected to the DisplayPort MST port
+	 * @port, or to a sink the bridge chooses if @port is 0.
+	 *
+	 * This callback is optional, it can be implemented by bridges that
+	 * set the @DRM_BRIDGE_OP_DP_AUDIO flag in their &drm_bridge->ops.
+	 *
+	 * Returns:
+	 * 0 on success, a negative error code otherwise
+	 */
+	int (*dp_audio_set_mst_port)(struct drm_bridge *bridge,
+				     struct drm_connector *connector,
+				     unsigned int port);
+
+	/**
 	 * @debugfs_init:
 	 *
 	 * Allows bridges to create bridge-specific debugfs files.
