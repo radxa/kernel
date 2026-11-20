@@ -1282,14 +1282,24 @@ static void msm_dp_display_mst_audio_attach(struct msm_dp *msm_dp_display,
 	}
 }
 
-/* Stop sending the audio with its MST stream, once the PCM is closed. */
-static void msm_dp_display_mst_audio_stop(struct msm_dp_display_private *dp)
+/*
+ * Stop sending the audio with its MST stream. Unless @wait, the PCM is left
+ * open, to be prepared again for the stream sending the audio next.
+ */
+static void msm_dp_display_mst_audio_stop(struct msm_dp_display_private *dp,
+					  bool wait)
 {
 	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
 	struct msm_dp_audio *audio = dp->audio;
 
 	drm_connector_hdmi_audio_plugged_notify(msm_dp_display->connector, false);
-	msm_dp_display_audio_wait_disable(dp);
+
+	if (wait) {
+		msm_dp_display_audio_wait_disable(dp);
+	} else if (msm_dp_display->audio_enabled) {
+		msm_dp_display->audio_restore_pending = true;
+		msm_dp_display->audio_enabled = false;
+	}
 
 	scoped_guard(mutex, &dp->plugged_lock) {
 		if (msm_dp_display->active_stream_mask & BIT(audio->stream_id))
@@ -1309,18 +1319,20 @@ static void msm_dp_display_mst_audio_detach(struct msm_dp_display_private *dp,
 	if (!audio || !audio->mst || audio->stream_id != panel->stream_id)
 		return;
 
-	msm_dp_display_mst_audio_stop(dp);
+	msm_dp_display_mst_audio_stop(dp, true);
 }
 
 /**
  * msm_dp_display_mst_audio_select() - send the audio with an MST stream
  * @msm_dp_display: the DP controller
  * @panel: the panel of the enabled MST stream to send the audio with, or NULL
+ * @ports: the MST ports of the enabled streams which can send the audio
  *
- * Send the audio with the stream of @panel, unless a stream already sends it.
+ * Move the audio to the stream of @panel, restarting the open PCM, and report
+ * the MST ports the audio can be sent to.
  */
 void msm_dp_display_mst_audio_select(struct msm_dp *msm_dp_display,
-				     struct msm_dp_panel *panel)
+				     struct msm_dp_panel *panel, u32 ports)
 {
 	struct msm_dp_display_private *dp;
 	struct msm_dp_audio *audio;
@@ -1331,9 +1343,15 @@ void msm_dp_display_mst_audio_select(struct msm_dp *msm_dp_display,
 	if (!audio || !audio->mst)
 		return;
 
-	/* The audio stays with its stream as long as the stream is enabled. */
-	if (audio->stream_id >= 0)
-		return;
+	drm_connector_hdmi_audio_dp_mst_plugged_notify(msm_dp_display->connector,
+						       ports);
+
+	if (audio->stream_id >= 0) {
+		if (panel && panel->stream_id == audio->stream_id)
+			return;
+
+		msm_dp_display_mst_audio_stop(dp, false);
+	}
 
 	if (panel)
 		msm_dp_display_mst_audio_attach(msm_dp_display, panel,

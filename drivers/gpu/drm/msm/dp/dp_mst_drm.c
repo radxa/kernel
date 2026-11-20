@@ -74,6 +74,8 @@ struct msm_dp_mst {
 	struct drm_property *max_bpc_property;
 	/* FEC capability of the branch device, protected by mst_lock */
 	u8 fec_cap;
+	/* MST port the audio is sent to, 0 for any, protected by mst_lock */
+	unsigned int audio_port;
 	/* Serializes concurrent stream link-state access across streams. */
 	struct mutex mst_lock;
 	/* Serializes HPD IRQ handling between IRQ handler and poll_hpd_irq. */
@@ -599,9 +601,19 @@ static bool msm_dp_mst_stream_kept(struct drm_atomic_commit *state,
 	return !crtc_state || !drm_atomic_crtc_needs_modeset(crtc_state);
 }
 
+/* The port of the branch device of the source leading to @port. */
+static unsigned int msm_dp_mst_root_port(struct drm_dp_mst_port *port)
+{
+	while (port->parent->port_parent)
+		port = port->parent->port_parent;
+
+	return port->port_num;
+}
+
 /*
- * Send the audio with an enabled stream, preferring the stream already
- * sending it. @state is a commit disabling streams, if any.
+ * Send the audio with an enabled stream of the selected MST port, preferring
+ * the stream already sending it, and report the ports of the enabled streams
+ * which can send it. @state is a commit disabling streams, if any.
  */
 static void msm_dp_mst_update_audio(struct msm_dp_mst *mst,
 				    struct drm_atomic_commit *state)
@@ -610,6 +622,8 @@ static void msm_dp_mst_update_audio(struct msm_dp_mst *mst,
 	struct msm_dp_audio *audio = dp_display->msm_dp_audio;
 	struct msm_dp_panel *panel, *selected = NULL;
 	struct drm_connector *connector;
+	unsigned int port;
+	u32 ports = 0;
 	int i;
 
 	lockdep_assert_held(&mst->mst_lock);
@@ -625,11 +639,39 @@ static void msm_dp_mst_update_audio(struct msm_dp_mst *mst,
 		    (state && !msm_dp_mst_stream_kept(state, connector)))
 			continue;
 
+		port = msm_dp_mst_root_port(to_dp_mst_connector(connector)->mst_port);
+		ports |= BIT(port);
+
+		if (mst->audio_port && port != mst->audio_port)
+			continue;
+
 		if (!selected || (audio && audio->stream_id == panel->stream_id))
 			selected = panel;
 	}
 
-	msm_dp_display_mst_audio_select(dp_display, selected);
+	msm_dp_display_mst_audio_select(dp_display, selected, ports);
+}
+
+/**
+ * msm_dp_mst_set_audio_port() - send the audio to a sink of an MST port
+ * @dp_display: the DP controller
+ * @port: the port of the branch device of the source, 0 for any port
+ *
+ * Returns: 0 on success, a negative error code otherwise
+ */
+int msm_dp_mst_set_audio_port(struct msm_dp *dp_display, unsigned int port)
+{
+	struct msm_dp_mst *mst = dp_display->msm_dp_mst;
+
+	if (!mst)
+		return -ENODEV;
+
+	guard(mutex)(&mst->mst_lock);
+
+	mst->audio_port = port;
+	msm_dp_mst_update_audio(mst, NULL);
+
+	return 0;
 }
 
 int msm_dp_mst_stream_enable(struct drm_encoder *encoder,

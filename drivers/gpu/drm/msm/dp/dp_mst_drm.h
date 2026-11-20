@@ -16,5 +16,6 @@ int msm_dp_mst_attach_encoder(struct msm_dp *dp_display, unsigned int stream_id,
 			      struct drm_encoder *encoder);
 int msm_dp_mst_display_set_mgr_state(struct msm_dp *dp_display, bool state);
 void msm_dp_mst_display_hpd_irq(struct msm_dp *dp_display);
+int msm_dp_mst_set_audio_port(struct msm_dp *dp_display, unsigned int port);
 
 #endif /* _DP_MST_DRM_H_ */
