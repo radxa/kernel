@@ -1353,6 +1353,18 @@ struct drm_connector_hdmi_audio_funcs {
 	 */
 	int (*mute_stream)(struct drm_connector *connector,
 			   bool enable, int direction);
+
+	/**
+	 * @get_dp_mst_stream:
+	 *
+	 * Get the index of the DisplayPort MST stream sending the audio. The
+	 * @get_dp_mst_stream callback is optional.
+	 *
+	 * Returns:
+	 * The index of the stream, or a negative error code if no stream
+	 * sends the audio
+	 */
+	int (*get_dp_mst_stream)(struct drm_connector *connector);
 };
 
 void drm_connector_cec_phys_addr_invalidate(struct drm_connector *connector);

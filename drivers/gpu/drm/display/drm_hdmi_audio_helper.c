@@ -59,6 +59,19 @@ static int drm_connector_hdmi_audio_mute_stream(struct device *dev, void *data,
 	return -ENOTSUPP;
 }
 
+static int drm_connector_hdmi_audio_get_dp_mst_stream(struct device *dev,
+						      void *data)
+{
+	struct drm_connector *connector = data;
+	const struct drm_connector_hdmi_audio_funcs *funcs =
+		connector->hdmi_audio.funcs;
+
+	if (funcs->get_dp_mst_stream)
+		return funcs->get_dp_mst_stream(connector);
+
+	return -EOPNOTSUPP;
+}
+
 static int drm_connector_hdmi_audio_get_dai_id(struct snd_soc_component *comment,
 					       struct device_node *endpoint,
 					       void *data)
@@ -136,6 +149,7 @@ static const struct hdmi_codec_ops drm_connector_hdmi_audio_ops = {
 	.get_eld = drm_connector_hdmi_audio_get_eld,
 	.get_dai_id = drm_connector_hdmi_audio_get_dai_id,
 	.hook_plugged_cb = drm_connector_hdmi_audio_hook_plugged_cb,
+	.get_dp_mst_stream = drm_connector_hdmi_audio_get_dp_mst_stream,
 };
 
 /**
