@@ -42,6 +42,10 @@ u32 msm_dp_stream_reg(enum msm_dp_stream_id id, u32 reg)
 	if (id == DP_STREAM_0)
 		return reg;
 
+	/* The Generic 2 SDP registers of stream 1 have the layout of stream 0. */
+	if (is_s1 && reg >= MMSS_DP_GENERIC2_0 && reg <= MMSS_DP_GENERIC2_9)
+		return reg - MMSS_DP_GENERIC2_0 + MMSS_DP1_GENERIC2_0;
+
 	switch (reg) {
 	case REG_DP_STATE_CTRL:
 		return is_s1 ? REG_DP_STATE_CTRL : REG_DP_MSTLINK_STATE_CTRL;
