@@ -679,7 +679,7 @@ static int audioreach_display_port_set_media_format(struct q6apm_graph *graph,
 	param_data->param_size = ic_sz - APM_MODULE_PARAM_DATA_SIZE;
 
 	intf_cfg->cfg.channel_allocation = cfg->channel_allocation;
-	intf_cfg->cfg.mst_idx = 0;
+	intf_cfg->cfg.mst_idx = cfg->mst_idx;
 	intf_cfg->cfg.dptx_idx = cfg->dp_idx;
 
 	return q6apm_send_cmd_sync(graph->apm, pkt, 0);

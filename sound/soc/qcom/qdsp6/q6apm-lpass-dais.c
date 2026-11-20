@@ -10,6 +10,7 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
+#include <sound/hdmi-codec.h>
 #include <sound/pcm.h>
 #include <sound/soc.h>
 #include <sound/pcm_params.h>
@@ -432,8 +433,32 @@ static const struct snd_soc_dai_ops q6i2s_ops = {
 	.trigger	= q6apm_lpass_dai_trigger,
 };
 
+static int q6hdmi_prepare(struct snd_pcm_substream *substream, struct snd_soc_dai *dai)
+{
+	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+	struct q6apm_lpass_dai_data *dai_data = dev_get_drvdata(dai->dev);
+	struct audioreach_module_config *cfg = &dai_data->module_config[dai->id];
+	struct snd_soc_dai *codec_dai;
+	int ret, i;
+
+	/*
+	 * The DisplayPort controller sends the audio with the given MST stream,
+	 * which can change while the PCM stays open.
+	 */
+	cfg->mst_idx = 0;
+	for_each_rtd_codec_dais(rtd, i, codec_dai) {
+		ret = hdmi_codec_get_dp_mst_stream(codec_dai);
+		if (ret >= 0) {
+			cfg->mst_idx = ret;
+			break;
+		}
+	}
+
+	return q6apm_lpass_dai_prepare(substream, dai);
+}
+
 static const struct snd_soc_dai_ops q6hdmi_ops = {
-	.prepare	= q6apm_lpass_dai_prepare,
+	.prepare	= q6hdmi_prepare,
 	.startup	= q6apm_lpass_dai_startup,
 	.shutdown	= q6apm_lpass_dai_shutdown,
 	.hw_params	= q6hdmi_hw_params,
