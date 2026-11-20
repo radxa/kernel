@@ -10,6 +10,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/string_choices.h>
 
+#include "dp_audio.h"
 #include "dp_mst_drm.h"
 #include "dp_drm.h"
 #include "dp_utils.h"
@@ -579,6 +580,58 @@ static void msm_dp_mst_set_decompression(struct msm_dp_mst *mst,
 		drm_dbg_dp(dev, "[MST] failed to disable DSC passthrough\n");
 }
 
+/* Whether the stream of @connector stays enabled, without a modeset. */
+static bool msm_dp_mst_stream_kept(struct drm_atomic_commit *state,
+				   struct drm_connector *connector)
+{
+	struct drm_connector_state *conn_state =
+		drm_atomic_get_new_connector_state(state, connector);
+	struct drm_crtc_state *crtc_state;
+
+	if (!conn_state)
+		return true;
+
+	if (!conn_state->crtc)
+		return false;
+
+	crtc_state = drm_atomic_get_new_crtc_state(state, conn_state->crtc);
+
+	return !crtc_state || !drm_atomic_crtc_needs_modeset(crtc_state);
+}
+
+/*
+ * Send the audio with an enabled stream, preferring the stream already
+ * sending it. @state is a commit disabling streams, if any.
+ */
+static void msm_dp_mst_update_audio(struct msm_dp_mst *mst,
+				    struct drm_atomic_commit *state)
+{
+	struct msm_dp *dp_display = mst->msm_dp;
+	struct msm_dp_audio *audio = dp_display->msm_dp_audio;
+	struct msm_dp_panel *panel, *selected = NULL;
+	struct drm_connector *connector;
+	int i;
+
+	lockdep_assert_held(&mst->mst_lock);
+
+	for (i = 0; i < mst->max_streams; i++) {
+		panel = mst->mst_encoders[i].dp_panel;
+		connector = panel->connector;
+
+		/* Only the first two streams can send the audio. */
+		if (!connector || panel->stream_id > DP_STREAM_1 ||
+		    !(dp_display->active_stream_mask & BIT(panel->stream_id)) ||
+		    !connector->display_info.has_audio ||
+		    (state && !msm_dp_mst_stream_kept(state, connector)))
+			continue;
+
+		if (!selected || (audio && audio->stream_id == panel->stream_id))
+			selected = panel;
+	}
+
+	msm_dp_display_mst_audio_select(dp_display, selected);
+}
+
 int msm_dp_mst_stream_enable(struct drm_encoder *encoder,
 			     struct drm_atomic_commit *state)
 {
@@ -645,6 +698,8 @@ int msm_dp_mst_stream_enable(struct drm_encoder *encoder,
 	rc = drm_dp_add_payload_part2(&mst->mst_mgr, payload);
 	if (rc)
 		goto err;
+
+	msm_dp_mst_update_audio(mst, NULL);
 
 	return 0;
 
@@ -723,6 +778,9 @@ void msm_dp_mst_stream_post_disable(struct drm_encoder *encoder,
 	panel->connector = NULL;
 
 	drm_connector_put(connector);
+
+	/* Send the audio with another stream if it was sent with this one. */
+	msm_dp_mst_update_audio(mst, state);
 }
 
 int msm_dp_mst_stream_atomic_check(struct drm_encoder *enc,

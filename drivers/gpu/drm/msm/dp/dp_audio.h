@@ -17,10 +17,14 @@ struct msm_dp;
  * struct msm_dp_audio
  * @lane_count: number of lanes configured in current session
  * @bw_code: link rate's bandwidth code for current session
+ * @stream_id: stream sending the audio, or -1 if no MST stream sends it
+ * @mst: whether the audio is sent with an MST stream
  */
 struct msm_dp_audio {
 	u32 lane_count;
 	u32 bw_code;
+	int stream_id;
+	bool mst;
 };
 
 /**
@@ -52,7 +56,10 @@ int msm_dp_audio_prepare(struct drm_bridge *bridge,
 			 struct hdmi_codec_params *params);
 void msm_dp_audio_shutdown(struct drm_bridge *bridge,
 			   struct drm_connector *connector);
+int msm_dp_audio_get_mst_stream(struct drm_bridge *bridge,
+				struct drm_connector *connector);
 void msm_dp_audio_restore(struct msm_dp *msm_dp_display);
+void msm_dp_audio_disable_sdp(struct msm_dp_audio *msm_dp_audio);
 
 #endif /* _DP_AUDIO_H_ */
 

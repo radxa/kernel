@@ -342,6 +342,12 @@ static void msm_dp_display_mst_enable(struct msm_dp_display_private *dp)
 
 	msm_dp->mst_active = true;
 	msm_dp_mst_display_set_mgr_state(msm_dp, true);
+
+	/* No MST stream sends the audio until one is enabled. */
+	if (dp->audio) {
+		dp->audio->stream_id = -1;
+		dp->audio->mst = true;
+	}
 }
 
 static int msm_dp_display_process_hpd_high(struct msm_dp_display_private *dp)
@@ -1162,6 +1168,11 @@ static int msm_dp_display_post_enable(struct msm_dp *msm_dp_display,
 
 	rate = dp->link->link_params.rate;
 
+	if (dp->audio) {
+		dp->audio->stream_id = DP_STREAM_0;
+		dp->audio->mst = false;
+	}
+
 	if (dp->audio_supported) {
 		dp->audio->bw_code = drm_dp_link_rate_to_bw_code(rate);
 		dp->audio->lane_count = dp->link->link_params.num_lanes;
@@ -1183,23 +1194,150 @@ static int msm_dp_display_post_enable(struct msm_dp *msm_dp_display,
 	return 0;
 }
 
+/* Wait for the audio to stop, once the sink has been reported unplugged. */
+static void msm_dp_display_audio_wait_disable(struct msm_dp_display_private *dp)
+{
+	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
+
+	if (msm_dp_display->audio_enabled &&
+	    !wait_for_completion_timeout(&dp->audio_comp, HZ * 5)) {
+		DRM_ERROR("audio comp timeout\n");
+		/* the PCM is still open, no new prepare will come */
+		msm_dp_display->audio_restore_pending = true;
+	}
+
+	msm_dp_display->audio_enabled = false;
+}
+
 static void msm_dp_display_audio_notify_disable(struct msm_dp_display_private *dp)
 {
 	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
 
-	/* wait only if audio was enabled */
-	if (msm_dp_display->audio_enabled) {
-		/* signal the disconnect event */
+	/* signal the disconnect event only if audio was enabled */
+	if (msm_dp_display->audio_enabled)
 		msm_dp_display_handle_plugged_change(msm_dp_display, false);
-		if (!wait_for_completion_timeout(&dp->audio_comp,
-				HZ * 5)) {
-			DRM_ERROR("audio comp timeout\n");
-			/* the PCM is still open, no new prepare will come */
-			msm_dp_display->audio_restore_pending = true;
-		}
+
+	msm_dp_display_audio_wait_disable(dp);
+}
+
+/*
+ * The audio codec of the controller is registered with its SST connector,
+ * which reports the ELD of the MST sink receiving the audio meanwhile.
+ */
+static void msm_dp_display_set_audio_eld(struct msm_dp *msm_dp_display,
+					 struct drm_connector *connector)
+{
+	struct drm_connector *audio_connector = msm_dp_display->connector;
+	u8 eld[MAX_ELD_BYTES] = {};
+
+	if (connector) {
+		mutex_lock(&connector->eld_mutex);
+		memcpy(eld, connector->eld, sizeof(eld));
+		mutex_unlock(&connector->eld_mutex);
 	}
 
-	msm_dp_display->audio_enabled = false;
+	mutex_lock(&audio_connector->eld_mutex);
+	memcpy(audio_connector->eld, eld, sizeof(eld));
+	mutex_unlock(&audio_connector->eld_mutex);
+}
+
+/*
+ * The controller sends a single audio stream, with one of the first two MST
+ * streams. Send it with the stream of @panel, unless another stream already
+ * sends it or the sink of the stream does not support audio.
+ */
+static void msm_dp_display_mst_audio_attach(struct msm_dp *msm_dp_display,
+					    struct msm_dp_panel *panel,
+					    struct drm_connector *connector)
+{
+	struct msm_dp_display_private *dp;
+	struct msm_dp_audio *audio;
+
+	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
+	audio = dp->audio;
+
+	guard(mutex)(&dp->plugged_lock);
+
+	if (!audio || (audio->mst && audio->stream_id >= 0) ||
+	    panel->stream_id > DP_STREAM_1 ||
+	    !(msm_dp_display->active_stream_mask & BIT(panel->stream_id)) ||
+	    !connector->display_info.has_audio)
+		return;
+
+	audio->stream_id = panel->stream_id;
+	audio->mst = true;
+	audio->bw_code = drm_dp_link_rate_to_bw_code(dp->link->link_params.rate);
+	audio->lane_count = dp->link->link_params.num_lanes;
+
+	drm_dbg_dp(dp->drm_dev, "[MST] audio sent with stream %d\n", audio->stream_id);
+
+	msm_dp_display_set_audio_eld(msm_dp_display, connector);
+	drm_connector_hdmi_audio_plugged_notify(msm_dp_display->connector, true);
+
+	/* a stream left open across the disable never issues a new prepare */
+	if (msm_dp_display->audio_restore_pending) {
+		msm_dp_display->audio_restore_pending = false;
+		msm_dp_display->audio_enabled = true;
+		msm_dp_audio_restore(msm_dp_display);
+	}
+}
+
+/* Stop sending the audio with its MST stream, once the PCM is closed. */
+static void msm_dp_display_mst_audio_stop(struct msm_dp_display_private *dp)
+{
+	struct msm_dp *msm_dp_display = &dp->msm_dp_display;
+	struct msm_dp_audio *audio = dp->audio;
+
+	drm_connector_hdmi_audio_plugged_notify(msm_dp_display->connector, false);
+	msm_dp_display_audio_wait_disable(dp);
+
+	scoped_guard(mutex, &dp->plugged_lock) {
+		if (msm_dp_display->active_stream_mask & BIT(audio->stream_id))
+			msm_dp_audio_disable_sdp(audio);
+		audio->stream_id = -1;
+	}
+
+	msm_dp_display_set_audio_eld(msm_dp_display, NULL);
+}
+
+/* Stop sending the audio with the MST stream of @panel, if it sends it. */
+static void msm_dp_display_mst_audio_detach(struct msm_dp_display_private *dp,
+					    struct msm_dp_panel *panel)
+{
+	struct msm_dp_audio *audio = dp->audio;
+
+	if (!audio || !audio->mst || audio->stream_id != panel->stream_id)
+		return;
+
+	msm_dp_display_mst_audio_stop(dp);
+}
+
+/**
+ * msm_dp_display_mst_audio_select() - send the audio with an MST stream
+ * @msm_dp_display: the DP controller
+ * @panel: the panel of the enabled MST stream to send the audio with, or NULL
+ *
+ * Send the audio with the stream of @panel, unless a stream already sends it.
+ */
+void msm_dp_display_mst_audio_select(struct msm_dp *msm_dp_display,
+				     struct msm_dp_panel *panel)
+{
+	struct msm_dp_display_private *dp;
+	struct msm_dp_audio *audio;
+
+	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
+	audio = dp->audio;
+
+	if (!audio || !audio->mst)
+		return;
+
+	/* The audio stays with its stream as long as the stream is enabled. */
+	if (audio->stream_id >= 0)
+		return;
+
+	if (panel)
+		msm_dp_display_mst_audio_attach(msm_dp_display, panel,
+						panel->connector);
 }
 
 static int msm_dp_display_disable(struct msm_dp_display_private *dp,
@@ -2487,7 +2625,11 @@ void msm_dp_display_atomic_post_disable_helper(struct msm_dp *dp,
 	if (dp->is_edp)
 		msm_dp_hpd_unplug_handle(msm_dp_display);
 
-	msm_dp_display_audio_notify_disable(msm_dp_display);
+	/* MST streams have their own panels. */
+	if (panel == msm_dp_display->panel)
+		msm_dp_display_audio_notify_disable(msm_dp_display);
+	else
+		msm_dp_display_mst_audio_detach(msm_dp_display, panel);
 
 	scoped_guard(mutex, &msm_dp_display->plugged_lock)
 		msm_dp_display_disable(msm_dp_display, panel);
