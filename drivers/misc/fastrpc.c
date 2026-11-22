@@ -219,6 +219,8 @@ struct fastrpc_buf_overlap {
 
 struct fastrpc_buf {
 	struct fastrpc_user *fl;
+	/* referenced while exported, as the dma-buf can outlive fl */
+	struct fastrpc_channel_ctx *cctx;
 	struct dma_buf *dmabuf;
 	struct device *dev;
 	void *virt;
@@ -475,7 +477,7 @@ static void fastrpc_buf_free(struct fastrpc_buf *buf)
 		return;
 
 	dma_free_coherent(buf->dev, buf->size, buf->virt,
-			  fastrpc_ipa_to_dma_addr(buf->fl->cctx, buf->dma_addr));
+			  fastrpc_ipa_to_dma_addr(buf->cctx, buf->dma_addr));
 	kfree(buf);
 }
 
@@ -493,6 +495,7 @@ static int __fastrpc_buf_alloc(struct fastrpc_user *fl, struct device *dev,
 	mutex_init(&buf->lock);
 
 	buf->fl = fl;
+	buf->cctx = fl->cctx;
 	buf->virt = NULL;
 	buf->dma_addr = 0;
 	buf->size = size;
@@ -802,8 +805,11 @@ static void fastrpc_unmap_dma_buf(struct dma_buf_attachment *attach,
 static void fastrpc_release(struct dma_buf *dmabuf)
 {
 	struct fastrpc_buf *buffer = dmabuf->priv;
+	struct fastrpc_channel_ctx *cctx = buffer->cctx;
 
 	fastrpc_buf_free(buffer);
+	/* The reference taken in fastrpc_dmabuf_alloc() */
+	fastrpc_channel_ctx_put(cctx);
 }
 
 static int fastrpc_dma_buf_attach(struct dma_buf *dmabuf,
@@ -818,7 +824,7 @@ static int fastrpc_dma_buf_attach(struct dma_buf *dmabuf,
 		return -ENOMEM;
 
 	ret = dma_get_sgtable(buffer->dev, &a->sgt, buffer->virt,
-			      fastrpc_ipa_to_dma_addr(buffer->fl->cctx, buffer->dma_addr),
+			      fastrpc_ipa_to_dma_addr(buffer->cctx, buffer->dma_addr),
 			      buffer->size);
 	if (ret < 0) {
 		dev_err(buffer->dev, "failed to get scatterlist from DMA API\n");
@@ -868,7 +874,7 @@ static int fastrpc_mmap(struct dma_buf *dmabuf,
 	dma_resv_assert_held(dmabuf->resv);
 
 	return dma_mmap_coherent(buf->dev, vma, buf->virt,
-				 fastrpc_ipa_to_dma_addr(buf->fl->cctx, buf->dma_addr), size);
+				 fastrpc_ipa_to_dma_addr(buf->cctx, buf->dma_addr), size);
 }
 
 static const struct dma_buf_ops fastrpc_dma_buf_ops = {
@@ -1876,6 +1882,8 @@ static int fastrpc_dmabuf_alloc(struct fastrpc_user *fl, char __user *argp)
 		fastrpc_buf_free(buf);
 		return err;
 	}
+	/* Released in fastrpc_release() */
+	fastrpc_channel_ctx_get(fl->cctx);
 
 	bp.fd = get_unused_fd_flags(O_ACCMODE);
 	if (bp.fd < 0) {
