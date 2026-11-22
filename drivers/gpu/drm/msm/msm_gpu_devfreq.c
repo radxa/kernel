@@ -152,7 +152,7 @@ void msm_devfreq_init(struct msm_gpu *gpu)
 	 * where due to stalling waiting for vblank we could get stuck
 	 * at (for ex) 30fps at 50% utilization.
 	 */
-	priv->gpu_devfreq_config.upthreshold = 50;
+	priv->gpu_devfreq_config.upthreshold = 40;
 	priv->gpu_devfreq_config.downdifferential = 10;
 
 	mutex_init(&df->lock);
