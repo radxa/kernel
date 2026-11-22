@@ -2502,6 +2502,7 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int cmd,
 }
 
 static const struct file_operations fastrpc_fops = {
+	.owner = THIS_MODULE,
 	.open = fastrpc_device_open,
 	.release = fastrpc_device_release,
 	.unlocked_ioctl = fastrpc_device_ioctl,
