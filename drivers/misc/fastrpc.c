@@ -15,6 +15,8 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/sort.h>
+#include <linux/srcu.h>
+#include <linux/workqueue.h>
 #include <linux/of_platform.h>
 #include <linux/rpmsg.h>
 #include <linux/scatterlist.h>
@@ -279,6 +281,8 @@ struct fastrpc_invoke_ctx {
 	bool rsp_ref;
 	struct kref refcount;
 	struct list_head node; /* list of ctxs */
+	/* list of ctxs handled by fastrpc_channel_release_dma() */
+	struct list_head lost_node;
 	struct completion work;
 	struct work_struct put_work;
 	struct fastrpc_msg msg;
@@ -332,6 +336,18 @@ struct fastrpc_channel_ctx {
 	bool poll_mode_supported;
 	/* Per-channel sequence counter; incremented on every context allocation */
 	atomic_t ctx_seq;
+	/* Set once the channel goes away, protected by lock */
+	bool dead;
+	/*
+	 * Read side held by everything that uses the context bank devices or
+	 * rpdev, so that fastrpc_rpmsg_remove() can wait for them, see
+	 * fastrpc_channel_release_dma().
+	 */
+	struct srcu_struct srcu;
+	/* Completed once the removal of the channel released its DMA state */
+	struct completion torn_down;
+	/* Drops the references of answered contexts */
+	struct workqueue_struct *wq;
 	u64 dma_mask;
 	const struct fastrpc_soc_data *soc_data;
 };
@@ -383,35 +399,48 @@ static inline u64 fastrpc_sid_offset(struct fastrpc_channel_ctx *cctx,
 	return (u64)sctx->sid << cctx->soc_data->sid_pos;
 }
 
+/* Unmap and drop the dma-buf of map, if not done yet. */
+static int fastrpc_map_release_dma(struct fastrpc_map *map)
+{
+	if (!map->table)
+		return 0;
+
+	if (map->attr & FASTRPC_ATTR_SECUREMAP) {
+		struct qcom_scm_vmperm perm;
+		int vmid = map->fl->cctx->vmperms[0].vmid;
+		u64 src_perms = BIT(QCOM_SCM_VMID_HLOS) | BIT(vmid);
+		int err = 0;
+
+		perm.vmid = QCOM_SCM_VMID_HLOS;
+		perm.perm = QCOM_SCM_PERM_RWX;
+		err = qcom_scm_assign_mem(map->dma_addr, map->len,
+					  &src_perms, &perm, 1);
+		if (err) {
+			dev_err(map->fl->sctx->dev,
+				"Failed to assign memory dma_addr %pad size 0x%llx err %d\n",
+				&map->dma_addr, map->len, err);
+			return err;
+		}
+	}
+	dma_buf_unmap_attachment_unlocked(map->attach, map->table,
+					  DMA_BIDIRECTIONAL);
+	dma_buf_detach(map->buf, map->attach);
+	dma_buf_put(map->buf);
+	map->table = NULL;
+	map->attach = NULL;
+	map->buf = NULL;
+
+	return 0;
+}
+
 static void fastrpc_free_map(struct kref *ref)
 {
 	struct fastrpc_map *map;
 
 	map = container_of(ref, struct fastrpc_map, refcount);
 
-	if (map->table) {
-		if (map->attr & FASTRPC_ATTR_SECUREMAP) {
-			struct qcom_scm_vmperm perm;
-			int vmid = map->fl->cctx->vmperms[0].vmid;
-			u64 src_perms = BIT(QCOM_SCM_VMID_HLOS) | BIT(vmid);
-			int err = 0;
-
-			perm.vmid = QCOM_SCM_VMID_HLOS;
-			perm.perm = QCOM_SCM_PERM_RWX;
-			err = qcom_scm_assign_mem(map->dma_addr, map->len,
-				&src_perms, &perm, 1);
-			if (err) {
-				dev_err(map->fl->sctx->dev,
-					"Failed to assign memory dma_addr %pad size 0x%llx err %d\n",
-					&map->dma_addr, map->len, err);
-				return;
-			}
-		}
-		dma_buf_unmap_attachment_unlocked(map->attach, map->table,
-						  DMA_BIDIRECTIONAL);
-		dma_buf_detach(map->buf, map->attach);
-		dma_buf_put(map->buf);
-	}
+	if (fastrpc_map_release_dma(map))
+		return;
 
 	if (map->fl) {
 		spin_lock(&map->fl->lock);
@@ -547,6 +576,7 @@ static void fastrpc_channel_ctx_free(struct kref *ref)
 
 	cctx = container_of(ref, struct fastrpc_channel_ctx, refcount);
 
+	cleanup_srcu_struct(&cctx->srcu);
 	idr_destroy(&cctx->ctx_idr);
 	kfree(cctx);
 }
@@ -752,6 +782,12 @@ static struct fastrpc_invoke_ctx *fastrpc_context_alloc(
 	spin_unlock(&user->lock);
 
 	spin_lock_irqsave(&cctx->lock, flags);
+	/* fastrpc_rpmsg_remove() would not wake it anymore */
+	if (cctx->dead) {
+		spin_unlock_irqrestore(&cctx->lock, flags);
+		ret = -EPIPE;
+		goto err_idr;
+	}
 	ret = idr_alloc_cyclic(&cctx->ctx_idr, ctx, 1,
 			       FASTRPC_CTX_MAX, GFP_ATOMIC);
 	if (ret < 0) {
@@ -806,8 +842,15 @@ static void fastrpc_release(struct dma_buf *dmabuf)
 {
 	struct fastrpc_buf *buffer = dmabuf->priv;
 	struct fastrpc_channel_ctx *cctx = buffer->cctx;
+	int idx;
 
-	fastrpc_buf_free(buffer);
+	idx = srcu_read_lock(&cctx->srcu);
+	/* The pages cannot be freed once the context bank device may be gone. */
+	if (READ_ONCE(cctx->dead))
+		kfree(buffer);
+	else
+		fastrpc_buf_free(buffer);
+	srcu_read_unlock(&cctx->srcu, idx);
 	/* The reference taken in fastrpc_dmabuf_alloc() */
 	fastrpc_channel_ctx_put(cctx);
 }
@@ -817,15 +860,21 @@ static int fastrpc_dma_buf_attach(struct dma_buf *dmabuf,
 {
 	struct fastrpc_dma_buf_attachment *a;
 	struct fastrpc_buf *buffer = dmabuf->priv;
-	int ret;
+	struct fastrpc_channel_ctx *cctx = buffer->cctx;
+	int ret, idx;
 
 	a = kzalloc_obj(*a);
 	if (!a)
 		return -ENOMEM;
 
-	ret = dma_get_sgtable(buffer->dev, &a->sgt, buffer->virt,
-			      fastrpc_ipa_to_dma_addr(buffer->cctx, buffer->dma_addr),
-			      buffer->size);
+	idx = srcu_read_lock(&cctx->srcu);
+	if (READ_ONCE(cctx->dead))
+		ret = -ENODEV;
+	else
+		ret = dma_get_sgtable(buffer->dev, &a->sgt, buffer->virt,
+				      fastrpc_ipa_to_dma_addr(cctx, buffer->dma_addr),
+				      buffer->size);
+	srcu_read_unlock(&cctx->srcu, idx);
 	if (ret < 0) {
 		dev_err(buffer->dev, "failed to get scatterlist from DMA API\n");
 		kfree(a);
@@ -869,12 +918,21 @@ static int fastrpc_mmap(struct dma_buf *dmabuf,
 			struct vm_area_struct *vma)
 {
 	struct fastrpc_buf *buf = dmabuf->priv;
+	struct fastrpc_channel_ctx *cctx = buf->cctx;
 	size_t size = vma->vm_end - vma->vm_start;
+	int ret, idx;
 
 	dma_resv_assert_held(dmabuf->resv);
 
-	return dma_mmap_coherent(buf->dev, vma, buf->virt,
-				 fastrpc_ipa_to_dma_addr(buf->cctx, buf->dma_addr), size);
+	idx = srcu_read_lock(&cctx->srcu);
+	if (READ_ONCE(cctx->dead))
+		ret = -ENODEV;
+	else
+		ret = dma_mmap_coherent(buf->dev, vma, buf->virt,
+					fastrpc_ipa_to_dma_addr(cctx, buf->dma_addr), size);
+	srcu_read_unlock(&cctx->srcu, idx);
+
+	return ret;
 }
 
 static const struct dma_buf_ops fastrpc_dma_buf_ops = {
@@ -1781,10 +1839,25 @@ static int fastrpc_device_release(struct inode *inode, struct file *file)
 {
 	struct fastrpc_user *fl = (struct fastrpc_user *)file->private_data;
 	struct fastrpc_channel_ctx *cctx = fl->cctx;
+	bool torn_down = false;
 	unsigned long flags;
-	int err;
+	int err, idx;
 
-	err = fastrpc_release_current_dsp_process(fl);
+	/* Keep cctx for the SRCU read side, fl may hold its last reference */
+	fastrpc_channel_ctx_get(cctx);
+	idx = srcu_read_lock(&cctx->srcu);
+	if (READ_ONCE(cctx->dead)) {
+		/*
+		 * The removal of the channel releases the DMA state of this
+		 * file, wait for it and leave the context bank devices alone.
+		 */
+		srcu_read_unlock(&cctx->srcu, idx);
+		wait_for_completion(&cctx->torn_down);
+		torn_down = true;
+		err = -EPIPE;
+	} else {
+		err = fastrpc_release_current_dsp_process(fl);
+	}
 	fastrpc_drop_pending(fl, !err);
 
 	/*
@@ -1812,6 +1885,10 @@ static int fastrpc_device_release(struct inode *inode, struct file *file)
 	/* Release the reference taken in fastrpc_device_open */
 	fastrpc_user_put(fl);
 
+	if (!torn_down)
+		srcu_read_unlock(&cctx->srcu, idx);
+	fastrpc_channel_ctx_put(cctx);
+
 	return 0;
 }
 
@@ -1821,6 +1898,7 @@ static int fastrpc_device_open(struct inode *inode, struct file *filp)
 	struct fastrpc_device *fdevice;
 	struct fastrpc_user *fl = NULL;
 	unsigned long flags;
+	int err = 0, idx;
 
 	fdevice = miscdev_to_fdevice(filp->private_data);
 	cctx = fdevice->cctx;
@@ -1842,21 +1920,34 @@ static int fastrpc_device_open(struct inode *inode, struct file *filp)
 	fl->cctx = cctx;
 	fl->is_secure_dev = fdevice->secure;
 
+	idx = srcu_read_lock(&cctx->srcu);
+	if (READ_ONCE(cctx->dead)) {
+		err = -EPIPE;
+		goto err_unlock;
+	}
+
 	fl->sctx = fastrpc_session_alloc(fl);
 	if (!fl->sctx) {
 		dev_err_ratelimited(&cctx->rpdev->dev, "No session available\n");
-		mutex_destroy(&fl->mutex);
-		kfree(fl);
-		fastrpc_channel_ctx_put(cctx);
-		return -EBUSY;
+		err = -EBUSY;
+		goto err_unlock;
 	}
 
 	spin_lock_irqsave(&cctx->lock, flags);
 	list_add_tail(&fl->user, &cctx->users);
 	spin_unlock_irqrestore(&cctx->lock, flags);
 	kref_init(&fl->refcount);
+	srcu_read_unlock(&cctx->srcu, idx);
 
 	return 0;
+
+err_unlock:
+	srcu_read_unlock(&cctx->srcu, idx);
+	mutex_destroy(&fl->mutex);
+	kfree(fl);
+	fastrpc_channel_ctx_put(cctx);
+
+	return err;
 }
 
 static int fastrpc_dmabuf_alloc(struct fastrpc_user *fl, char __user *argp)
@@ -2354,8 +2445,15 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int cmd,
 				 unsigned long arg)
 {
 	struct fastrpc_user *fl = (struct fastrpc_user *)file->private_data;
+	struct fastrpc_channel_ctx *cctx = fl->cctx;
 	char __user *argp = (char __user *)arg;
-	int err;
+	int err, idx;
+
+	idx = srcu_read_lock(&cctx->srcu);
+	if (READ_ONCE(cctx->dead)) {
+		srcu_read_unlock(&cctx->srcu, idx);
+		return -EPIPE;
+	}
 
 	switch (cmd) {
 	case FASTRPC_IOCTL_INVOKE:
@@ -2398,6 +2496,7 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int cmd,
 		err = -ENOTTY;
 		break;
 	}
+	srcu_read_unlock(&cctx->srcu, idx);
 
 	return err;
 }
@@ -2657,6 +2756,16 @@ static int fastrpc_rpmsg_probe(struct rpmsg_device *rpdev)
 	if (!data)
 		return -ENOMEM;
 
+	err = init_srcu_struct(&data->srcu);
+	if (err)
+		goto err_kfree;
+	init_completion(&data->torn_down);
+	data->wq = alloc_workqueue("fastrpc-%s", WQ_UNBOUND, 0, domain);
+	if (!data->wq) {
+		err = -ENOMEM;
+		goto err_cleanup_srcu;
+	}
+
 	if (vmcount) {
 		data->vmcount = vmcount;
 		for (i = 0; i < data->vmcount; i++) {
@@ -2728,6 +2837,10 @@ err_deregister_fdev:
 		misc_deregister(&data->secure_fdevice->miscdev);
 
 err_free_data:
+	destroy_workqueue(data->wq);
+err_cleanup_srcu:
+	cleanup_srcu_struct(&data->srcu);
+err_kfree:
 	kfree(data);
 	return err;
 }
@@ -2744,16 +2857,89 @@ static void fastrpc_notify_users(struct fastrpc_user *user)
 	spin_unlock(&user->lock);
 }
 
+/*
+ * Release all DMA state of a removed channel while its context bank devices
+ * and rpdev are still there. Neither the files still open nor the late
+ * responses use it anymore, and the DSP is gone, so the buffers kept from it
+ * are free as well. Only the structures stay for the files to drop them, and
+ * exported dma-bufs, which userspace may still map.
+ */
+static void fastrpc_channel_release_dma(struct fastrpc_channel_ctx *cctx)
+{
+	struct fastrpc_invoke_ctx *ctx, *n;
+	struct fastrpc_buf *buf, *b;
+	struct fastrpc_map *map;
+	struct fastrpc_user *fl;
+	unsigned long flags;
+	LIST_HEAD(ctxs);
+	LIST_HEAD(bufs);
+	int id;
+
+	/* No response arrives anymore, drop the references held for them. */
+	spin_lock_irqsave(&cctx->lock, flags);
+	idr_for_each_entry(&cctx->ctx_idr, ctx, id) {
+		if (!ctx->rsp_ref)
+			continue;
+		ctx->rsp_ref = false;
+		list_add_tail(&ctx->lost_node, &ctxs);
+	}
+	spin_unlock_irqrestore(&cctx->lock, flags);
+
+	list_for_each_entry_safe(ctx, n, &ctxs, lost_node) {
+		list_del(&ctx->lost_node);
+		fastrpc_context_put(ctx);
+	}
+
+	/* The contexts left belong to interrupted invokes of open files. */
+	spin_lock_irqsave(&cctx->lock, flags);
+	idr_for_each_entry(&cctx->ctx_idr, ctx, id)
+		list_add_tail(&ctx->lost_node, &ctxs);
+	spin_unlock_irqrestore(&cctx->lock, flags);
+
+	list_for_each_entry_safe(ctx, n, &ctxs, lost_node) {
+		list_del(&ctx->lost_node);
+		fastrpc_buf_free(ctx->buf);
+		ctx->buf = NULL;
+	}
+
+	/*
+	 * Files are only opened, used and released on the SRCU read side or
+	 * after torn_down, so cctx->users and their lists do not change here.
+	 */
+	list_for_each_entry(fl, &cctx->users, user) {
+		fastrpc_buf_free(fl->init_mem);
+		fl->init_mem = NULL;
+
+		spin_lock(&fl->lock);
+		list_splice_tail_init(&fl->mmaps, &bufs);
+		spin_unlock(&fl->lock);
+
+		list_for_each_entry(map, &fl->maps, node) {
+			/* Rather leak it than unmap it once the device is gone */
+			if (fastrpc_map_release_dma(map))
+				map->table = NULL;
+		}
+	}
+
+	spin_lock_irqsave(&cctx->lock, flags);
+	list_splice_tail_init(&cctx->invoke_interrupted_mmaps, &bufs);
+	spin_unlock_irqrestore(&cctx->lock, flags);
+
+	list_for_each_entry_safe(buf, b, &bufs, node) {
+		list_del(&buf->node);
+		fastrpc_buf_free(buf);
+	}
+}
+
 static void fastrpc_rpmsg_remove(struct rpmsg_device *rpdev)
 {
 	struct fastrpc_channel_ctx *cctx = dev_get_drvdata(&rpdev->dev);
-	struct fastrpc_buf *buf, *b;
 	struct fastrpc_user *user;
 	unsigned long flags;
 
 	/* No invocations past this point */
 	spin_lock_irqsave(&cctx->lock, flags);
-	cctx->rpdev = NULL;
+	WRITE_ONCE(cctx->dead, true);
 	list_for_each_entry(user, &cctx->users, user)
 		fastrpc_notify_users(user);
 	spin_unlock_irqrestore(&cctx->lock, flags);
@@ -2764,10 +2950,19 @@ static void fastrpc_rpmsg_remove(struct rpmsg_device *rpdev)
 	if (cctx->secure_fdevice)
 		misc_deregister(&cctx->secure_fdevice->miscdev);
 
+	/*
+	 * Wait for the invokes woken above and everything else still using
+	 * the context bank devices or rpdev, then for the answered contexts.
+	 */
+	synchronize_srcu(&cctx->srcu);
+	destroy_workqueue(cctx->wq);
+	cctx->wq = NULL;
+
 	spin_lock_irqsave(&cctx->lock, flags);
-	list_for_each_entry_safe(buf, b, &cctx->invoke_interrupted_mmaps, node)
-		list_del(&buf->node);
+	cctx->rpdev = NULL;
 	spin_unlock_irqrestore(&cctx->lock, flags);
+
+	fastrpc_channel_release_dma(cctx);
 
 	if (cctx->remote_heap_size && cctx->vmcount) {
 		u64 src_perms = 0;
@@ -2790,6 +2985,7 @@ static void fastrpc_rpmsg_remove(struct rpmsg_device *rpdev)
 	}
 
 	of_platform_depopulate(&rpdev->dev);
+	complete_all(&cctx->torn_down);
 
 	fastrpc_channel_ctx_put(cctx);
 }
@@ -2822,6 +3018,12 @@ static int fastrpc_rpmsg_callback(struct rpmsg_device *rpdev, void *data,
 	ctxid = FIELD_GET(FASTRPC_CTXID_MASK, rsp->ctx);
 
 	spin_lock_irqsave(&cctx->lock, flags);
+	/* The removal of the channel takes care of the contexts left */
+	if (cctx->dead) {
+		spin_unlock_irqrestore(&cctx->lock, flags);
+		return 0;
+	}
+
 	ctx = idr_find(&cctx->ctx_idr, ctxid);
 	if (!ctx) {
 		spin_unlock_irqrestore(&cctx->lock, flags);
@@ -2852,9 +3054,8 @@ static int fastrpc_rpmsg_callback(struct rpmsg_device *rpdev, void *data,
 	 */
 	owned = ctx->rsp_ref;
 	ctx->rsp_ref = false;
-	spin_unlock_irqrestore(&cctx->lock, flags);
-
 	if (!owned) {
+		spin_unlock_irqrestore(&cctx->lock, flags);
 		dev_dbg(&rpdev->dev, "Duplicate response ctx 0x%llx, dropping\n",
 			rsp->ctx);
 		return 0;
@@ -2867,9 +3068,11 @@ static int fastrpc_rpmsg_callback(struct rpmsg_device *rpdev, void *data,
 	/*
 	 * The DMA buffer associated with the context cannot be freed in
 	 * interrupt context so schedule it through a worker thread to
-	 * avoid a kernel BUG.
+	 * avoid a kernel BUG. Queue it under the lock, so that the removal
+	 * of the channel can wait for it.
 	 */
-	schedule_work(&ctx->put_work);
+	queue_work(cctx->wq, &ctx->put_work);
+	spin_unlock_irqrestore(&cctx->lock, flags);
 
 	return 0;
 }
