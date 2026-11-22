@@ -271,6 +271,10 @@ struct fastrpc_invoke_ctx {
 	bool is_work_done;
 	/* process updates poll memory instead of glink response */
 	bool is_polled;
+	/* ctxid already removed from cctx->ctx_idr, protected by cctx->lock */
+	bool idr_removed;
+	/* the reference for the DSP response is still held, protected by cctx->lock */
+	bool rsp_ref;
 	struct kref refcount;
 	struct list_head node; /* list of ctxs */
 	struct completion work;
@@ -611,7 +615,9 @@ static void fastrpc_context_free(struct kref *ref)
 	fastrpc_buf_free(ctx->buf);
 
 	spin_lock_irqsave(&cctx->lock, flags);
-	idr_remove(&cctx->ctx_idr, FIELD_GET(FASTRPC_CTXID_MASK, ctx->ctxid));
+	/* The id may already belong to a new context. */
+	if (!ctx->idr_removed)
+		idr_remove(&cctx->ctx_idr, FIELD_GET(FASTRPC_CTXID_MASK, ctx->ctxid));
 	spin_unlock_irqrestore(&cctx->lock, flags);
 
 	kfree(ctx->maps);
@@ -1260,6 +1266,8 @@ static int fastrpc_invoke_send(struct fastrpc_session_ctx *sctx,
 	struct fastrpc_channel_ctx *cctx;
 	struct fastrpc_user *fl = ctx->fl;
 	struct fastrpc_msg *msg = &ctx->msg;
+	unsigned long flags;
+	bool owned;
 	int ret;
 
 	cctx = fl->cctx;
@@ -1274,12 +1282,21 @@ static int fastrpc_invoke_send(struct fastrpc_session_ctx *sctx,
 	msg->sc = ctx->sc;
 	msg->addr = ctx->buf ? ctx->buf->dma_addr : 0;
 	msg->size = roundup(ctx->msg_sz, PAGE_SIZE);
+	/* Dropped by whoever clears rsp_ref: the response or a failed send. */
 	fastrpc_context_get(ctx);
+	spin_lock_irqsave(&cctx->lock, flags);
+	ctx->rsp_ref = true;
+	spin_unlock_irqrestore(&cctx->lock, flags);
 
 	ret = rpmsg_send(cctx->rpdev->ept, (void *)msg, sizeof(*msg));
-
-	if (ret)
-		fastrpc_context_put(ctx);
+	if (ret) {
+		spin_lock_irqsave(&cctx->lock, flags);
+		owned = ctx->rsp_ref;
+		ctx->rsp_ref = false;
+		spin_unlock_irqrestore(&cctx->lock, flags);
+		if (owned)
+			fastrpc_context_put(ctx);
+	}
 
 	return ret;
 
@@ -1721,13 +1738,59 @@ static int fastrpc_release_current_dsp_process(struct fastrpc_user *fl)
 				       sc, &args[0]);
 }
 
+/*
+ * Invokes that were interrupted by a signal (e.g. the kill of the other
+ * threads on process exit) or timed out stay on fl->pending, and each of their
+ * contexts holds a reference to fl, so fl, its maps and their IOVA ranges would
+ * never be freed. Drop them once the file is closed.
+ *
+ * The reference for the DSP response is only dropped if the DSP released the
+ * process; otherwise the DSP may still use the buffers, so leave the context to
+ * a late response or to the removal of the channel.
+ */
+static void fastrpc_drop_pending(struct fastrpc_user *fl, bool dsp_released)
+{
+	struct fastrpc_channel_ctx *cctx = fl->cctx;
+	struct fastrpc_invoke_ctx *ctx, *n;
+	unsigned long flags;
+	LIST_HEAD(stale);
+
+	spin_lock(&fl->lock);
+	list_splice_init(&fl->pending, &stale);
+	spin_unlock(&fl->lock);
+
+	list_for_each_entry_safe(ctx, n, &stale, node) {
+		bool owned = false;
+
+		list_del_init(&ctx->node);
+
+		if (dsp_released) {
+			spin_lock_irqsave(&cctx->lock, flags);
+			if (!ctx->idr_removed)
+				idr_remove(&cctx->ctx_idr,
+					   FIELD_GET(FASTRPC_CTXID_MASK, ctx->ctxid));
+			ctx->idr_removed = true;
+			owned = ctx->rsp_ref;
+			ctx->rsp_ref = false;
+			spin_unlock_irqrestore(&cctx->lock, flags);
+		}
+
+		if (owned)
+			fastrpc_context_put(ctx);
+		/* The reference taken in fastrpc_context_alloc() */
+		fastrpc_context_put(ctx);
+	}
+}
+
 static int fastrpc_device_release(struct inode *inode, struct file *file)
 {
 	struct fastrpc_user *fl = (struct fastrpc_user *)file->private_data;
 	struct fastrpc_channel_ctx *cctx = fl->cctx;
 	unsigned long flags;
+	int err;
 
-	fastrpc_release_current_dsp_process(fl);
+	err = fastrpc_release_current_dsp_process(fl);
+	fastrpc_drop_pending(fl, !err);
 
 	spin_lock_irqsave(&cctx->lock, flags);
 	list_del(&fl->user);
@@ -2724,6 +2787,8 @@ static int fastrpc_rpmsg_callback(struct rpmsg_device *rpdev, void *data,
 	struct fastrpc_invoke_ctx *ctx;
 	unsigned long flags;
 	unsigned long ctxid;
+	u64 seq;
+	bool owned;
 
 	if (len < sizeof(*rsp))
 		return -EINVAL;
@@ -2743,9 +2808,8 @@ static int fastrpc_rpmsg_callback(struct rpmsg_device *rpdev, void *data,
 
 	spin_lock_irqsave(&cctx->lock, flags);
 	ctx = idr_find(&cctx->ctx_idr, ctxid);
-	spin_unlock_irqrestore(&cctx->lock, flags);
-
 	if (!ctx) {
+		spin_unlock_irqrestore(&cctx->lock, flags);
 		dev_err(&rpdev->dev, "No context ID matches response\n");
 		return -ENOENT;
 	}
@@ -2758,12 +2822,26 @@ static int fastrpc_rpmsg_callback(struct rpmsg_device *rpdev, void *data,
 	 * driver would call complete() on the wrong context, waking a thread
 	 * whose buffers are still being accessed by the DSP.
 	 */
-	if (FIELD_GET(FASTRPC_CTXID_SEQ_MASK, rsp->ctx) !=
-	    FIELD_GET(FASTRPC_CTXID_SEQ_MASK, ctx->ctxid)) {
+	seq = FIELD_GET(FASTRPC_CTXID_SEQ_MASK, ctx->ctxid);
+	if (FIELD_GET(FASTRPC_CTXID_SEQ_MASK, rsp->ctx) != seq) {
+		spin_unlock_irqrestore(&cctx->lock, flags);
 		dev_dbg(&rpdev->dev,
 			"Stale glink response ctx 0x%llx (expected seq 0x%llx), dropping\n",
-			rsp->ctx,
-			FIELD_GET(FASTRPC_CTXID_SEQ_MASK, ctx->ctxid));
+			rsp->ctx, seq);
+		return 0;
+	}
+
+	/*
+	 * Take over the reference for the response. A duplicate response finds
+	 * it already taken and must not touch the context, which may be gone.
+	 */
+	owned = ctx->rsp_ref;
+	ctx->rsp_ref = false;
+	spin_unlock_irqrestore(&cctx->lock, flags);
+
+	if (!owned) {
+		dev_dbg(&rpdev->dev, "Duplicate response ctx 0x%llx, dropping\n",
+			rsp->ctx);
 		return 0;
 	}
 
