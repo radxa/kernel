@@ -1730,7 +1730,7 @@ static struct mdio_device_id __maybe_unused as21xxx_tbl[] = {
 };
 MODULE_DEVICE_TABLE(mdio, as21xxx_tbl);
 
-MODULE_FIRMWARE("as21x1x_fw.bin");
+MODULE_FIRMWARE("aeonsemi/as22x1x_fw.bin");
 MODULE_DESCRIPTION("Aeonsemi AS21xxx/AS22xxx PHY driver");
 MODULE_AUTHOR("Christian Marangi <ansuelsmth@gmail.com>");
 MODULE_LICENSE("GPL");
