@@ -670,7 +670,7 @@
 						compatible = "ethernet-phy-id7500.94a1",
 							     "ethernet-phy-ieee802.3-c45";
 						reg = <0x7>;
-						firmware-name = "as21x1x_fw.bin";
+						firmware-name = "aeonsemi/as22x1x_fw.bin";
 					};
 				};
 			};
