@@ -1,0 +1,338 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (c) 2024 Rockchip Electronics Co., Ltd.
+ * Copyright (c) 2024 Radxa Computer (Shenzhen) Co., Ltd.
+ *
+ */
+
+/dts-v1/;
+
+#include "rk3576-radxa-cm4.dtsi"
+
+/ {
+	model = "Radxa CM4 RPI CM4 IO Board";
+	compatible = "radxa,cm4-rpi-cm4-io", "radxa,cm4", "rockchip,rk3576";
+
+	vcc12v_dcin: vcc12v-dcin {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc12v_dcin";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <12000000>;
+		regulator-max-microvolt = <12000000>;
+	};
+
+	vcc_sys: vcc5v0-sys {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_sys";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		vin-supply = <&vcc12v_dcin>;
+	};
+
+	vcc3v3_pcie: vcc3v3-pcie {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc3v3_pcie";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		startup-delay-us = <5000>;
+		vin-supply = <&vcc12v_dcin>;
+	};
+
+	usb20_reset: usb-up-regulator {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio0 RK_PC4 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&usb20_reset_pin>;
+		regulator-name = "usb20_reset";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+};
+
+&sdmmc {
+	max-frequency = <200000000>;
+	no-sdio;
+	no-mmc;
+	bus-width = <4>;
+	cap-mmc-highspeed;
+	cap-sd-highspeed;
+	disable-wp;
+	sd-uhs-sdr104;
+	vqmmc-supply = <&vccio_sd_s0>;
+	status = "okay";
+};
+
+&combphy0_ps {
+	status = "okay";
+};
+
+&pcie0 {
+	reset-gpios = <&gpio2 RK_PB4 GPIO_ACTIVE_HIGH>;
+	rockchip,skip-scan-in-resume;
+	vpcie3v3-supply = <&vcc3v3_pcie>;
+	status = "okay";
+};
+
+&u2phy0 {
+	status = "okay";
+};
+
+&u2phy0_otg {
+	status = "okay";
+};
+
+&usbdp_phy {
+	status = "okay";
+};
+
+&usb_drd0_dwc3 {
+	status = "okay";
+	dr_mode = "otg";
+	extcon = <&u2phy0>;
+};
+
+&i2c0 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c0m1_xfer>;
+
+	/* J17 FAN */
+	emc2301: emc2301@2f {
+		status = "okay";
+		compatible = "microchip,emc2301", "microchip,emc2305";
+		reg = <0x2f>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		#cooling-cells = <2>;
+		microchip,pwm-separate;
+		microchip,cooling-levels = <10>;
+
+		channel@0 {
+			reg = <0>;
+			pwm-min = <0>;
+		};
+	};
+
+	pcf85063: pcf85063@51 {
+		compatible = "nxp,pcf85063";
+		status = "okay";
+		reg = <0x51>;
+		quartz-load-femtofarads = <12500>;
+	};
+};
+
+&threshold {
+	temperature = <60000>;
+};
+
+&bigcore_thermal {
+	polling-delay-passive = <100>;
+
+	trips {
+		bigcore_fan_low_trip: fan-low {
+			temperature = <60000>;
+			hysteresis = <10000>;
+			type = "passive";
+		};
+
+		bigcore_fan_mid_trip: fan-mid {
+			temperature = <70000>;
+			hysteresis = <5000>;
+			type = "passive";
+		};
+
+		bigcore_fan_high_trip: fan-high {
+			temperature = <80000>;
+			hysteresis = <5000>;
+			type = "passive";
+		};
+	};
+
+	cooling-maps {
+		map-fan-low {
+			trip = <&bigcore_fan_low_trip>;
+			cooling-device = <&emc2301 4 4>;
+		};
+
+		map-fan-mid {
+			trip = <&bigcore_fan_mid_trip>;
+			cooling-device = <&emc2301 7 7>;
+		};
+
+		map-fan-high {
+			trip = <&bigcore_fan_high_trip>;
+			cooling-device = <&emc2301 10 10>;
+		};
+	};
+};
+
+&little_core_thermal {
+	polling-delay-passive = <100>;
+	sustainable-power = <5000>; /* milliwatts */
+
+	trips {
+		little_core_fan_low_trip: fan-low {
+			temperature = <60000>;
+			hysteresis = <10000>;
+			type = "passive";
+		};
+
+		little_core_fan_mid_trip: fan-mid {
+			temperature = <70000>;
+			hysteresis = <5000>;
+			type = "passive";
+		};
+
+		little_core_fan_high_trip: fan-high {
+			temperature = <80000>;
+			hysteresis = <5000>;
+			type = "passive";
+		};
+	};
+
+	cooling-maps {
+		map-fan-low {
+			trip = <&little_core_fan_low_trip>;
+			cooling-device = <&emc2301 4 4>;
+		};
+
+		map-fan-mid {
+			trip = <&little_core_fan_mid_trip>;
+			cooling-device = <&emc2301 7 7>;
+		};
+
+		map-fan-high {
+			trip = <&little_core_fan_high_trip>;
+			cooling-device = <&emc2301 10 10>;
+		};
+	};
+};
+
+&pinctrl {
+	usb {
+		usb20_reset_pin: usb20-reset {
+			rockchip,pins = <0 RK_PC4 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+};
+
+&gpio0 {
+	gpio-line-names =
+		/* GPIO0_A0-A3 */
+		"", "", "", "",
+		/* GPIO0_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO0_B0-B3 */
+		"", "", "", "",
+		/* GPIO0_B4-B7 */
+		"", "", "", "",
+
+		/* GPIO0_C0-C3 */
+		"", "", "", "",
+		/* GPIO0_C4-C7 */
+		"", "", "", "",
+
+		/* GPIO0_D0-D3 */
+		"", "", "", "",
+		/* GPIO0_D4-D7 */
+		"PIN_8", "PIN_10", "", "";
+};
+
+&gpio1 {
+	gpio-line-names =
+		/* GPIO1_A0-A3 */
+		"", "", "", "",
+		/* GPIO1_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO1_B0-B3 */
+		"", "", "", "",
+		/* GPIO1_B4-B7 */
+		"PIN_23", "PIN_19", "PIN_21", "PIN_24",
+
+		/* GPIO1_C0-C3 */
+		"PIN_26", "PIN_31", "PIN_11", "PIN_7",
+		/* GPIO1_C4-C7 */
+		"PIN_33", "PIN_15", "PIN_5", "PIN_3",
+
+		/* GPIO1_D0-D3 */
+		"PIN_40", "PIN_12", "PIN_35", "PIN_38",
+		/* GPIO1_D4-D7 */
+		"PIN_36", "PIN_32", "", "";
+};
+
+&gpio2 {
+	gpio-line-names =
+		/* GPIO2_A0-A3 */
+		"", "", "", "",
+		/* GPIO2_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO2_B0-B3 */
+		"", "", "", "",
+		/* GPIO2_B4-B7 */
+		"", "", "PIN_16", "PIN_18",
+
+		/* GPIO2_C0-C3 */
+		"PIN_13", "", "", "",
+		/* GPIO2_C4-C7 */
+		"", "", "", "",
+
+		/* GPIO2_D0-D3 */
+		"", "", "", "",
+		/* GPIO2_D4-D7 */
+		"", "", "", "PIN_22";
+};
+
+&gpio3 {
+	gpio-line-names =
+		/* GPIO3_A0-A3 */
+		"", "", "PIN_29", "PIN_37",
+		/* GPIO3_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO3_B0-B3 */
+		"", "", "", "",
+		/* GPIO3_B4-B7 */
+		"", "", "", "",
+
+		/* GPIO3_C0-C3 */
+		"", "", "", "",
+		/* GPIO3_C4-C7 */
+		"", "", "", "",
+
+		/* GPIO3_D0-D3 */
+		"", "", "", "",
+		/* GPIO3_D4-D7 */
+		"", "", "", "";
+};
+
+&gpio4 {
+	gpio-line-names =
+		/* GPIO4_A0-A3 */
+		"", "", "", "",
+		/* GPIO4_A4-A7 */
+		"", "", "", "",
+
+		/* GPIO4_B0-B3 */
+		"", "", "", "",
+		/* GPIO4_B4-B7 */
+		"", "", "", "",
+
+		/* GPIO4_C0-C3 */
+		"", "", "", "",
+		/* GPIO4_C4-C7 */
+		"", "", "PIN_28", "PIN_27",
+
+		/* GPIO4_D0-D3 */
+		"", "", "", "",
+		/* GPIO4_D4-D7 */
+		"", "", "", "";
+};
