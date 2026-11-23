@@ -622,7 +622,8 @@
 };
 
 &tlmm {
-	gpio-reserved-ranges = <74 6>, <83 4>, <125 2>, <128 2>;
+	gpio-reserved-ranges = <74 6>, /* QSPI Flash */
+			       <125 5>; /* SPI (TPM) */
 
 	user_led: user-led-state {
 		pins = "gpio4";
