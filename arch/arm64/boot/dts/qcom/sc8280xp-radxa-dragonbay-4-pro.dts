@@ -550,6 +550,11 @@
 		device_type = "pci";
 		ranges;
 		bus-range = <0x2 0xff>;
+		/*
+		 * The Ethernet RX FIFOs overflow while this link exits L1.1/L1.2
+		 * unless the link partner honors PAUSE frames.
+		 */
+		aspm-no-l1ss;
 		vddc-supply = <&qps_internal_0p9>;
 		vdd18-supply = <&vcc_1v8>;
 		vdd09-supply = <&qps_internal_0p9>;
